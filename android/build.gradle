@@ -1,0 +1,31 @@
+buildscript {
+    ext.kotlin_version = '1.9.0' // latest stable Kotlin
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.6.0' // upgrade AGP
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'org.jetbrains.kotlin') {
+                details.useVersion '1.9.0'
+            }
+        }
+    }
+
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}
