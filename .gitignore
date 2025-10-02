@@ -10,18 +10,16 @@
 .svn/
 migrate_working_dir/
 
-# IntelliJ related
+# IntelliJ / Android Studio
 *.iml
 *.ipr
 *.iws
 .idea/
 
-# VS Code related
+# VS Code
 .vscode/
 
-# Flutter/Dart/Pub related
-**/doc/api/
-**/ios/Flutter/.last_build_id
+# Flutter / Dart / Pub
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -29,19 +27,16 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 build/
+**/doc/api/
+**/ios/Flutter/.last_build_id
 
-# Symbolication related
-app.*.symbols
-
-# Obfuscation related
-app.*.map.json
-
-# Android build related
+# Android
 /android/.gradle/
 /android/app/build/
 /android/build/
+/android/local.properties
 
-# Exclude APKs, AABs and other packaged outputs
+# Ignore APKs, AABs, SOs, and other binaries
 *.apk
 *.aab
 *.aar
@@ -53,10 +48,19 @@ app.*.map.json
 *.o
 *.obj
 
-# iOS/Xcode
+# iOS
 ios/Flutter/App.framework
 ios/Flutter/Flutter.framework
 ios/Flutter/Generated.xcconfig
 ios/Flutter/flutter_export_environment.sh
 ios/ServiceDefinitions.json
 ios/Runner/GeneratedPluginRegistrant.*
+
+# Symbolication
+app.*.symbols
+
+# Obfuscation
+app.*.map.json
+
+# Coverage
+coverage/
