@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'signup_screen.dart';
+import 'login_screen.dart';
 import '../service/auth_service.dart';
 import 'home.dart';
 
@@ -62,7 +62,7 @@ class _SplashScreenState extends State<SplashScreen> {
         print('❌ User is not authenticated - Navigating to SignupScreen');
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const SignupScreen()),
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
     } catch (e) {
@@ -78,7 +78,7 @@ class _SplashScreenState extends State<SplashScreen> {
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const SignupScreen()),
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
     }

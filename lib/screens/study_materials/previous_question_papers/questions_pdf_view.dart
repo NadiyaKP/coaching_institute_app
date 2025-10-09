@@ -10,6 +10,7 @@ import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import '../../../../service/api_config.dart';
 import 'package:coaching_institute_app/hive_model.dart';
+import '../../../../common/theme_color.dart';
 
 class QuestionsPDFViewScreen extends StatefulWidget {
   final String pdfUrl;
@@ -336,7 +337,7 @@ Future<void> _initializeHive() async {
             fontSize: 18,
           ),
         ),
-        backgroundColor: const Color(0xFF9C27B0),
+        backgroundColor: AppColors.primaryYellow,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
         actions: [
@@ -353,16 +354,16 @@ Future<void> _initializeHive() async {
         ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF9C27B0),
-              Color(0xFFF3E5F5),
+              AppColors.primaryYellow,
+              AppColors.backgroundLight,
               Colors.white,
             ],
-            stops: [0.0, 0.1, 0.3],
+            stops: [0.0, 0.3, 1.0],
           ),
         ),
         child: _buildBody(),
@@ -380,7 +381,7 @@ Future<void> _initializeHive() async {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9C27B0)),
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
             ),
             SizedBox(height: 16),
             Text(
@@ -429,7 +430,7 @@ Future<void> _initializeHive() async {
               ElevatedButton(
                 onPressed: _downloadAndSavePDF,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF9C27B0),
+                  backgroundColor: AppColors.primaryYellow,
                   foregroundColor: Colors.white,
                 ),
                 child: const Text('Retry'),
@@ -528,7 +529,7 @@ Future<void> _initializeHive() async {
             onPressed: currentPage > 0 ? _previousPage : null,
             icon: Icon(
               Icons.arrow_back_ios,
-              color: currentPage > 0 ? const Color(0xFF9C27B0) : Colors.grey,
+              color: currentPage > 0 ? AppColors.primaryYellow : Colors.grey,
             ),
           ),
           Expanded(
@@ -537,17 +538,17 @@ Future<void> _initializeHive() async {
               children: [
                 Text(
                   'Page ${currentPage + 1} of $totalPages',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+                    color: AppColors.primaryBlue,
                   ),
                 ),
                 const SizedBox(width: 16),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF9C27B0).withOpacity(0.1),
+                    color: AppColors.warningOrange,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: const Text(
@@ -555,7 +556,7 @@ Future<void> _initializeHive() async {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      color: Color(0xFF9C27B0),
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -566,7 +567,7 @@ Future<void> _initializeHive() async {
             onPressed: currentPage < totalPages - 1 ? _nextPage : null,
             icon: Icon(
               Icons.arrow_forward_ios,
-              color: currentPage < totalPages - 1 ? const Color(0xFF9C27B0) : Colors.grey,
+              color: currentPage < totalPages - 1 ? AppColors.primaryYellow : Colors.grey,
             ),
           ),
         ],
@@ -590,7 +591,7 @@ Future<void> _initializeHive() async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Share functionality can be implemented here'),
-        backgroundColor: Color(0xFF9C27B0),
+        backgroundColor: AppColors.primaryYellow,
       ),
     );
   }
@@ -617,7 +618,7 @@ Future<void> _initializeHive() async {
           'readedtime: $readedTimeMinutes minutes',
           style: const TextStyle(color: Colors.white),
         ),
-        backgroundColor: const Color(0xFF9C27B0),
+        backgroundColor: AppColors.primaryYellow,
         duration: const Duration(seconds: 2),
       ),
     );

@@ -13,6 +13,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../service/api_config.dart';
 import '../../../../service/auth_service.dart';
+import '../../../../common/theme_color.dart';
 
 class VideoClassesScreen extends StatefulWidget {
   const VideoClassesScreen({super.key});
@@ -59,15 +60,12 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   }
 
   Future<void> _initializeHive() async {
-    // Check if Hive is already initialized for this adapter
     if (!_hiveInitialized) {
       try {
-        // Check if adapter is already registered
         if (!Hive.isAdapterRegistered(1)) {
           Hive.registerAdapter(VideoWatchingRecordAdapter());
         }
         
-        // Initialize Hive if not already initialized
         if (!Hive.isBoxOpen('video_records_box')) {
           _videoRecordsBox = await Hive.openBox<VideoWatchingRecord>('video_records_box');
         } else {
@@ -78,7 +76,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         debugPrint('✅ Hive initialized successfully for video records');
       } catch (e) {
         debugPrint('❌ Error initializing Hive: $e');
-        // Fallback: try to use existing box if available
         try {
           _videoRecordsBox = Hive.box<VideoWatchingRecord>('video_records_box');
           _hiveInitialized = true;
@@ -96,7 +93,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     
-    // Send stored data when app goes to background (minimized or device locked)
     if (state == AppLifecycleState.paused || 
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
@@ -122,12 +118,10 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     }
   }
 
-  // Load data from SharedPreferences instead of API calls
   Future<void> _loadDataFromSharedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Load course and subcourse data
       setState(() {
         _courseName = prefs.getString('profile_course') ?? 'Course';
         _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
@@ -147,13 +141,11 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     }
   }
 
-  // Create HTTP client with custom certificate handling for development
   http.Client _createHttpClientWithCustomCert() {
     final client = ApiConfig.createHttpClient();
     return IOClient(client);
   }
 
-  // Helper method to get authorization headers
   Map<String, String> _getAuthHeaders() {
     if (_accessToken == null || _accessToken!.isEmpty) {
       throw Exception('Access token is null or empty');
@@ -165,7 +157,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     };
   }
 
-  // Helper method to handle token expiration
   void _handleTokenExpiration() async {
     await _authService.logout();
     _showError('Session expired. Please login again.');
@@ -295,7 +286,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     });
   }
 
-  // Method to check if there is stored video watching data
   Future<bool> _hasStoredVideoData() async {
     try {
       return _videoRecordsBox.isNotEmpty;
@@ -305,43 +295,39 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     }
   }
 
- // Method to send all stored video watching data to API
-Future<void> _sendStoredVideoDataToAPI() async {
-  try {
-    final allRecords = _videoRecordsBox.values.toList();
-    
-    if (allRecords.isEmpty) {
-      debugPrint('No stored video watching data found to send');
-      return;
-    }
-
-    debugPrint('=== SENDING ALL STORED VIDEO WATCHING DATA TO API ===');
-    debugPrint('Total records to send: ${allRecords.length}');
-
-    List<Map<String, dynamic>> allVideoData = [];
-
-    for (final record in allRecords) {
-      // Convert watched time from seconds to minutes with 2 decimal places
-      final watchedMinutes = double.parse((record.watchedTime / 60).toStringAsFixed(2));
+  Future<void> _sendStoredVideoDataToAPI() async {
+    try {
+      final allRecords = _videoRecordsBox.values.toList();
       
-      // Prepare the video data
-      final videoData = {
-        'encrypted_referencelink_id': record.encryptedReferencelinkId,
-        'watched_time': watchedMinutes,  // Sending minutes with 2 decimal places
-        'watched_date': record.watchedDate,
-      };
-      allVideoData.add(videoData);
-      
-      debugPrint('Prepared record for encrypted_referencelink_id: ${record.encryptedReferencelinkId}');
-      debugPrint('   - Watched time: ${record.watchedTime} seconds = $watchedMinutes minutes');
-    }
+      if (allRecords.isEmpty) {
+        debugPrint('No stored video watching data found to send');
+        return;
+      }
+
+      debugPrint('=== SENDING ALL STORED VIDEO WATCHING DATA TO API ===');
+      debugPrint('Total records to send: ${allRecords.length}');
+
+      List<Map<String, dynamic>> allVideoData = [];
+
+      for (final record in allRecords) {
+        final watchedMinutes = double.parse((record.watchedTime / 60).toStringAsFixed(2));
+        
+        final videoData = {
+          'encrypted_referencelink_id': record.encryptedReferencelinkId,
+          'watched_time': watchedMinutes,
+          'watched_date': record.watchedDate,
+        };
+        allVideoData.add(videoData);
+        
+        debugPrint('Prepared record for encrypted_referencelink_id: ${record.encryptedReferencelinkId}');
+        debugPrint('   - Watched time: ${record.watchedTime} seconds = $watchedMinutes minutes');
+      }
 
       if (allVideoData.isEmpty) {
         debugPrint('No valid records to send');
         return;
       }
 
-      // Prepare request body with all video records
       final requestBody = {
         'referencelinks': allVideoData,
       };
@@ -353,16 +339,13 @@ Future<void> _sendStoredVideoDataToAPI() async {
       debugPrint('Request Body:');
       debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
 
-      // Create HTTP client
       final client = ApiConfig.createHttpClient();
       final httpClient = IOClient(client);
 
-      // API endpoint
       final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_referencelink/';
 
       debugPrint('Full URL: $apiUrl');
 
-      // Send POST request
       final response = await httpClient.post(
         Uri.parse(apiUrl),
         headers: {
@@ -377,7 +360,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
       debugPrint('Status Code: ${response.statusCode}');
       debugPrint('Response Headers: ${response.headers}');
 
-      // Pretty print JSON response if possible
       try {
         final responseJson = jsonDecode(response.body);
         debugPrint('Response Body:');
@@ -391,7 +373,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
       if (response.statusCode == 200 || response.statusCode == 201) {
         debugPrint('✓ All video watching data sent successfully to API');
         
-        // Clear all stored records after successful API call
         await _clearStoredVideoData();
         
       } else {
@@ -403,7 +384,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
     }
   }
 
-  // Method to clear all stored video watching data
   Future<void> _clearStoredVideoData() async {
     try {
       await _videoRecordsBox.clear();
@@ -413,21 +393,15 @@ Future<void> _sendStoredVideoDataToAPI() async {
     }
   }
 
-  // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
     if (_currentPage == 'course') {
-      // On course page - check for stored data and send if exists
       final hasData = await _hasStoredVideoData();
       if (hasData) {
-        // Send data in background without waiting for response
         _sendStoredVideoDataToAPI();
       }
-      // Allow normal back navigation
       return true;
     } else {
-      // For videos page, do normal navigation
       _navigateBack();
-      // Prevent default back behavior
       return false;
     }
   }
@@ -443,7 +417,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
     }
   }
 
-  // Extract YouTube video ID from URL
   String? _extractYouTubeId(String url) {
     try {
       final regex = RegExp(
@@ -458,12 +431,10 @@ Future<void> _sendStoredVideoDataToAPI() async {
     }
   }
 
-  // Get YouTube thumbnail URL
   String _getYouTubeThumbnail(String videoId) {
     return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
   }
 
-  // Open video: if YouTube → open dedicated player page; otherwise open in browser
   void _openVideo(String url, String title, String encryptedReferencelinkId) {
     final videoId = _extractYouTubeId(url);
     if (videoId != null && videoId.isNotEmpty) {
@@ -477,7 +448,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
         ),
       );
     } else {
-      // fallback: launch in external browser
       _launchExternalUrl(url);
     }
   }
@@ -560,7 +530,7 @@ Future<void> _sendStoredVideoDataToAPI() async {
               fontSize: 18,
             ),
           ),
-          backgroundColor: const Color(0xFF4CAF50),
+          backgroundColor: AppColors.primaryYellow,
           iconTheme: const IconThemeData(color: Colors.white),
           elevation: 0,
           leading: _currentPage != 'course'
@@ -571,13 +541,10 @@ Future<void> _sendStoredVideoDataToAPI() async {
               : IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: () async {
-                    // Only send stored data when navigating back FROM COURSE PAGE
                     final hasData = await _hasStoredVideoData();
                     if (hasData) {
-                      // Send data in background without waiting
                       _sendStoredVideoDataToAPI();
                     }
-                    // Navigate immediately without waiting for API response
                     if (mounted) {
                       Navigator.pop(context);
                     }
@@ -608,14 +575,14 @@ Future<void> _sendStoredVideoDataToAPI() async {
               : null,
         ),
         body: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFF4CAF50),
-                Color(0xFFE8F5E9),
-                Colors.white,
+                AppColors.primaryYellow,
+                AppColors.backgroundLight,
+                AppColors.white,
               ],
               stops: [0.0, 0.3, 1.0],
             ),
@@ -623,7 +590,7 @@ Future<void> _sendStoredVideoDataToAPI() async {
           child: _isLoading
               ? const Center(
                   child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4CAF50)),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                   ),
                 )
               : _buildCurrentPage(),
@@ -661,10 +628,9 @@ Future<void> _sendStoredVideoDataToAPI() async {
             ),
             const SizedBox(height: 30),
 
-            // Course Card
             Card(
               elevation: 8,
-              shadowColor: const Color(0xFF4CAF50).withOpacity(0.3),
+              shadowColor: AppColors.primaryYellow.withOpacity(0.3),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
@@ -676,8 +642,8 @@ Future<void> _sendStoredVideoDataToAPI() async {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white,
-                      const Color(0xFF4CAF50).withOpacity(0.05),
+                      AppColors.white,
+                      AppColors.primaryYellow.withOpacity(0.05),
                     ],
                   ),
                 ),
@@ -690,13 +656,13 @@ Future<void> _sendStoredVideoDataToAPI() async {
                           height: 60,
                           width: 60,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF4CAF50).withOpacity(0.1),
+                            color: AppColors.primaryYellow.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Icon(
                             Icons.school,
                             size: 32,
-                            color: Color(0xFF4CAF50),
+                            color: AppColors.primaryYellow,
                           ),
                         ),
                         const SizedBox(width: 16),
@@ -727,7 +693,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
                     ),
                     const SizedBox(height: 20),
 
-                    // Subcourse Card
                     InkWell(
                       onTap: _subcourseId != null ? _fetchVideos : null,
                       borderRadius: BorderRadius.circular(12),
@@ -735,17 +700,17 @@ Future<void> _sendStoredVideoDataToAPI() async {
                         width: double.infinity,
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4CAF50).withOpacity(0.08),
+                          color: AppColors.primaryYellow.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: const Color(0xFF4CAF50).withOpacity(0.2),
+                            color: AppColors.primaryYellow.withOpacity(0.2),
                           ),
                         ),
                         child: Row(
                           children: [
                             const Icon(
                               Icons.play_circle_fill,
-                              color: Color(0xFF4CAF50),
+                              color: AppColors.primaryYellow,
                               size: 24,
                             ),
                             const SizedBox(width: 12),
@@ -774,7 +739,7 @@ Future<void> _sendStoredVideoDataToAPI() async {
                             ),
                             const Icon(
                               Icons.arrow_forward_ios,
-                              color: Color(0xFF4CAF50),
+                              color: AppColors.primaryYellow,
                               size: 16,
                             ),
                           ],
@@ -794,7 +759,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
   Widget _buildVideosPage() {
     return Column(
       children: [
-        // Search bar (only show when searching)
         if (_isSearching)
           Container(
             padding: const EdgeInsets.all(16.0),
@@ -803,7 +767,7 @@ Future<void> _sendStoredVideoDataToAPI() async {
               autofocus: true,
               decoration: InputDecoration(
                 hintText: 'Search videos by title...',
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF4CAF50)),
+                prefixIcon: const Icon(Icons.search, color: AppColors.primaryYellow),
                 filled: true,
                 fillColor: Colors.white,
                 border: OutlineInputBorder(
@@ -813,13 +777,13 @@ Future<void> _sendStoredVideoDataToAPI() async {
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
-                    color: const Color(0xFF4CAF50).withOpacity(0.3),
+                    color: AppColors.primaryYellow.withOpacity(0.3),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: const BorderSide(
-                    color: Color(0xFF4CAF50),
+                    color: AppColors.primaryYellow,
                     width: 2,
                   ),
                 ),
@@ -827,7 +791,6 @@ Future<void> _sendStoredVideoDataToAPI() async {
             ),
           ),
 
-        // Videos list
         Expanded(
           child: _buildVideosList(),
         ),
@@ -900,46 +863,46 @@ Future<void> _sendStoredVideoDataToAPI() async {
                 title: video['title']?.toString() ?? 'Untitled Video',
                 url: video['url']?.toString() ?? '',
                 addedAt: video['added_at']?.toString() ?? '',
-                encryptedReferencelinkId: video['id']?.toString() ?? '', // Use 'id' as encrypted_referencelink_id
+                encryptedReferencelinkId: video['id']?.toString() ?? '',
               )).toList(),
         ],
       ),
     );
   }
 
- Widget _buildVideoCard({
-  required String videoId,
-  required String title,
-  required String url,
-  required String addedAt,
-  required String encryptedReferencelinkId,
-}) {
-  final youtubeId = _extractYouTubeId(url);
-  final thumbnailUrl = youtubeId != null ? _getYouTubeThumbnail(youtubeId) : null;
+  Widget _buildVideoCard({
+    required String videoId,
+    required String title,
+    required String url,
+    required String addedAt,
+    required String encryptedReferencelinkId,
+  }) {
+    final youtubeId = _extractYouTubeId(url);
+    final thumbnailUrl = youtubeId != null ? _getYouTubeThumbnail(youtubeId) : null;
 
-  return Card(
-    margin: const EdgeInsets.only(bottom: 16),
-    elevation: 4,
-    shadowColor: const Color(0xFF4CAF50).withOpacity(0.2),
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: InkWell(
-      onTap: () => _openVideo(url, title, encryptedReferencelinkId),
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white,
-              const Color(0xFF4CAF50).withOpacity(0.03),
-            ],
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 4,
+      shadowColor: AppColors.primaryYellow.withOpacity(0.2),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: () => _openVideo(url, title, encryptedReferencelinkId),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.white,
+                AppColors.primaryYellow.withOpacity(0.03),
+              ],
+            ),
           ),
-        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -984,7 +947,7 @@ Future<void> _sendStoredVideoDataToAPI() async {
                               height: 40,
                               width: 40,
                               decoration: BoxDecoration(
-                                color: const Color(0xFF4CAF50).withOpacity(0.9),
+                                color:  Color.fromARGB(255, 255, 106, 0).withOpacity(0.2),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
@@ -1071,14 +1034,14 @@ Future<void> _sendStoredVideoDataToAPI() async {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF4CAF50).withOpacity(0.1),
+                      color: AppColors.primaryYellow.withOpacity(0.5),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Text(
                       'Video Class',
                       style: TextStyle(
                         fontSize: 11,
-                        color: Color(0xFF4CAF50),
+                        color: Colors.black87,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -1326,7 +1289,7 @@ Future<void> _saveWatchingRecord() async {
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: Colors.white),
         ),
-        backgroundColor: const Color(0xFF4CAF50),
+        backgroundColor: AppColors.primaryYellow,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
@@ -1363,7 +1326,7 @@ Future<void> _saveWatchingRecord() async {
                     ),
                     if (_isLoading)
                       const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF4CAF50)),
+                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                       ),
                   ],
                 ),

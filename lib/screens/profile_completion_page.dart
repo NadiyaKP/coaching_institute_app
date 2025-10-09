@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../service/api_config.dart';
 import 'package:http/io_client.dart';
 import '../common/theme_color.dart';
+import '../common/continue_button.dart';
 
 class ProfileCompletionPage extends StatefulWidget {
   const ProfileCompletionPage({super.key});
@@ -36,6 +37,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
   List<SubcourseModel> availableSubcourses = [];
   bool isLoadingData = false;
   String? dataLoadError;
+  bool isSubmitting = false;
 
   Map<String, dynamic> routeArguments = {};
 
@@ -94,17 +96,14 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         throw Exception('No access token found');
       }
 
-      // Use ApiConfig to create HttpClient and build URL
       final client = ApiConfig.createHttpClient();
       final apiUrl = ApiConfig.buildUrl('/api/course/list_subcourses/');
       
       final request = await client.getUrl(Uri.parse(apiUrl));
       
-      // Use common headers from ApiConfig and add authorization
       final headers = Map<String, String>.from(ApiConfig.commonHeaders);
       headers['Authorization'] = 'Bearer $accessToken';
       
-      // Set headers
       headers.forEach((key, value) {
         request.headers.set(key, value);
       });
@@ -170,17 +169,14 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         throw Exception('No access token found');
       }
 
-      // Only validate course as required
       if (selectedCourse == null) {
         throw Exception('Please select a course');
       }
 
-      // Prepare profile data according to API requirements
       Map<String, dynamic> profileData = {
         'course_name': selectedCourse,
       };
 
-      // Add optional fields only if they are provided
       if (selectedGender != null) {
         profileData['gender'] = selectedGender!.toUpperCase();
       }
@@ -189,18 +185,12 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         profileData['dob'] = selectedBirthDate!.toIso8601String().split('T')[0];
       }
 
-      // Add subcourse_id only if available and selected
       if (selectedSubCourseId != null && selectedSubCourseId!.isNotEmpty) {
         profileData['subcourse_id'] = selectedSubCourseId;
       }
 
-      // Use ApiConfig to create HTTP client
       final httpClient = IOClient(ApiConfig.createHttpClient());
-
-      // Build complete profile URL using ApiConfig
       final apiUrl = ApiConfig.buildUrl('/api/students/complete_profile/');
-
-      // Prepare headers with authorization
       final headers = Map<String, String>.from(ApiConfig.commonHeaders);
       headers['Authorization'] = 'Bearer $accessToken';
 
@@ -218,10 +208,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
 
         if (responseData['success'] == true) {
           debugPrint('✅ Profile completed successfully');
-          
-          // Save profile data locally if success is true
           await _saveProfileDataLocally(responseData);
-          
         } else {
           throw Exception('Profile completion failed: ${responseData['message'] ?? 'Unknown error'}');
         }
@@ -234,7 +221,6 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         throw Exception('Failed to complete profile: HTTP ${response.statusCode}');
       }
 
-      // Close the IOClient
       httpClient.close();
 
     } catch (e) {
@@ -243,7 +229,6 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
     }
   }
 
-  // Save profile data to SharedPreferences
   Future<void> _saveProfileDataLocally(Map<String, dynamic> apiResponse) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -270,7 +255,6 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
     }
   }
 
-  // Date picker function
   Future<void> _selectBirthDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -327,7 +311,6 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
   }
 
   void _completeProfile() async {
-    // Only validate course as required
     if (selectedCourse == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -338,49 +321,18 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
       return;
     }
 
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => Center(
-          child: Container(
-            padding: EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadowGrey,
-                  blurRadius: 10,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Completing Profile...',
-                  style: TextStyle(
-                    color: AppColors.textDark,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
+    setState(() {
+      isSubmitting = true;
+    });
 
+    try {
       await _submitProfileToAPI();
       
-      if (mounted) Navigator.pop(context);
-      
       if (mounted) {
+        setState(() {
+          isSubmitting = false;
+        });
+        
         Navigator.pushNamedAndRemoveUntil(
           context,
           '/home',
@@ -398,9 +350,11 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         );
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
-      
       if (mounted) {
+        setState(() {
+          isSubmitting = false;
+        });
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to complete profile: ${e.toString()}'),
@@ -455,426 +409,451 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
 
   Widget _buildBirthDateForm() {
     final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
     
-    return Container(
-      width: double.infinity,
-      margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.05),
-      padding: EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowGrey,
-            blurRadius: 15,
-            offset: Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.cake_rounded,
-            size: 40,
-            color: AppColors.primaryYellow,
-          ),
-          
-          SizedBox(height: 16),
-          
-          Text(
-            'When is your birthday?',
-            style: TextStyle(
-              fontSize: screenWidth * 0.045,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textDark,
-            ),
-          ),
-          
-          SizedBox(height: 8),
-          
-          Text(
-            'Help us personalize your learning experience (Optional)',
-            style: TextStyle(
-              fontSize: screenWidth * 0.035,
-              color: AppColors.textGrey,
-            ),
-          ),
-          
-          SizedBox(height: 24),
-          
-          GestureDetector(
-            onTap: _selectBirthDate,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.grey300),
-                borderRadius: BorderRadius.circular(12),
-                color: AppColors.grey50,
+    return Center(
+      child: SingleChildScrollView(
+        child: Container(
+          width: screenWidth * 0.9,
+          margin: EdgeInsets.symmetric(vertical: 20),
+          padding: EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadowGrey,
+                blurRadius: 16,
+                offset: Offset(0, 4),
               ),
-              child: Row(
-                children: [
-                  Icon(Icons.calendar_today, color: AppColors.primaryBlue, size: 20),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      selectedBirthDate != null
-                          ? "${selectedBirthDate!.day}/${selectedBirthDate!.month}/${selectedBirthDate!.year}"
-                          : 'Select your birth date',
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.038,
-                        color: selectedBirthDate != null 
-                            ? AppColors.textDark 
-                            : AppColors.grey500,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.cake_rounded,
+                size: 40,
+                color: AppColors.primaryYellow,
+              ),
+              
+              SizedBox(height: 16),
+              
+              Text(
+                'When is your birthday?',
+                style: TextStyle(
+                  fontSize: screenWidth * 0.05,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
+                  height: 1.3,
+                ),
+              ),
+              
+              SizedBox(height: 8),
+              
+              Text(
+                'Help us personalize your learning experience (Optional)',
+                style: TextStyle(
+                  fontSize: screenWidth * 0.035,
+                  color: AppColors.textGrey,
+                  height: 1.4,
+                ),
+              ),
+              
+              SizedBox(height: 24),
+              
+              GestureDetector(
+                onTap: _selectBirthDate,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.grey300, width: 1.5),
+                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.grey50,
                   ),
-                  Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
-                ],
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today, color: AppColors.primaryBlue, size: 20),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          selectedBirthDate != null
+                              ? "${selectedBirthDate!.day}/${selectedBirthDate!.month}/${selectedBirthDate!.year}"
+                              : 'Select your birth date',
+                          style: TextStyle(
+                            fontSize: screenWidth * 0.038,
+                            color: selectedBirthDate != null 
+                                ? AppColors.textDark 
+                                : AppColors.grey500,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
+                    ],
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildGenderForm() {
     final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
     
-    return Container(
-      width: double.infinity,
-      margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.05),
-      padding: EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowGrey,
-            blurRadius: 15,
-            offset: Offset(0, 4),
+    return Center(
+      child: SingleChildScrollView(
+        child: Container(
+          width: screenWidth * 0.9,
+          margin: EdgeInsets.symmetric(vertical: 20),
+          padding: EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadowGrey,
+                blurRadius: 16,
+                offset: Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.person_outline_rounded,
-            size: 40,
-            color: AppColors.primaryYellow,
-          ),
-          
-          SizedBox(height: 16),
-          
-          Text(
-            'What\'s your gender?',
-            style: TextStyle(
-              fontSize: screenWidth * 0.045,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textDark,
-            ),
-          ),
-          
-          SizedBox(height: 8),
-          
-          Text(
-            'This helps us create a better experience for you (Optional)',
-            style: TextStyle(
-              fontSize: screenWidth * 0.035,
-              color: AppColors.textGrey,
-            ),
-          ),
-          
-          SizedBox(height: 24),
-          
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.grey300),
-              borderRadius: BorderRadius.circular(12),
-              color: AppColors.grey50,
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: selectedGender,
-                hint: Text(
-                  'Select your gender',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.038,
-                    color: AppColors.grey500,
-                    fontWeight: FontWeight.w500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.person_outline_rounded,
+                size: 40,
+                color: AppColors.primaryYellow,
+              ),
+              
+              SizedBox(height: 16),
+              
+              Text(
+                'What\'s your gender?',
+                style: TextStyle(
+                  fontSize: screenWidth * 0.05,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
+                  height: 1.3,
+                ),
+              ),
+              
+              SizedBox(height: 8),
+              
+              Text(
+                'This helps us create a better experience for you (Optional)',
+                style: TextStyle(
+                  fontSize: screenWidth * 0.035,
+                  color: AppColors.textGrey,
+                  height: 1.4,
+                ),
+              ),
+              
+              SizedBox(height: 24),
+              
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.grey300, width: 1.5),
+                  borderRadius: BorderRadius.circular(12),
+                  color: AppColors.grey50,
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedGender,
+                    hint: Text(
+                      'Select your gender',
+                      style: TextStyle(
+                        fontSize: screenWidth * 0.038,
+                        color: AppColors.grey500,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    isExpanded: true,
+                    icon: Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
+                    style: TextStyle(
+                      fontSize: screenWidth * 0.038,
+                      color: AppColors.textDark,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    dropdownColor: AppColors.white,
+                    items: ['Male', 'Female', 'Other'].map((String gender) {
+                      return DropdownMenuItem<String>(
+                        value: gender,
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text(gender),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (String? newValue) {
+                      setState(() {
+                        selectedGender = newValue;
+                      });
+                    },
                   ),
                 ),
-                isExpanded: true,
-                icon: Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
-                style: TextStyle(
-                  fontSize: screenWidth * 0.038,
-                  color: AppColors.textDark,
-                  fontWeight: FontWeight.w500,
-                ),
-                dropdownColor: AppColors.white,
-                items: ['Male', 'Female', 'Other'].map((String gender) {
-                  return DropdownMenuItem<String>(
-                    value: gender,
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Text(gender),
-                    ),
-                  );
-                }).toList(),
-                onChanged: (String? newValue) {
-                  setState(() {
-                    selectedGender = newValue;
-                  });
-                },
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildCourseForm() {
     final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
     
-    return Container(
-      width: double.infinity,
-      margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.05),
-      padding: EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowGrey,
-            blurRadius: 15,
-            offset: Offset(0, 4),
+    return Center(
+      child: SingleChildScrollView(
+        child: Container(
+          width: screenWidth * 0.9,
+          margin: EdgeInsets.symmetric(vertical: 20),
+          padding: EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadowGrey,
+                blurRadius: 16,
+                offset: Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.school_rounded,
-            size: 40,
-            color: AppColors.primaryYellow,
-          ),
-          
-          SizedBox(height: 16),
-          
-          Text(
-            'What course are you pursuing?',
-            style: TextStyle(
-              fontSize: screenWidth * 0.045,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textDark,
-            ),
-          ),
-          
-          SizedBox(height: 8),
-          
-          Text(
-            'Select your main course and level',
-            style: TextStyle(
-              fontSize: screenWidth * 0.035,
-              color: AppColors.textGrey,
-            ),
-          ),
-          
-          SizedBox(height: 24),
-          
-          // Course Dropdown
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppColors.grey300),
-              borderRadius: BorderRadius.circular(12),
-              color: AppColors.grey50,
-            ),
-            child: DropdownButtonHideUnderline(
-              child: isLoadingData
-                  ? Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                AppColors.primaryYellow,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.school_rounded,
+                size: 40,
+                color: AppColors.primaryYellow,
+              ),
+              
+              SizedBox(height: 16),
+              
+              Text(
+                'What course are you pursuing?',
+                style: TextStyle(
+                  fontSize: screenWidth * 0.05,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
+                  height: 1.3,
+                ),
+              ),
+              
+              SizedBox(height: 8),
+              
+              Text(
+                'Select your main course and level',
+                style: TextStyle(
+                  fontSize: screenWidth * 0.035,
+                  color: AppColors.textGrey,
+                  height: 1.4,
+                ),
+              ),
+              
+              SizedBox(height: 24),
+              
+              // Course Dropdown
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppColors.grey300, width: 1.5),
+                  borderRadius: BorderRadius.circular(12),
+                  color: AppColors.grey50,
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: isLoadingData
+                      ? Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    AppColors.primaryYellow,
+                                  ),
+                                ),
                               ),
-                            ),
+                              SizedBox(width: 12),
+                              Text(
+                                'Loading courses...',
+                                style: TextStyle(
+                                  fontSize: screenWidth * 0.038,
+                                  color: AppColors.textGrey,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
                           ),
-                          SizedBox(width: 12),
-                          Text(
-                            'Loading courses...',
+                        )
+                      : DropdownButton<String>(
+                          value: selectedCourse,
+                          hint: Text(
+                            availableCourses.isEmpty && dataLoadError != null
+                                ? 'Error loading courses'
+                                : 'Select your course',
                             style: TextStyle(
                               fontSize: screenWidth * 0.038,
-                              color: AppColors.textGrey,
+                              color: availableCourses.isEmpty && dataLoadError != null
+                                  ? AppColors.errorRed
+                                  : AppColors.grey500,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                        ],
+                          isExpanded: true,
+                          icon: availableCourses.isEmpty && dataLoadError != null
+                              ? IconButton(
+                                  icon: Icon(Icons.refresh, color: AppColors.primaryBlue, size: 20),
+                                  onPressed: _fetchCoursesAndSubcourses,
+                                )
+                              : Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
+                          style: TextStyle(
+                            fontSize: screenWidth * 0.038,
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          dropdownColor: AppColors.white,
+                          menuMaxHeight: 240,
+                          items: availableCourses.map((CourseModel course) {
+                            return DropdownMenuItem<String>(
+                              value: course.title,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Text(course.title),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: availableCourses.isEmpty ? null : (String? newValue) {
+                            setState(() {
+                              selectedCourse = newValue;
+                              selectedSubCourse = null;
+                              selectedSubCourseId = null;
+                            });
+                          },
+                        ),
+                ),
+              ),
+              
+              if (dataLoadError != null && availableCourses.isEmpty) ...[
+                SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.errorRed.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.errorRed.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: AppColors.errorRed, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          dataLoadError!,
+                          style: TextStyle(
+                            fontSize: screenWidth * 0.032,
+                            color: AppColors.errorRed,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ),
-                    )
-                  : DropdownButton<String>(
-                      value: selectedCourse,
+                      const SizedBox(width: 10),
+                      TextButton(
+                        onPressed: _fetchCoursesAndSubcourses,
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          minimumSize: Size(0, 0),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          'Retry',
+                          style: TextStyle(
+                            fontSize: screenWidth * 0.032,
+                            color: AppColors.primaryYellow,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              
+              if (selectedCourse != null) ...[
+                SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.grey300, width: 1.5),
+                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.grey50,
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String>(
+                      value: selectedSubCourse,
                       hint: Text(
-                        availableCourses.isEmpty && dataLoadError != null
-                            ? 'Error loading courses'
-                            : 'Select your course',
+                        'Select your level (Optional)',
                         style: TextStyle(
                           fontSize: screenWidth * 0.038,
-                          color: availableCourses.isEmpty && dataLoadError != null
-                              ? AppColors.errorRed
-                              : AppColors.grey500,
+                          color: AppColors.grey500,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                       isExpanded: true,
-                      icon: availableCourses.isEmpty && dataLoadError != null
-                          ? IconButton(
-                              icon: Icon(Icons.refresh, color: AppColors.primaryBlue, size: 20),
-                              onPressed: _fetchCoursesAndSubcourses,
-                            )
-                          : Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
+                      icon: Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
                       style: TextStyle(
                         fontSize: screenWidth * 0.038,
                         color: AppColors.textDark,
                         fontWeight: FontWeight.w500,
                       ),
                       dropdownColor: AppColors.white,
-                      menuMaxHeight: 200,
-                      items: availableCourses.map((CourseModel course) {
+                      menuMaxHeight: 240,
+                      items: availableSubcourses
+                          .where((subcourse) => subcourse.course == selectedCourse)
+                          .map((SubcourseModel subcourse) {
                         return DropdownMenuItem<String>(
-                          value: course.title,
+                          value: subcourse.title,
                           child: Padding(
                             padding: EdgeInsets.symmetric(vertical: 8),
-                            child: Text(course.title),
+                            child: Text(subcourse.title),
                           ),
+                          onTap: () {
+                            setState(() {
+                              selectedSubCourseId = subcourse.id;
+                            });
+                          },
                         );
                       }).toList(),
-                      onChanged: availableCourses.isEmpty ? null : (String? newValue) {
+                      onChanged: (String? newValue) {
                         setState(() {
-                          selectedCourse = newValue;
-                          selectedSubCourse = null;
-                          selectedSubCourseId = null;
+                          selectedSubCourse = newValue;
                         });
                       },
                     ),
-            ),
-          ),
-          
-          if (dataLoadError != null && availableCourses.isEmpty) ...[
-            SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppColors.errorRed.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.errorRed.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline, color: AppColors.errorRed, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      dataLoadError!,
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.032,
-                        color: AppColors.errorRed,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
                   ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: _fetchCoursesAndSubcourses,
-                    child: Text(
-                      'Retry',
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.032,
-                        color: AppColors.primaryYellow,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          
-          SizedBox(height: 16),
-          
-          if (selectedCourse != null) ...[
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.grey300),
-                borderRadius: BorderRadius.circular(12),
-                color: AppColors.grey50,
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: selectedSubCourse,
-                  hint: Text(
-                    'Select your level (Optional)',
-                    style: TextStyle(
-                      fontSize: screenWidth * 0.038,
-                      color: AppColors.grey500,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  isExpanded: true,
-                  icon: Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue),
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.038,
-                    color: AppColors.textDark,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  dropdownColor: AppColors.white,
-                  menuMaxHeight: 200,
-                  items: availableSubcourses
-                      .where((subcourse) => subcourse.course == selectedCourse)
-                      .map((SubcourseModel subcourse) {
-                    return DropdownMenuItem<String>(
-                      value: subcourse.title,
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: Text(subcourse.title),
-                      ),
-                      onTap: () {
-                        setState(() {
-                          selectedSubCourseId = subcourse.id;
-                        });
-                      },
-                    );
-                  }).toList(),
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      selectedSubCourse = newValue;
-                    });
-                  },
                 ),
-              ),
-            ),
-          ],
-        ],
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -883,20 +862,20 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
     final screenWidth = MediaQuery.of(context).size.width;
     
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.08, vertical: 16),
+      padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.05, vertical: 16),
       child: Row(
         children: [
           if (currentPageIndex < 2) ...[
             Expanded(
               child: Container(
                 height: 48,
-                margin: const EdgeInsets.only(right: 8),
+                margin: const EdgeInsets.only(right: 10),
                 child: OutlinedButton(
                   onPressed: _skipPage,
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.primaryYellow),
+                    side: BorderSide(color: AppColors.primaryYellow, width: 1.5),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
                     backgroundColor: AppColors.white,
                   ),
@@ -916,27 +895,36 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
           Expanded(
             flex: currentPageIndex < 2 ? 1 : 2,
             child: Container(
-              height: 48,
-              margin: EdgeInsets.only(left: currentPageIndex < 2 ? 8 : 0),
-              child: ElevatedButton(
-                onPressed: _nextPage,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryYellow,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 2,
-                  shadowColor: AppColors.shadowYellow,
-                ),
-                child: Text(
-                  currentPageIndex == 2 ? 'Continue' : 'Next',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.038,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.white,
-                  ),
-                ),
-              ),
+              margin: EdgeInsets.only(left: currentPageIndex < 2 ? 10 : 0),
+              child: currentPageIndex == 2
+                  ? ContinueButton(
+                      isEnabled: selectedCourse != null,
+                      isLoading: isSubmitting,
+                      onPressed: _completeProfile,
+                      screenWidth: screenWidth,
+                    )
+                  : Container(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: _nextPage,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primaryYellow,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          elevation: 3,
+                          shadowColor: AppColors.shadowYellow,
+                        ),
+                        child: Text(
+                          'Next',
+                          style: TextStyle(
+                            fontSize: screenWidth * 0.038,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.white,
+                          ),
+                        ),
+                      ),
+                    ),
             ),
           ),
         ],

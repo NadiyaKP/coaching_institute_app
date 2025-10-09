@@ -11,6 +11,7 @@ import '../notes/pdf_viewer_screen.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
+import '../../../common/theme_color.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -632,7 +633,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               fontSize: 18,
             ),
           ),
-          backgroundColor: const Color(0xFF2196F3),
+          backgroundColor: AppColors.primaryYellow,
           iconTheme: const IconThemeData(color: Colors.white),
           elevation: 0,
           leading: _currentPage != 'course'
@@ -666,7 +667,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
               colors: [
-                Color(0xFF2196F3),
+                AppColors.primaryYellow,
                 Color(0xFFE3F2FD),
                 Colors.white,
               ],
@@ -676,7 +677,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           child: _isLoading
               ? const Center(
                   child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3)),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                   ),
                 )
               : _buildCurrentPage(),
@@ -702,564 +703,659 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  Widget _buildCoursePage() {
-    return SafeArea(
+ Widget _buildCoursePage() {
+  return Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.primaryYellow,
+          AppColors.backgroundLight,
+          AppColors.white,
+        ],
+        stops: [0.0, 0.3, 1.0],
+      ),
+    ),
+    child: SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Your Enrolled Course',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
+          const SizedBox(height: 20),
+          const Text(
+            'Your Enrolled Course',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
             ),
-            const SizedBox(height: 30),
-            
-            // Course Card
-            Card(
-              elevation: 8,
-              shadowColor: const Color(0xFF2196F3).withOpacity(0.3),
-              shape: RoundedRectangleBorder(
+          ),
+          const SizedBox(height: 30),
+          
+          // Course Card
+          Card(
+            elevation: 8,
+            shadowColor: AppColors.warningOrange.withOpacity(0.3),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(16),
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white,
-                      const Color(0xFF2196F3).withOpacity(0.05),
-                    ],
-                  ),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.white,
+                    AppColors.warningOrange.withOpacity(0.1),
+                  ],
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          height: 60,
-                          width: 60,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2196F3).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.school,
-                            size: 32,
-                            color: Color(0xFF2196F3),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _courseName.isNotEmpty ? _courseName : 'Course',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Course',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Subcourse Card
-                    InkWell(
-                      onTap: _subjects.isNotEmpty ? _loadSubjects : null,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        height: 60,
+                        width: 60,
                         decoration: BoxDecoration(
-                          color: _subjects.isNotEmpty 
-                              ? const Color(0xFF2196F3).withOpacity(0.08)
-                              : Colors.grey.withOpacity(0.08),
+                          color: AppColors.primaryYellow.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: _subjects.isNotEmpty
-                                ? const Color(0xFF2196F3).withOpacity(0.2)
-                                : Colors.grey.withOpacity(0.2),
+                            color: AppColors.primaryYellow.withOpacity(0.4),
+                            width: 1,
                           ),
                         ),
-                        child: Row(
+                        child: const Icon(
+                          Icons.school,
+                          size: 32,
+                          color: AppColors.primaryYellow,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              Icons.book,
-                              color: _subjects.isNotEmpty 
-                                  ? const Color(0xFF2196F3)
-                                  : Colors.grey,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _subcourseName.isNotEmpty ? _subcourseName : 'Subcourse',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: _subjects.isNotEmpty 
-                                          ? Colors.black87 
-                                          : Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _subjects.isNotEmpty 
-                                        ? 'Tap to view ${_subjects.length} subjects' 
-                                        : 'No subjects available',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _subjects.isNotEmpty 
-                                          ? Colors.black54 
-                                          : Colors.grey,
-                                    ),
-                                  ),
-                                ],
+                            Text(
+                              _courseName.isNotEmpty ? _courseName : 'Course',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primaryBlue,
                               ),
                             ),
-                            Icon(
-                              Icons.arrow_forward_ios,
-                              color: _subjects.isNotEmpty 
-                                  ? const Color(0xFF2196F3)
-                                  : Colors.grey,
-                              size: 16,
+                            const SizedBox(height: 4),
+                            Text(
+                              'Course',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: AppColors.primaryBlue.withOpacity(0.7),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSubjectsPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Select Subject',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose a subject from $_subcourseName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_subjects.isEmpty)
-              const Center(
-                child: Column(
-                  children: [
-                    SizedBox(height: 50),
-                    Icon(
-                      Icons.subject,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'No subjects available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Subcourse Card
+                  InkWell(
+                    onTap: _subjects.isNotEmpty ? _loadSubjects : null,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: _subjects.isNotEmpty 
+                            ? AppColors.primaryYellow.withOpacity(0.15)
+                            : Colors.grey.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _subjects.isNotEmpty
+                              ? AppColors.primaryYellow.withOpacity(0.4)
+                              : Colors.grey.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.book,
+                            color: _subjects.isNotEmpty 
+                                ? AppColors.primaryYellow
+                                : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _subcourseName.isNotEmpty ? _subcourseName : 'Subcourse',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: _subjects.isNotEmpty 
+                                        ? AppColors.primaryBlue
+                                        : Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _subjects.isNotEmpty 
+                                      ? 'Tap to view ${_subjects.length} subjects' 
+                                      : 'No subjects available',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _subjects.isNotEmpty 
+                                        ? AppColors.primaryBlue.withOpacity(0.7)
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            color: _subjects.isNotEmpty 
+                                ? AppColors.warningOrange
+                                : Colors.grey,
+                            size: 16,
+                          ),
+                        ],
                       ),
                     ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Please load study materials first',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._subjects.map((subject) => _buildListCard(
-                title: subject['title']?.toString() ?? 'Unknown Subject',
-                subtitle: '${subject['units']?.length ?? 0} units available',
-                icon: Icons.subject,
-                onTap: () => _loadUnits(
-                  subject['id']?.toString() ?? '', 
-                  subject['title']?.toString() ?? 'Unknown Subject'
-                ),
-              )).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUnitsPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Select Unit',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose a unit from $_selectedSubjectName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_units.isEmpty)
-              const Center(
-                child: Column(
-                  children: [
-                    SizedBox(height: 50),
-                    Icon(
-                      Icons.library_books,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'No units available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._units.map((unit) => _buildListCard(
-                title: unit['title']?.toString() ?? 'Unknown Unit',
-                subtitle: '${unit['chapters']?.length ?? 0} chapters available',
-                icon: Icons.library_books,
-                onTap: () => _loadChapters(
-                  unit['id']?.toString() ?? '', 
-                  unit['title']?.toString() ?? 'Unknown Unit'
-                ),
-              )).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChaptersPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Select Chapter',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose a chapter from $_selectedUnitName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_chapters.isEmpty)
-              const Center(
-                child: Column(
-                  children: [
-                    SizedBox(height: 50),
-                    Icon(
-                      Icons.menu_book,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'No chapters available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._chapters.map((chapter) => _buildListCard(
-                title: chapter['title']?.toString() ?? 'Unknown Chapter',
-                subtitle: 'Tap to view notes',
-                icon: Icons.menu_book,
-                onTap: () => _fetchNotes(
-                  chapter['id']?.toString() ?? '', 
-                  chapter['title']?.toString() ?? 'Unknown Chapter'
-                ),
-              )).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNotesPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Notes',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Notes for $_selectedChapterName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_notes.isEmpty)
-              Center(
-                child: Column(
-                  children: [
-                    const SizedBox(height: 50),
-                    Icon(
-                      Icons.note_alt_outlined,
-                      size: 80,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No notes available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Notes for this chapter will be added soon',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._notes.map((note) => _buildNoteCard(
-                noteId: note['id']?.toString() ?? '',
-                title: note['title']?.toString() ?? 'Untitled Note',
-                fileUrl: note['file_url']?.toString() ?? '',
-                dateUploaded: note['uploaded_at']?.toString() ?? '',
-              )).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildListCard({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 4,
-      shadowColor: const Color(0xFF2196F3).withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                const Color(0xFF2196F3).withOpacity(0.03),
-              ],
             ),
           ),
-          child: Row(
-            children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2196F3).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  size: 24,
-                  color: const Color(0xFF2196F3),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
+        ],
+      ),
+    ),
+  ),
+  );
+}
+
+Widget _buildSubjectsPage() {
+  return Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.primaryYellow,
+          AppColors.backgroundLight,
+          AppColors.white,
+        ],
+        stops: [0.0, 0.3, 1.0],
+      ),
+    ),
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+          const SizedBox(height: 20),
+          const Text(
+            'Select Subject',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choose a subject from $_subcourseName',
+            style: TextStyle(
+              fontSize: 16,
+              color: AppColors.primaryBlue.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          if (_subjects.isEmpty)
+            Center(
+              child: Column(
+                children: [
+                  const SizedBox(height: 50),
+                  Icon(
+                    Icons.subject,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No subjects available',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
-                      ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please load study materials first',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[500],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const Icon(
-                Icons.arrow_forward_ios,
-                color: Color(0xFF2196F3),
-                size: 16,
+            )
+          else
+            ..._subjects.map((subject) => _buildListCard(
+              title: subject['title']?.toString() ?? 'Unknown Subject',
+              subtitle: '${subject['units']?.length ?? 0} units available',
+              icon: Icons.subject,
+              onTap: () => _loadUnits(
+                subject['id']?.toString() ?? '', 
+                subject['title']?.toString() ?? 'Unknown Subject'
               ),
+            )).toList(),
+        ],
+      ),
+    ),
+  ),
+  );
+}
+
+Widget _buildUnitsPage() {
+  return Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.primaryYellow,
+          AppColors.backgroundLight,
+          AppColors.white,
+        ],
+        stops: [0.0, 0.3, 1.0],
+      ),
+    ),
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+          const SizedBox(height: 20),
+          const Text(
+            'Select Unit',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choose a unit from $_selectedSubjectName',
+            style: TextStyle(
+              fontSize: 16,
+              color: AppColors.primaryBlue.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          if (_units.isEmpty)
+            Center(
+              child: Column(
+                children: [
+                  const SizedBox(height: 50),
+                  Icon(
+                    Icons.library_books,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No units available',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._units.map((unit) => _buildListCard(
+              title: unit['title']?.toString() ?? 'Unknown Unit',
+              subtitle: '${unit['chapters']?.length ?? 0} chapters available',
+              icon: Icons.library_books,
+              onTap: () => _loadChapters(
+                unit['id']?.toString() ?? '', 
+                unit['title']?.toString() ?? 'Unknown Unit'
+              ),
+            )).toList(),
+        ],
+      ),
+    ),
+  ),
+  );
+}
+
+Widget _buildChaptersPage() {
+  return Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.primaryYellow,
+          AppColors.backgroundLight,
+          AppColors.white,
+        ],
+        stops: [0.0, 0.3, 1.0],
+      ),
+    ),
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+          const SizedBox(height: 20),
+          const Text(
+            'Select Chapter',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choose a chapter from $_selectedUnitName',
+            style: TextStyle(
+              fontSize: 16,
+              color: AppColors.primaryBlue.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          if (_chapters.isEmpty)
+            Center(
+              child: Column(
+                children: [
+                  const SizedBox(height: 50),
+                  Icon(
+                    Icons.menu_book,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No chapters available',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._chapters.map((chapter) => _buildListCard(
+              title: chapter['title']?.toString() ?? 'Unknown Chapter',
+              subtitle: 'Tap to view notes',
+              icon: Icons.menu_book,
+              onTap: () => _fetchNotes(
+                chapter['id']?.toString() ?? '', 
+                chapter['title']?.toString() ?? 'Unknown Chapter'
+              ),
+            )).toList(),
+        ],
+      ),
+    ),
+  ),
+  );
+}
+
+Widget _buildNotesPage() {
+  return Container(
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.primaryYellow,
+          AppColors.backgroundLight,
+          AppColors.white,
+        ],
+        stops: [0.0, 0.3, 1.0],
+      ),
+    ),
+    child: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+          const SizedBox(height: 20),
+          const Text(
+            'Notes',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Notes for $_selectedChapterName',
+            style: TextStyle(
+              fontSize: 16,
+              color: AppColors.primaryBlue.withOpacity(0.7),
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          if (_notes.isEmpty)
+            Center(
+              child: Column(
+                children: [
+                  const SizedBox(height: 50),
+                  Icon(
+                    Icons.note_alt_outlined,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No notes available',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Notes for this chapter will be added soon',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._notes.map((note) => _buildNoteCard(
+              noteId: note['id']?.toString() ?? '',
+              title: note['title']?.toString() ?? 'Untitled Note',
+              fileUrl: note['file_url']?.toString() ?? '',
+              dateUploaded: note['uploaded_at']?.toString() ?? '',
+            )).toList(),
+        ],
+      ),
+    ),
+  ),
+  );
+}
+
+Widget _buildListCard({
+  required String title,
+  required String subtitle,
+  required IconData icon,
+  required VoidCallback onTap,
+}) {
+  return Card(
+    margin: const EdgeInsets.only(bottom: 16),
+    elevation: 8,
+    shadowColor: AppColors.warningOrange.withOpacity(0.3),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.white,
+              AppColors.warningOrange.withOpacity(0.1),
             ],
           ),
         ),
+        child: Row(
+          children: [
+            Container(
+              height: 60,
+              width: 60,
+              decoration: BoxDecoration(
+                color: AppColors.primaryYellow.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.primaryYellow.withOpacity(0.4),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: 32,
+                color: AppColors.primaryYellow,
+              ),
+            ),
+            const SizedBox(width: 20),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryBlue,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.primaryBlue.withOpacity(0.7),
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: AppColors.warningOrange,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.warningOrange.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.arrow_forward_ios,
+                color: AppColors.white,
+                size: 18,
+              ),
+            ),
+          ],
+        ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  String _formatDate(String dateString) {
-    try {
-      if (dateString.isEmpty) return 'Unknown date';
-      
-      final DateTime date = DateTime.parse(dateString);
-      final DateTime now = DateTime.now();
-      final Duration difference = now.difference(date);
+String _formatDate(String dateString) {
+  try {
+    if (dateString.isEmpty) return 'Unknown date';
+    
+    final DateTime date = DateTime.parse(dateString);
+    final DateTime now = DateTime.now();
+    final Duration difference = now.difference(date);
 
-      if (difference.inDays == 0) {
-        return 'Today';
-      } else if (difference.inDays == 1) {
-        return 'Yesterday';
-      } else if (difference.inDays < 7) {
-        return '${difference.inDays} days ago';
-      } else if (difference.inDays < 30) {
-        final weeks = (difference.inDays / 7).floor();
-        return '$weeks week${weeks > 1 ? 's' : ''} ago';
-      } else if (difference.inDays < 365) {
-        final months = (difference.inDays / 30).floor();
-        return '$months month${months > 1 ? 's' : ''} ago';
-      } else {
-        final years = (difference.inDays / 365).floor();
-        return '$years year${years > 1 ? 's' : ''} ago';
-      }
-    } catch (e) {
-      try {
-        final parts = dateString.split('T')[0].split('-');
-        if (parts.length == 3) {
-          return '${parts[2]}/${parts[1]}/${parts[0]}';
-        }
-      } catch (e) {}
-      return dateString.isNotEmpty ? dateString : 'Unknown date';
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return '$weeks week${weeks > 1 ? 's' : ''} ago';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return '$months month${months > 1 ? 's' : ''} ago';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return '$years year${years > 1 ? 's' : ''} ago';
     }
+  } catch (e) {
+    try {
+      final parts = dateString.split('T')[0].split('-');
+      if (parts.length == 3) {
+        return '${parts[2]}/${parts[1]}/${parts[0]}';
+      }
+    } catch (e) {}
+    return dateString.isNotEmpty ? dateString : 'Unknown date';
   }
+}
 
- Widget _buildNoteCard({
+Widget _buildNoteCard({
   required String noteId,
   required String title,
   required String fileUrl,
   required String dateUploaded,
 }) {
   return Card(
-    margin: const EdgeInsets.only(bottom: 16),
-    elevation: 4,
-    shadowColor: const Color(0xFF2196F3).withOpacity(0.2),
+    margin: const EdgeInsets.only(bottom: 12),
+    elevation: 8,
+    shadowColor: AppColors.warningOrange.withOpacity(0.3),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
     ),
     child: InkWell(
       onTap: () {
@@ -1273,7 +1369,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('PDF URL is empty'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.errorRed,
             ),
           );
           return;
@@ -1284,7 +1380,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Access token not available. Please login again.'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.errorRed,
             ),
           );
           return;
@@ -1297,7 +1393,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           context,
           MaterialPageRoute(
             builder: (context) => PDFViewerScreen(
-              pdfUrl: fileUrl,  // Pass directly without any cleaning
+              pdfUrl: fileUrl,
               title: title,
               accessToken: _accessToken!,
               noteId: noteId,
@@ -1305,99 +1401,89 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           ),
         );
       },
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.white,
-              const Color(0xFF2196F3).withOpacity(0.03),
+              AppColors.white,
+              AppColors.warningOrange.withOpacity(0.1),
             ],
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Container(
-                  height: 40,
-                  width: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2196F3).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.picture_as_pdf,
-                    size: 20,
-                    color: Color(0xFF2196F3),
-                  ),
+            Container(
+              height: 45,
+              width: 45,
+              decoration: BoxDecoration(
+                color: AppColors.primaryYellow.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.primaryYellow.withOpacity(0.4),
+                  width: 1,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
+              ),
+              child: const Icon(
+                Icons.picture_as_pdf,
+                size: 22,
+                color: AppColors.primaryYellow,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
                     title,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.black87,
+                      color: AppColors.primaryBlue,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-                Icon(
-                  Icons.open_in_new,
-                  size: 20,
-                  color: Colors.grey[600],
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Icon(
-                  Icons.visibility,
-                  size: 16,
-                  color: Colors.grey[600],
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  'PDF File • Tap to view',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-            if (dateUploaded.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Uploaded: ${_formatDate(dateUploaded)}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.black54,
-                ),
+                  if (dateUploaded.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _formatDate(dateUploaded),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.primaryBlue.withOpacity(0.6),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ],
               ),
-            ],
-            const SizedBox(height: 8),
+            ),
+            const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              height: 35,
+              width: 35,
               decoration: BoxDecoration(
-                color: const Color(0xFF2196F3).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
+                color: AppColors.warningOrange,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.warningOrange.withOpacity(0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
-              child: const Text(
-                'PDF Document',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF2196F3),
-                  fontWeight: FontWeight.w500,
-                ),
+              child: const Icon(
+                Icons.arrow_forward_ios,
+                color: AppColors.white,
+                size: 16,
               ),
             ),
           ],

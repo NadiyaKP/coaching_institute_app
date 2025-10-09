@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:convert';
 import '../service/api_config.dart';
+import '../common/theme_color.dart';
 
 class AccountCreationScreen extends StatefulWidget {
   const AccountCreationScreen({super.key});
@@ -13,74 +14,27 @@ class AccountCreationScreen extends StatefulWidget {
 
 class _AccountCreationScreenState extends State<AccountCreationScreen> {
   final TextEditingController nameController = TextEditingController();
+  final TextEditingController mobileController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
+  final TextEditingController confirmPasswordController = TextEditingController();
   final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+  
   bool isLoading = false;
   bool agreedToTerms = false;
+  bool obscurePassword = true;
+  bool obscureConfirmPassword = true;
   
-  // Variables to store phone data
-  String phoneNumber = '';
   String countryCode = '+91';
-  String mobileNumber = '';
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    
-    // Extract arguments passed from SignupScreen
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    
-    if (args != null) {
-      phoneNumber = args['phone_number'] ?? '';
-      countryCode = args['country_code'] ?? '+91';
-      mobileNumber = args['mobile_number'] ?? '';
-      
-      debugPrint('AccountCreation - Received phone_number: $phoneNumber');
-      debugPrint('AccountCreation - Received country_code: $countryCode');
-      debugPrint('AccountCreation - Received mobile_number: $mobileNumber');
-    }
-  }
 
   @override
   void dispose() {
     nameController.dispose();
+    mobileController.dispose();
     emailController.dispose();
+    passwordController.dispose();
+    confirmPasswordController.dispose();
     super.dispose();
-  }
-
-  String getDisplayPhoneNumber() {
-    if (phoneNumber.startsWith(countryCode)) {
-      return phoneNumber;
-    }
-    else if (mobileNumber.isNotEmpty) {
-      return '$countryCode $mobileNumber';
-    }
-    else {
-      return '$countryCode $phoneNumber';
-    }
-  }
-
-  String getApiPhoneNumber() {
-    String cleanPhoneNumber = phoneNumber.replaceAll(RegExp(r'\s+'), '');
-    String cleanCountryCode = countryCode.replaceAll(RegExp(r'\s+'), '');
-    String cleanMobileNumber = mobileNumber.replaceAll(RegExp(r'\s+'), '');
-    
-    String formattedPhone;
-    
-    if (cleanPhoneNumber.startsWith(cleanCountryCode)) {
-      formattedPhone = '$cleanCountryCode ${cleanPhoneNumber.substring(cleanCountryCode.length)}';
-    }
-    else if (cleanMobileNumber.isNotEmpty) {
-      formattedPhone = '$cleanCountryCode $cleanMobileNumber';
-    }
-    else if (cleanPhoneNumber.isNotEmpty) {
-      formattedPhone = '$cleanCountryCode $cleanPhoneNumber';
-    }
-    else {
-      formattedPhone = '$cleanCountryCode $cleanPhoneNumber';
-    }
-    
-    return formattedPhone;
   }
 
   Future<void> _registerStudent() async {
@@ -88,7 +42,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please agree to the Terms and Conditions'),
-          backgroundColor: Colors.red,
+          backgroundColor: AppColors.errorRed,
         ),
       );
       return;
@@ -100,24 +54,30 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
       });
 
       try {
-        String fullPhoneNumber = getApiPhoneNumber();
         String trimmedName = nameController.text.trim();
+        String trimmedMobile = mobileController.text.trim();
         String trimmedEmail = emailController.text.trim();
+        String trimmedPassword = passwordController.text;
+        String fullPhoneNumber = '$countryCode $trimmedMobile';
         
         if (trimmedName.isEmpty) {
           throw Exception('Name is required');
         }
+        if (trimmedMobile.isEmpty) {
+          throw Exception('Mobile number is required');
+        }
         if (trimmedEmail.isEmpty) {
           throw Exception('Email is required');
         }
-        if (fullPhoneNumber.isEmpty || fullPhoneNumber == countryCode || fullPhoneNumber == '$countryCode ') {
-          throw Exception('Phone number is required');
+        if (trimmedPassword.isEmpty) {
+          throw Exception('Password is required');
         }
         
         final requestData = {
           "phone_number": fullPhoneNumber,
           "email": trimmedEmail,
           "name": trimmedName,
+          "password": trimmedPassword,
         };
 
         debugPrint('=== API REQUEST DEBUG ===');
@@ -147,27 +107,37 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
             
             if (responseData['success'] == true) {
               debugPrint('Registration successful, navigating to OTP verification');
+              debugPrint('OTP: ${responseData['otp']}');
               
               if (mounted) {
+                // Show success message
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(responseData['message'] ?? 'OTP sent successfully'),
+                    backgroundColor: AppColors.successGreen,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+                
                 Navigator.pushNamed(
                   context,
-                  '/otp_verification',
-                  arguments: {
-                    'phone_number': fullPhoneNumber,
-                    'country_code': countryCode,
-                    'mobile_number': mobileNumber,
-                    'name': trimmedName,
-                    'email': trimmedEmail,
-                    'is_login': false, // This is registration flow
-                  },
-                );
+                '/otp_verification',
+                arguments: {
+                  'phone_number': responseData['phone_number'] ?? fullPhoneNumber,
+                  'email': trimmedEmail,  // Pass the email entered by user
+                  'otp': responseData['otp'],
+                  'name': trimmedName,
+                  'is_login': false,
+                  'password': trimmedPassword
+                },
+              );
               }
             } else {
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(responseData['message'] ?? 'Registration failed'),
-                    backgroundColor: Colors.red,
+                    backgroundColor: AppColors.errorRed,
                   ),
                 );
               }
@@ -187,7 +157,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Error: ${response.statusCode} - $errorMessage'),
-                  backgroundColor: Colors.red,
+                  backgroundColor: AppColors.errorRed,
                 ),
               );
             }
@@ -206,7 +176,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Network error: ${e.toString()}'),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.errorRed,
             ),
           );
         }
@@ -226,12 +196,12 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
     final screenHeight = MediaQuery.of(context).size.height;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: AppColors.backgroundLight,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 22),
+          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textDark, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -240,70 +210,36 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
           padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.05),
           child: Column(
             children: [
-              SizedBox(height: screenHeight * 0.02),
+              SizedBox(height: screenHeight * 0.015),
               
               // Header section
               Text(
                 'Create Your Account',
                 style: TextStyle(
-                  fontSize: screenWidth * 0.058,
+                  fontSize: screenWidth * 0.052,
                   fontWeight: FontWeight.w700,
-                  color: Color.fromARGB(255, 9, 55, 107),
+                  color: AppColors.primaryBlue,
                 ),
               ),
               
-              SizedBox(height: screenHeight * 0.015),
-              
-              // Phone verification badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.green[200]!),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.green.withOpacity(0.1),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.check_circle, color: Colors.green, size: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Mobile number: ${getDisplayPhoneNumber()}',
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.032,
-                        color: Colors.green[700],
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              SizedBox(height: screenHeight * 0.04),
+              SizedBox(height: screenHeight * 0.03),
               
               // Main form container
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 20,
+                      color: AppColors.shadowGrey,
+                      blurRadius: 16,
                       offset: const Offset(0, 4),
                     ),
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 10,
+                      color: AppColors.shadowGrey.withOpacity(0.5),
+                      blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
                   ],
@@ -314,64 +250,12 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Full Name Field
-                      Text(
-                        'Full Name',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.036,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
+                      _buildFieldLabel('Full Name', screenWidth),
+                      const SizedBox(height: 6),
+                      _buildTextField(
                         controller: nameController,
-                        enabled: !isLoading,
-                        textCapitalization: TextCapitalization.words,
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.038,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'Enter your full name',
-                          hintStyle: TextStyle(
-                            color: Colors.grey[400],
-                            fontSize: screenWidth * 0.036,
-                          ),
-                          prefixIcon: Icon(
-                            Icons.person_outline,
-                            color: Colors.grey[500],
-                            size: 22,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFF4B400),
-                              width: 2,
-                            ),
-                          ),
-                          errorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: Colors.red),
-                          ),
-                          focusedErrorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: Colors.red, width: 2),
-                          ),
-                          filled: true,
-                          fillColor: isLoading ? Colors.grey[50] : Colors.grey[50],
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 16,
-                          ),
-                        ),
+                        hintText: 'Enter your full name',
+                        icon: Icons.person_outline,
                         validator: (value) {
                           if (value?.trim().isEmpty ?? true) {
                             return 'Please enter your full name';
@@ -381,69 +265,42 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                           }
                           return null;
                         },
+                        textCapitalization: TextCapitalization.words,
+                        screenWidth: screenWidth,
                       ),
                       
-                      SizedBox(height: screenHeight * 0.025),
+                      SizedBox(height: screenHeight * 0.02),
+                      
+                      // Mobile Number Field
+                      _buildFieldLabel('Mobile Number', screenWidth),
+                      const SizedBox(height: 6),
+                      _buildTextField(
+                        controller: mobileController,
+                        hintText: 'Enter your mobile number',
+                        icon: Icons.phone_outlined,
+                        keyboardType: TextInputType.phone,
+                        validator: (value) {
+                          if (value?.trim().isEmpty ?? true) {
+                            return 'Please enter your mobile number';
+                          }
+                          if (value!.trim().length < 10) {
+                            return 'Please enter a valid mobile number';
+                          }
+                          return null;
+                        },
+                        screenWidth: screenWidth,
+                      ),
+                      
+                      SizedBox(height: screenHeight * 0.02),
                       
                       // Email Field
-                      Text(
-                        'Email Address',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.036,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey[700],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
+                      _buildFieldLabel('Email Address', screenWidth),
+                      const SizedBox(height: 6),
+                      _buildTextField(
                         controller: emailController,
-                        enabled: !isLoading,
+                        hintText: 'Enter your email address',
+                        icon: Icons.email_outlined,
                         keyboardType: TextInputType.emailAddress,
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.038,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: 'Enter your email address',
-                          hintStyle: TextStyle(
-                            color: Colors.grey[400],
-                            fontSize: screenWidth * 0.036,
-                          ),
-                          prefixIcon: Icon(
-                            Icons.email_outlined,
-                            color: Colors.grey[500],
-                            size: 22,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(color: Colors.grey[300]!),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFF4B400),
-                              width: 2,
-                            ),
-                          ),
-                          errorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: Colors.red),
-                          ),
-                          focusedErrorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: const BorderSide(color: Colors.red, width: 2),
-                          ),
-                          filled: true,
-                          fillColor: isLoading ? Colors.grey[50] : Colors.grey[50],
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 16,
-                          ),
-                        ),
                         validator: (value) {
                           if (value?.trim().isEmpty ?? true) {
                             return 'Please enter your email address';
@@ -453,16 +310,69 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                           }
                           return null;
                         },
+                        screenWidth: screenWidth,
                       ),
                       
-                      SizedBox(height: screenHeight * 0.03),
+                      SizedBox(height: screenHeight * 0.02),
+                      
+                      // Password Field
+                      _buildFieldLabel('Password', screenWidth),
+                      const SizedBox(height: 6),
+                      _buildPasswordField(
+                        controller: passwordController,
+                        hintText: 'Enter your password',
+                        obscureText: obscurePassword,
+                        onToggleVisibility: () {
+                          setState(() {
+                            obscurePassword = !obscurePassword;
+                          });
+                        },
+                        validator: (value) {
+                          if (value?.isEmpty ?? true) {
+                            return 'Please enter a password';
+                          }
+                          if (value!.length < 4) {
+                            return 'Password must be at least 4 characters';
+                          }
+                          return null;
+                        },
+                        screenWidth: screenWidth,
+                      ),
+                      
+                      SizedBox(height: screenHeight * 0.02),
+                      
+                      // Confirm Password Field
+                      _buildFieldLabel('Confirm Password', screenWidth),
+                      const SizedBox(height: 6),
+                      _buildPasswordField(
+                        controller: confirmPasswordController,
+                        hintText: 'Confirm your password',
+                        obscureText: obscureConfirmPassword,
+                        onToggleVisibility: () {
+                          setState(() {
+                            obscureConfirmPassword = !obscureConfirmPassword;
+                          });
+                        },
+                        validator: (value) {
+                          if (value?.isEmpty ?? true) {
+                            return 'Please confirm your password';
+                          }
+                          if (value != passwordController.text) {
+                            return 'Passwords do not match';
+                          }
+                          return null;
+                        },
+                        screenWidth: screenWidth,
+                      ),
+                      
+                      SizedBox(height: screenHeight * 0.025),
                       
                       // Terms and Conditions
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Transform.scale(
-                            scale: 0.9,
+                            scale: 0.85,
                             child: Checkbox(
                               value: agreedToTerms,
                               onChanged: isLoading ? null : (value) {
@@ -470,7 +380,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                                   agreedToTerms = value ?? false;
                                 });
                               },
-                              activeColor: const Color(0xFFF4B400),
+                              activeColor: AppColors.primaryYellow,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(4),
                               ),
@@ -488,8 +398,8 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                                 child: RichText(
                                   text: TextSpan(
                                     style: TextStyle(
-                                      fontSize: screenWidth * 0.032,
-                                      color: Colors.grey[600],
+                                      fontSize: screenWidth * 0.03,
+                                      color: AppColors.textGrey,
                                       height: 1.4,
                                     ),
                                     children: const [
@@ -497,7 +407,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                                       TextSpan(
                                         text: 'Terms and Conditions',
                                         style: TextStyle(
-                                          color: Color(0xFFF4B400),
+                                          color: AppColors.primaryYellow,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -505,7 +415,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                                       TextSpan(
                                         text: 'Privacy Policy',
                                         style: TextStyle(
-                                          color: Color(0xFFF4B400),
+                                          color: AppColors.primaryYellow,
                                           fontWeight: FontWeight.w600,
                                         ),
                                       ),
@@ -518,23 +428,19 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                         ],
                       ),
                       
-                      SizedBox(height: screenHeight * 0.035),
+                      SizedBox(height: screenHeight * 0.03),
                       
                       // Continue Button
                       Container(
                         width: double.infinity,
-                        height: 54,
+                        height: 48,
                         decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF4B400), Color(0xFFE6A200)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: AppGradients.primaryYellow,
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFF4B400).withOpacity(0.3),
-                              blurRadius: 12,
+                              color: AppColors.shadowYellow,
+                              blurRadius: 10,
                               offset: const Offset(0, 4),
                             ),
                           ],
@@ -543,27 +449,27 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                           onPressed: isLoading ? null : _registerStudent,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.transparent,
-                            disabledBackgroundColor: Colors.grey[300],
+                            disabledBackgroundColor: AppColors.grey300,
                             shadowColor: Colors.transparent,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                           ),
                           child: isLoading
                               ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
+                                  width: 20,
+                                  height: 20,
                                   child: CircularProgressIndicator(
-                                    color: Colors.white,
+                                    color: AppColors.white,
                                     strokeWidth: 2.5,
                                   ),
                                 )
                               : Text(
                                   'Continue',
                                   style: TextStyle(
-                                    fontSize: screenWidth * 0.042,
+                                    fontSize: screenWidth * 0.038,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.white,
+                                    color: AppColors.white,
                                   ),
                                 ),
                         ),
@@ -573,11 +479,162 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
                 ),
               ),
               
-              SizedBox(height: screenHeight * 0.03),
+              SizedBox(height: screenHeight * 0.025),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFieldLabel(String label, double screenWidth) {
+    return Text(
+      label,
+      style: TextStyle(
+        fontSize: screenWidth * 0.032,
+        fontWeight: FontWeight.w600,
+        color: AppColors.textDark,
+      ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    required String? Function(String?) validator,
+    required double screenWidth,
+    TextInputType? keyboardType,
+    TextCapitalization textCapitalization = TextCapitalization.none,
+  }) {
+    return TextFormField(
+      controller: controller,
+      enabled: !isLoading,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      style: TextStyle(
+        fontSize: screenWidth * 0.035,
+        fontWeight: FontWeight.w500,
+        color: AppColors.textDark,
+      ),
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: TextStyle(
+          color: AppColors.grey400,
+          fontSize: screenWidth * 0.033,
+        ),
+        prefixIcon: Icon(
+          icon,
+          color: AppColors.grey500,
+          size: 20,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: AppColors.grey300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: AppColors.grey300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(
+            color: AppColors.primaryYellow,
+            width: 2,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.errorRed),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.errorRed, width: 2),
+        ),
+        filled: true,
+        fillColor: isLoading ? AppColors.grey100 : AppColors.grey50,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        errorStyle: TextStyle(
+          fontSize: screenWidth * 0.028,
+        ),
+      ),
+      validator: validator,
+    );
+  }
+
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String hintText,
+    required bool obscureText,
+    required VoidCallback onToggleVisibility,
+    required String? Function(String?) validator,
+    required double screenWidth,
+  }) {
+    return TextFormField(
+      controller: controller,
+      enabled: !isLoading,
+      obscureText: obscureText,
+      style: TextStyle(
+        fontSize: screenWidth * 0.035,
+        fontWeight: FontWeight.w500,
+        color: AppColors.textDark,
+      ),
+      decoration: InputDecoration(
+        hintText: hintText,
+        hintStyle: TextStyle(
+          color: AppColors.grey400,
+          fontSize: screenWidth * 0.033,
+        ),
+        prefixIcon: Icon(
+          Icons.lock_outline,
+          color: AppColors.grey500,
+          size: 20,
+        ),
+        suffixIcon: IconButton(
+          icon: Icon(
+            obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            color: AppColors.grey500,
+            size: 20,
+          ),
+          onPressed: onToggleVisibility,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: AppColors.grey300),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: AppColors.grey300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(
+            color: AppColors.primaryYellow,
+            width: 2,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.errorRed),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: AppColors.errorRed, width: 2),
+        ),
+        filled: true,
+        fillColor: isLoading ? AppColors.grey100 : AppColors.grey50,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        errorStyle: TextStyle(
+          fontSize: screenWidth * 0.028,
+        ),
+      ),
+      validator: validator,
     );
   }
 }

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
+import '../../../../common/theme_color.dart';
 
 class QuestionPapersScreen extends StatefulWidget {
   const QuestionPapersScreen({super.key});
@@ -511,672 +512,695 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (bool didPop) async {
-        if (didPop) {
-          return;
-        }
-        
-        final shouldPop = await _handleDeviceBackButton();
-        if (shouldPop && mounted) {
-          Navigator.of(context).pop();
-        }
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            _getAppBarTitle(),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
-            ),
+ @override
+Widget build(BuildContext context) {
+  return PopScope(
+    canPop: false,
+    onPopInvoked: (bool didPop) async {
+      if (didPop) {
+        return;
+      }
+      
+      final shouldPop = await _handleDeviceBackButton();
+      if (shouldPop && mounted) {
+        Navigator.of(context).pop();
+      }
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        title: Text(
+          _getAppBarTitle(),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 18,
           ),
-          backgroundColor: const Color(0xFF9C27B0),
-          iconTheme: const IconThemeData(color: Colors.white),
-          elevation: 0,
-          leading: _currentPage != 'course'
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () {
-                    // App bar back button: Navigate through hierarchy
-                    // question_papers → subjects → course
-                    _navigateBack();
-                  },
-                )
-              : IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () async {
-                    // Only send stored data when navigating back FROM COURSE PAGE
-                    final hasData = await _hasStoredReadingData();
-                    if (hasData) {
-                      // Send data in background without waiting
-                      _sendStoredReadingDataToAPI();
-                    }
-                    // Navigate immediately without waiting for API response
-                    if (mounted) {
-                      Navigator.pop(context);
-                    }
-                  },
-                ),
         ),
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFF9C27B0),
-                Color(0xFFF3E5F5),
-                Colors.white,
-              ],
-              stops: [0.0, 0.3, 1.0],
-            ),
-          ),
-          child: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF9C27B0)),
-                  ),
-                )
-              : _buildCurrentPage(),
-        ),
+        backgroundColor: AppColors.primaryYellow,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+        leading: _currentPage != 'course'
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  // App bar back button: Navigate through hierarchy
+                  // question_papers → subjects → course
+                  _navigateBack();
+                },
+              )
+            : IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () async {
+                  // Only send stored data when navigating back FROM COURSE PAGE
+                  final hasData = await _hasStoredReadingData();
+                  if (hasData) {
+                    // Send data in background without waiting
+                    _sendStoredReadingDataToAPI();
+                  }
+                  // Navigate immediately without waiting for API response
+                  if (mounted) {
+                    Navigator.pop(context);
+                  }
+                },
+              ),
       ),
-    );
-  }
-
-  Widget _buildCurrentPage() {
-    switch (_currentPage) {
-      case 'course':
-        return _buildCoursePage();
-      case 'subjects':
-        return _buildSubjectsPage();
-      case 'question_papers':
-        return _buildQuestionPapersPage();
-      default:
-        return _buildCoursePage();
-    }
-  }
-
-  Widget _buildCoursePage() {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Your Enrolled Course',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            // Course Card
-            Card(
-              elevation: 8,
-              shadowColor: const Color(0xFF9C27B0).withOpacity(0.3),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white,
-                      const Color(0xFF9C27B0).withOpacity(0.05),
-                    ],
-                  ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              AppColors.primaryYellow,
+              AppColors.backgroundLight,
+              Colors.white,
+            ],
+            stops: [0.0, 0.3, 1.0],
+          ),
+        ),
+        child: _isLoading
+            ? const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          height: 60,
-                          width: 60,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF9C27B0).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.school,
-                            size: 32,
-                            color: Color(0xFF9C27B0),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _courseName.isNotEmpty ? _courseName : 'Course',
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.black87,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Course',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Subcourse Card
-                    InkWell(
-                      onTap: _subjects.isNotEmpty ? _loadSubjects : null,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
+              )
+            : _buildCurrentPage(),
+      ),
+    ),
+  );
+}
+
+Widget _buildCurrentPage() {
+  switch (_currentPage) {
+    case 'course':
+      return _buildCoursePage();
+    case 'subjects':
+      return _buildSubjectsPage();
+    case 'question_papers':
+      return _buildQuestionPapersPage();
+    default:
+      return _buildCoursePage();
+  }
+}
+
+Widget _buildCoursePage() {
+  return SafeArea(
+    child: Padding(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 20),
+          Text(
+            'Your Enrolled Course',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          // Course Card
+          Card(
+            elevation: 8,
+            shadowColor: AppColors.warningOrange.withOpacity(0.3),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Colors.white,
+                    AppColors.warningOrange.withOpacity(0.05),
+                  ],
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        height: 60,
+                        width: 60,
                         decoration: BoxDecoration(
-                          color: _subjects.isNotEmpty 
-                              ? const Color(0xFF9C27B0).withOpacity(0.08)
-                              : Colors.grey.withOpacity(0.08),
+                          color: AppColors.primaryYellow.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _subjects.isNotEmpty
-                                ? const Color(0xFF9C27B0).withOpacity(0.2)
-                                : Colors.grey.withOpacity(0.2),
-                          ),
                         ),
-                        child: Row(
+                        child: const Icon(
+                          Icons.school,
+                          size: 32,
+                          color: AppColors.primaryYellow,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              Icons.book,
-                              color: _subjects.isNotEmpty 
-                                  ? const Color(0xFF9C27B0)
-                                  : Colors.grey,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _subcourseName.isNotEmpty ? _subcourseName : 'Subcourse',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: _subjects.isNotEmpty 
-                                          ? Colors.black87 
-                                          : Colors.grey,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _subjects.isNotEmpty 
-                                        ? 'Tap to view ${_subjects.length} subjects' 
-                                        : 'No subjects available',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: _subjects.isNotEmpty 
-                                          ? Colors.black54 
-                                          : Colors.grey,
-                                    ),
-                                  ),
-                                ],
+                            Text(
+                              _courseName.isNotEmpty ? _courseName : 'Course',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primaryBlue,
                               ),
                             ),
-                            Icon(
-                              Icons.arrow_forward_ios,
-                              color: _subjects.isNotEmpty 
-                                  ? const Color(0xFF9C27B0)
-                                  : Colors.grey,
-                              size: 16,
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Course',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.black54,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSubjectsPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Select Subject',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose a subject from $_subcourseName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_subjects.isEmpty)
-              const Center(
-                child: Column(
-                  children: [
-                    SizedBox(height: 50),
-                    Icon(
-                      Icons.subject,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'No subjects available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Please load study materials first',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._subjects.map((subject) => _buildListCard(
-                title: subject['title']?.toString() ?? 'Unknown Subject',
-                subtitle: 'Tap to view question papers',
-                icon: Icons.quiz,
-                onTap: () => _fetchQuestionPapers(
-                  subject['id']?.toString() ?? '', 
-                  subject['title']?.toString() ?? 'Unknown Subject'
-                ),
-              )).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuestionPapersPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Question Papers',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Question papers for $_selectedSubjectName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_questionPapers.isEmpty)
-              Center(
-                child: Column(
-                  children: [
-                    const SizedBox(height: 50),
-                    Icon(
-                      Icons.quiz_outlined,
-                      size: 80,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No question papers available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Question papers for this subject will be added soon',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey[500],
-                      ),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._questionPapers.map((paper) => _buildQuestionPaperCard(
-                paperId: paper['id']?.toString() ?? '',
-                title: paper['title']?.toString() ?? 'Untitled Paper',
-                fileUrl: paper['file_url']?.toString() ?? '',
-                uploadedAt: paper['uploaded_at']?.toString() ?? '',
-              )).toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildListCard({
-    required String title,
-    required String subtitle,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 4,
-      shadowColor: const Color(0xFF9C27B0).withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                const Color(0xFF9C27B0).withOpacity(0.03),
-              ],
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9C27B0).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  size: 24,
-                  color: const Color(0xFF9C27B0),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.black54,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(
-                Icons.arrow_forward_ios,
-                color: Color(0xFF9C27B0),
-                size: 16,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _formatDate(String dateString) {
-    try {
-      if (dateString.isEmpty) return 'Unknown date';
-      
-      final DateTime date = DateTime.parse(dateString);
-      final DateTime now = DateTime.now();
-      final Duration difference = now.difference(date);
-
-      if (difference.inDays == 0) {
-        return 'Today';
-      } else if (difference.inDays == 1) {
-        return 'Yesterday';
-      } else if (difference.inDays < 7) {
-        return '${difference.inDays} days ago';
-      } else if (difference.inDays < 30) {
-        final weeks = (difference.inDays / 7).floor();
-        return '$weeks week${weeks > 1 ? 's' : ''} ago';
-      } else if (difference.inDays < 365) {
-        final months = (difference.inDays / 30).floor();
-        return '$months month${months > 1 ? 's' : ''} ago';
-      } else {
-        final years = (difference.inDays / 365).floor();
-        return '$years year${years > 1 ? 's' : ''} ago';
-      }
-    } catch (e) {
-      try {
-        final parts = dateString.split('T')[0].split('-');
-        if (parts.length == 3) {
-          return '${parts[2]}/${parts[1]}/${parts[0]}';
-        }
-      } catch (e) {
-        // If all else fails
-      }
-      return dateString.isNotEmpty ? dateString : 'Unknown date';
-    }
-  }
-
-  Widget _buildQuestionPaperCard({
-    required String paperId,
-    required String title,
-    required String fileUrl,
-    required String uploadedAt,
-  }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 4,
-      shadowColor: const Color(0xFF9C27B0).withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: () {
-          debugPrint('=== QUESTION PAPER CARD CLICKED ===');
-          debugPrint('Question Paper ID: $paperId');
-          debugPrint('Title: $title');
-          debugPrint('Raw File URL from API: "$fileUrl"');
-          
-          if (fileUrl.isEmpty) {
-            debugPrint('❌ File URL is empty');
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('PDF URL is empty'),
-                backgroundColor: Colors.red,
-              ),
-            );
-            return;
-          }
-          
-          if (_accessToken == null || _accessToken!.isEmpty) {
-            debugPrint('❌ Access token is null or empty');
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Access token not available. Please login again.'),
-                backgroundColor: Colors.red,
-              ),
-            );
-            return;
-          }
-          
-          debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
-          debugPrint('=== END QUESTION PAPER CARD CLICK ===\n');
-          
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => QuestionsPDFViewScreen(
-                pdfUrl: fileUrl,  // Pass directly without any cleaning
-                title: title,
-                accessToken: _accessToken!,
-                questionPaperId: paperId,
-              ),
-            ),
-          );
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                const Color(0xFF9C27B0).withOpacity(0.03),
-              ],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    height: 40,
-                    width: 40,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF9C27B0).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.picture_as_pdf,
-                      size: 20,
-                      color: Color(0xFF9C27B0),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
+                  const SizedBox(height: 20),
+                  
+                  // Subcourse Card
+                  InkWell(
+                    onTap: _subjects.isNotEmpty ? _loadSubjects : null,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: _subjects.isNotEmpty 
+                            ? AppColors.warningOrange.withOpacity(0.08)
+                            : Colors.grey.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _subjects.isNotEmpty
+                              ? AppColors.warningOrange.withOpacity(0.3)
+                              : Colors.grey.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.book,
+                            color: _subjects.isNotEmpty 
+                                ? AppColors.primaryYellow
+                                : Colors.grey,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _subcourseName.isNotEmpty ? _subcourseName : 'Subcourse',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: _subjects.isNotEmpty 
+                                        ? AppColors.primaryBlue
+                                        : Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _subjects.isNotEmpty 
+                                      ? 'Tap to view ${_subjects.length} subjects' 
+                                      : 'No subjects available',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: _subjects.isNotEmpty 
+                                        ? Colors.black54 
+                                        : Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            color: _subjects.isNotEmpty 
+                                ? AppColors.warningOrange
+                                : Colors.grey,
+                            size: 16,
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                  Icon(
-                    Icons.open_in_new,
-                    size: 20,
-                    color: Colors.grey[600],
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Row(
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildSubjectsPage() {
+  return SafeArea(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 20),
+          Text(
+            'Select Subject',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Choose a subject from $_subcourseName',
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          if (_subjects.isEmpty)
+            const Center(
+              child: Column(
                 children: [
+                  SizedBox(height: 50),
                   Icon(
-                    Icons.visibility,
-                    size: 16,
-                    color: Colors.grey[600],
+                    Icons.subject,
+                    size: 80,
+                    color: Colors.grey,
                   ),
-                  const SizedBox(width: 4),
+                  SizedBox(height: 16),
                   Text(
-                    'PDF File • Tap to view',
+                    'No subjects available',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Please load study materials first',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
+                      color: Colors.grey,
                     ),
                   ),
                 ],
               ),
-              if (uploadedAt.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Text(
-                  'Uploaded: ${_formatDate(uploadedAt)}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF9C27B0).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'Question Paper',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF9C27B0),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
+            )
+          else
+            ..._subjects.map((subject) => _buildListCard(
+              title: subject['title']?.toString() ?? 'Unknown Subject',
+              subtitle: 'Tap to view question papers',
+              icon: Icons.quiz,
+              onTap: () => _fetchQuestionPapers(
+                subject['id']?.toString() ?? '', 
+                subject['title']?.toString() ?? 'Unknown Subject'
               ),
+            )).toList(),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildQuestionPapersPage() {
+  return SafeArea(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.all(20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 20),
+          Text(
+            'Question Papers',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Question papers for $_selectedSubjectName',
+            style: const TextStyle(
+              fontSize: 16,
+              color: Colors.black54,
+            ),
+          ),
+          const SizedBox(height: 30),
+          
+          if (_questionPapers.isEmpty)
+            Center(
+              child: Column(
+                children: [
+                  const SizedBox(height: 50),
+                  Icon(
+                    Icons.quiz_outlined,
+                    size: 80,
+                    color: Colors.grey[400],
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No question papers available',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Question papers for this subject will be added soon',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey[500],
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            ..._questionPapers.map((paper) => _buildQuestionPaperCard(
+              paperId: paper['id']?.toString() ?? '',
+              title: paper['title']?.toString() ?? 'Untitled Paper',
+              fileUrl: paper['file_url']?.toString() ?? '',
+              uploadedAt: paper['uploaded_at']?.toString() ?? '',
+            )).toList(),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildListCard({
+  required String title,
+  required String subtitle,
+  required IconData icon,
+  required VoidCallback onTap,
+}) {
+  return Card(
+    margin: const EdgeInsets.only(bottom: 16),
+    elevation: 4,
+    shadowColor: AppColors.warningOrange.withOpacity(0.2),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              AppColors.warningOrange.withOpacity(0.03),
             ],
           ),
         ),
+        child: Row(
+          children: [
+            Container(
+              height: 50,
+              width: 50,
+              decoration: BoxDecoration(
+                color: AppColors.primaryYellow.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppColors.primaryYellow.withOpacity(0.4),
+                  width: 1,
+                ),
+              ),
+              child: Icon(
+                icon,
+                size: 24,
+                color: AppColors.primaryYellow,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primaryBlue,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: AppColors.primaryBlue.withOpacity(0.7),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: AppColors.warningOrange,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.warningOrange.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.arrow_forward_ios,
+                color: Colors.white,
+                size: 18,
+              ),
+            ),
+          ],
+        ),
       ),
-    );
+    ),
+  );
+}
+
+String _formatDate(String dateString) {
+  try {
+    if (dateString.isEmpty) return 'Unknown date';
+    
+    final DateTime date = DateTime.parse(dateString);
+    final DateTime now = DateTime.now();
+    final Duration difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return '$weeks week${weeks > 1 ? 's' : ''} ago';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return '$months month${months > 1 ? 's' : ''} ago';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return '$years year${years > 1 ? 's' : ''} ago';
+    }
+  } catch (e) {
+    try {
+      final parts = dateString.split('T')[0].split('-');
+      if (parts.length == 3) {
+        return '${parts[2]}/${parts[1]}/${parts[0]}';
+      }
+    } catch (e) {
+      // If all else fails
+    }
+    return dateString.isNotEmpty ? dateString : 'Unknown date';
   }
+}
+
+Widget _buildQuestionPaperCard({
+  required String paperId,
+  required String title,
+  required String fileUrl,
+  required String uploadedAt,
+}) {
+  return Card(
+    margin: const EdgeInsets.only(bottom: 16),
+    elevation: 4,
+    shadowColor: AppColors.warningOrange.withOpacity(0.2),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: InkWell(
+      onTap: () {
+        debugPrint('=== QUESTION PAPER CARD CLICKED ===');
+        debugPrint('Question Paper ID: $paperId');
+        debugPrint('Title: $title');
+        debugPrint('Raw File URL from API: "$fileUrl"');
+        
+        if (fileUrl.isEmpty) {
+          debugPrint('❌ File URL is empty');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('PDF URL is empty'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+        
+        if (_accessToken == null || _accessToken!.isEmpty) {
+          debugPrint('❌ Access token is null or empty');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Access token not available. Please login again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+        
+        debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
+        debugPrint('=== END QUESTION PAPER CARD CLICK ===\n');
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => QuestionsPDFViewScreen(
+              pdfUrl: fileUrl,  // Pass directly without any cleaning
+              title: title,
+              accessToken: _accessToken!,
+              questionPaperId: paperId,
+            ),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white,
+              AppColors.warningOrange.withOpacity(0.03),
+            ],
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  height: 40,
+                  width: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryYellow.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.primaryYellow.withOpacity(0.4),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.picture_as_pdf,
+                    size: 20,
+                    color: AppColors.primaryYellow,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryBlue,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.open_in_new,
+                  size: 20,
+                  color: Colors.grey[600],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Icon(
+                  Icons.visibility,
+                  size: 16,
+                  color: Colors.grey[600],
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  'PDF File • Tap to view',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+            if (uploadedAt.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Uploaded: ${_formatDate(uploadedAt)}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.black54,
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.warningOrange,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Question Paper',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 }

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../service/auth_service.dart';
 import '../service/api_config.dart';
 import 'view_profile.dart';
+import 'settings.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -46,6 +47,26 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _keySubscriptionType = 'profile_subscription_type';
   static const String _keySubscriptionEndDate = 'profile_subscription_end_date';
   static const String _keyIsSubscriptionActive = 'profile_is_subscription_active';
+
+
+
+  @override
+  void initState() {
+    super.initState();
+    _storeStartTime(); // Add this line
+  }
+
+  // Add this method
+  Future<void> _storeStartTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getString('start_time') == null) {
+      String startTime = DateTime.now().toIso8601String();
+      await prefs.setString('start_time', startTime);
+      debugPrint('✅ Start timestamp stored on home page: $startTime');
+    } else {
+      debugPrint('ℹ️ Start timestamp already exists: ${prefs.getString('start_time')}');
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -180,150 +201,160 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Fetch profile data from API
   Future<void> _fetchProfileData() async {
+  try {
+    setState(() {
+      isLoading = true;
+    });
+
+    // Get access token from SharedPreferences
+    String accessToken = await _authService.getAccessToken();
+
+    if (accessToken.isEmpty) {
+      debugPrint('No access token found');
+      _navigateToLogin();
+      return;
+    }
+
+    // Create HTTP client with custom certificate handling
+    final client = _createHttpClientWithCustomCert();
+
     try {
-      setState(() {
-        isLoading = true;
-      });
-
-      // Get access token from shared preferences
-      final accessToken = await _authService.getAccessToken();
-      
-      if (accessToken == null || accessToken.isEmpty) {
-        debugPrint('No access token found');
-        _navigateToLogin();
-        return;
-      }
-
-      // Create HTTP client with custom certificate handling
-      final client = _createHttpClientWithCustomCert();
-      
-      try {
-        // Make API call to get profile
-        final response = await client.get(
+      // -----------------------------
+      // 🔹 Function to make profile API call
+      // -----------------------------
+      Future<http.Response> makeProfileRequest(String token) {
+        return client.get(
           Uri.parse('${ApiConfig.currentBaseUrl}/api/students/get_profile/'),
           headers: {
             ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
+            'Authorization': 'Bearer $token',
           },
         ).timeout(ApiConfig.requestTimeout);
+      }
 
-        debugPrint('Get Profile response status: ${response.statusCode}');
-        debugPrint('Get Profile response body: ${response.body}');
+      // 🟢 Step 1: Try API call with current access token
+      var response = await makeProfileRequest(accessToken);
 
-        if (response.statusCode == 200) {
-          final responseData = json.decode(response.body);
-          
-          if (responseData['success'] == true && responseData['profile'] != null) {
-            final profile = responseData['profile'];
-            
-            // Save to SharedPreferences
-            await _saveProfileDataToCache(profile);
-            
-            setState(() {
-              name = profile['name'] ?? '';
-              email = profile['email'] ?? '';
-              phoneNumber = profile['phone_number'] ?? '';
-              profileCompleted = profile['profile_completed'] ?? false;
-              
-              // Enrollment data
-              if (profile['enrollments'] != null) {
-                final enrollments = profile['enrollments'];
-                course = enrollments['course'] ?? '';
-                subcourse = enrollments['subcourse'] ?? '';
-                
-                // Handle subcourse_id
-                if (enrollments['subcourse_id'] != null) {
-                  subcourseId = enrollments['subcourse_id'].toString();
-                }
-                
-                enrollmentStatus = enrollments['status'] ?? '';
-                
-                debugPrint('Extracted Subcourse ID from API: $subcourseId');
-              }
-              
-              // Subscription data
-              if (profile['subscription'] != null) {
-                subscriptionType = profile['subscription']['type'] ?? '';
-                subscriptionEndDate = profile['subscription']['end_date'] ?? '';
-                isSubscriptionActive = profile['subscription']['is_active'] ?? false;
-              }
-              
-              isLoading = false;
-            });
-          } else {
-            debugPrint('Profile data not found in response');
-            setState(() {
-              isLoading = false;
-            });
-          }
-        } else if (response.statusCode == 401) {
-          // Token expired or invalid
-          debugPrint('Access token expired');
+      debugPrint('Get Profile response status: ${response.statusCode}');
+      debugPrint('Get Profile response body: ${response.body}');
+
+      // 🟢 Step 2: If token expired (401), try refreshing it
+      if (response.statusCode == 401) {
+        debugPrint('⚠️ Access token expired, trying refresh...');
+
+        final newAccessToken = await _authService.refreshAccessToken();
+
+        if (newAccessToken != null && newAccessToken.isNotEmpty) {
+          // Retry the request with the new token
+          response = await makeProfileRequest(newAccessToken);
+          debugPrint('🔄 Retried with refreshed token: ${response.statusCode}');
+        } else {
+          // Refresh failed — log out user
+          debugPrint('❌ Token refresh failed');
           await _authService.logout();
           await _clearCachedProfileData();
           _navigateToLogin();
-        } else {
-          debugPrint('Failed to fetch profile: ${response.statusCode}');
+          return;
+        }
+      }
+
+      // 🟢 Step 3: Handle API response
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+
+        if (responseData['success'] == true && responseData['profile'] != null) {
+          final profile = responseData['profile'];
+
+          // Save profile locally
+          await _saveProfileDataToCache(profile);
+
           setState(() {
+            name = profile['name'] ?? '';
+            email = profile['email'] ?? '';
+            phoneNumber = profile['phone_number'] ?? '';
+            profileCompleted = profile['profile_completed'] ?? false;
+
+            // Enrollment details
+            if (profile['enrollments'] != null) {
+              final enrollments = profile['enrollments'];
+              course = enrollments['course'] ?? '';
+              subcourse = enrollments['subcourse'] ?? '';
+
+              if (enrollments['subcourse_id'] != null) {
+                subcourseId = enrollments['subcourse_id'].toString();
+              }
+
+              enrollmentStatus = enrollments['status'] ?? '';
+              debugPrint('Extracted Subcourse ID from API: $subcourseId');
+            }
+
+            // Subscription details
+            if (profile['subscription'] != null) {
+              subscriptionType = profile['subscription']['type'] ?? '';
+              subscriptionEndDate = profile['subscription']['end_date'] ?? '';
+              isSubscriptionActive = profile['subscription']['is_active'] ?? false;
+            }
+
             isLoading = false;
           });
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Failed to load profile data: ${response.statusCode}'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+        } else {
+          debugPrint('Profile data not found in response');
+          setState(() => isLoading = false);
         }
-      } finally {
-        client.close();
+      } else {
+        debugPrint('Failed to fetch profile: ${response.statusCode}');
+        setState(() => isLoading = false);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to load profile data: ${response.statusCode}'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
-    } on HandshakeException catch (e) {
-      debugPrint('SSL Handshake error: $e');
-      setState(() {
-        isLoading = false;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SSL certificate issue - this is normal in development'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } on SocketException catch (e) {
-      debugPrint('Network error: $e');
-      setState(() {
-        isLoading = false;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No network connection - showing cached data'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error fetching profile: $e');
-      setState(() {
-        isLoading = false;
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading profile: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    } finally {
+      client.close();
+    }
+  } on HandshakeException catch (e) {
+    debugPrint('SSL Handshake error: $e');
+    setState(() => isLoading = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('SSL certificate issue - this is normal in development'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  } on SocketException catch (e) {
+    debugPrint('Network error: $e');
+    setState(() => isLoading = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No network connection - showing cached data'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('Error fetching profile: $e');
+    setState(() => isLoading = false);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error loading profile: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
+}
 
   void _navigateToLogin() {
     if (mounted) {
@@ -335,178 +366,296 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Logout API call method with SSL handling
-  Future<void> _performLogout() async {
-    try {
-      // Show loading dialog
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Text('Logging out...'),
-              ],
-            ),
-          );
-        },
-      );
+ Future<void> _performLogout() async {
+  String? accessToken;
+  
+  try {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Logging out...'),
+            ],
+          ),
+        );
+      },
+    );
 
-      // Get access token from shared preferences
-      final accessToken = await _authService.getAccessToken();
-      
-      // Create HTTP client with custom certificate handling
-      final client = _createHttpClientWithCustomCert();
-      
+    // Get access token from shared preferences
+    accessToken = await _authService.getAccessToken();
+    
+    // Capture the logout time (end time)
+    String endTime = DateTime.now().toIso8601String();
+    
+    // STEP 1: Send attendance data FIRST (while session is still active)
+    await _sendAttendanceData(accessToken, endTime);
+    
+    // STEP 2: Make logout API call after attendance is recorded
+    final client = _createHttpClientWithCustomCert();
+    
+    try {
+      final response = await client.post(
+        Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
+        headers: {
+          ...ApiConfig.commonHeaders,
+          'Authorization': 'Bearer $accessToken',
+        },
+      ).timeout(ApiConfig.requestTimeout);
+
+      debugPrint('Logout response status: ${response.statusCode}');
+      debugPrint('Logout response body: ${response.body}');
+    } finally {
+      client.close();
+    }
+    
+    // Close loading dialog
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    // STEP 3: Clear local data after everything is done
+    await _clearLogoutData();
+    
+  } on HandshakeException catch (e) {
+    debugPrint('SSL Handshake error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    // Still send attendance data before clearing
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    await _clearLogoutData();
+    
+  } on SocketException catch (e) {
+    debugPrint('Network error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    // Still send attendance data before clearing
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    await _clearLogoutData();
+    
+  } catch (e) {
+    debugPrint('Logout error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    // Still send attendance data before clearing
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    await _clearLogoutData();
+  }
+}
+
+// Helper method to send attendance data only
+Future<void> _sendAttendanceData(String? accessToken, String endTime) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    String? startTime = prefs.getString('start_time');
+
+    if (startTime != null && accessToken != null && accessToken.isNotEmpty) {
+      debugPrint('📤 Preparing API request with timestamps:');
+      debugPrint('Start: $startTime, End: $endTime');
+
+      // Remove milliseconds from timestamps to match backend format
+      String cleanStart = startTime.split('.')[0].replaceFirst('T', ' ');
+      String cleanEnd = endTime.split('.')[0].replaceFirst('T', ' ');
+
+      final body = {
+        "records": [
+          {"time_stamp": cleanStart, "is_checkin": 1},
+          {"time_stamp": cleanEnd, "is_checkin": 0}
+        ]
+      };
+
+      debugPrint('📦 API request payload: ${jsonEncode(body)}');
+
       try {
-        // Make API call with custom client
-        final response = await client.post(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
+        final response = await http.post(
+          Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
           headers: {
             ...ApiConfig.commonHeaders,
             'Authorization': 'Bearer $accessToken',
           },
-        ).timeout(ApiConfig.requestTimeout);
+          body: jsonEncode(body),
+        ).timeout(const Duration(seconds: 10));
 
-        // Close loading dialog
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
+        debugPrint('🌐 API response status: ${response.statusCode}');
+        debugPrint('🌐 API response body: ${response.body}');
 
-        debugPrint('Logout response status: ${response.statusCode}');
-        debugPrint('Logout response body: ${response.body}');
-
-        // Handle the response
-        if (response.statusCode == 200 || response.statusCode == 204) {
-          // Success - clear local data
-          await _authService.logout();
-          await _clearCachedProfileData();
-          
-          // Show success message
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Logged out successfully!'),
-                backgroundColor: Colors.green,
-              ),
-            );
-            
-            // Navigate to signup screen and clear all routes
-            Navigator.of(context).pushNamedAndRemoveUntil(
-              '/signup',
-              (Route<dynamic> route) => false,
-            );
-          }
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          debugPrint('✅ Attendance sent successfully');
         } else {
-          // Even if API fails, clear local data for security
-          await _authService.logout();
-          await _clearCachedProfileData();
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Logout completed (Server response: ${response.statusCode})'),
-                backgroundColor: Colors.orange,
-              ),
-            );
-            
-            // Navigate to signup screen anyway
-            Navigator.of(context).pushNamedAndRemoveUntil(
-              '/signup',
-              (Route<dynamic> route) => false,
-            );
-          }
+          debugPrint('⚠️ Error sending attendance: ${response.statusCode}');
         }
-      } finally {
-        // Ensure client is always closed
-        client.close();
+      } catch (e) {
+        debugPrint('❌ Exception while sending attendance: $e');
       }
-    } on HandshakeException catch (e) {
-      // Handle SSL certificate errors specifically
-      debugPrint('SSL Handshake error: $e');
+    } else {
+      debugPrint('⚠️ Missing data: startTime=$startTime, accessToken=$accessToken');
+    }
+  } catch (e) {
+    debugPrint('❌ Error in _sendAttendanceData: $e');
+  }
+}
+
+// Helper method to clear all logout data
+Future<void> _clearLogoutData() async {
+  try {
+    // Clear auth data
+    await _authService.logout();
+    await _clearCachedProfileData();
+    
+    // Remove timestamps from SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('start_time');
+    await prefs.remove('end_time');
+    await prefs.remove('last_active_time');
+    debugPrint('🗑️ SharedPreferences timestamps cleared');
+
+    // Show success message
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Logged out successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
       
-      // Close loading dialog if it's still open
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
+      // Navigate to signup screen and clear all routes
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Error in _clearLogoutData: $e');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logout completed (Error: ${e.toString()})'),
+          backgroundColor: Colors.red,
+        ),
+      );
       
-      // Clear local data even if network fails
-      await _authService.logout();
-      await _clearCachedProfileData();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logout completed (SSL certificate issue - this is normal in development)'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-        
-        // Navigate to signup screen
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
-    } on SocketException catch (e) {
-      // Handle network connectivity errors
-      debugPrint('Network error: $e');
-      
-      // Close loading dialog if it's still open
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      // Clear local data even if network fails
-      await _authService.logout();
-      await _clearCachedProfileData();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logout completed (No network connection)'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        
-        // Navigate to signup screen
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
-    } catch (e) {
-      // Handle all other errors
-      debugPrint('Logout error: $e');
-      
-      // Close loading dialog if it's still open
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      // Clear local data even if network fails
-      await _authService.logout();
-      await _clearCachedProfileData();
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logout completed (Error: ${e.toString()})'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        
-        // Navigate to signup screen
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
     }
   }
+}
 
+// Helper method to send attendance data and perform logout
+Future<void> _sendAttendanceAndLogout(String? accessToken, String endTime) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    String? startTime = prefs.getString('start_time');
+
+    if (startTime != null) {
+      debugPrint('📤 Preparing API request with timestamps:');
+      debugPrint('Start: $startTime, End: $endTime');
+
+      // Remove milliseconds from timestamps to match backend format
+      String cleanStart = startTime.split('.')[0].replaceFirst('T', ' ');
+      String cleanEnd = endTime.split('.')[0].replaceFirst('T', ' ');
+
+      final body = {
+        "records": [
+          {"time_stamp": cleanStart, "is_checkin": 1},
+          {"time_stamp": cleanEnd, "is_checkin": 0}
+        ]
+      };
+
+      debugPrint('📦 API request payload: ${jsonEncode(body)}');
+
+      try {
+        final response = await http.post(
+          Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
+          headers: {
+            ...ApiConfig.commonHeaders,
+            'Authorization': 'Bearer $accessToken',
+          },
+          body: jsonEncode(body),
+        ).timeout(const Duration(seconds: 10));
+
+        debugPrint('🌐 API response status: ${response.statusCode}');
+        debugPrint('🌐 API response body: ${response.body}');
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          debugPrint('✅ Attendance sent successfully');
+        } else {
+          debugPrint('⚠️ Error sending attendance: ${response.statusCode}');
+        }
+      } catch (e) {
+        debugPrint('❌ Exception while sending attendance: $e');
+      }
+    } else {
+      debugPrint('⚠️ No start_time found in SharedPreferences');
+    }
+
+    // Clear local data
+    await _authService.logout();
+    await _clearCachedProfileData();
+    
+    // Remove timestamps from SharedPreferences
+    await prefs.remove('start_time');
+    await prefs.remove('end_time');
+    await prefs.remove('last_active_time');
+    debugPrint('🗑️ SharedPreferences timestamps cleared');
+
+    // Show success message
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Logged out successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      
+      // Navigate to signup screen and clear all routes
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Error in _sendAttendanceAndLogout: $e');
+    
+    // Still clear local data even if attendance sending fails
+    await _authService.logout();
+    await _clearCachedProfileData();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logout completed (Error: ${e.toString()})'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      // Navigate to signup screen anyway
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  }
+}
   // Show logout confirmation dialog
   void _showLogoutDialog() {
     showDialog(
@@ -547,6 +696,11 @@ class _HomeScreenState extends State<HomeScreen> {
   // Navigate to Study Materials screen
   void _navigateToStudyMaterials() {
     Navigator.pushNamed(context, '/study_materials');
+  }
+
+  // Navigate to Mock Test screen
+  void _navigateToMockTest() {
+    Navigator.pushNamed(context, '/mock_test');
   }
 
   @override
@@ -700,6 +854,43 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   
+                  const SizedBox(height: 16),
+                  
+                  // Mock Test Button
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: _navigateToMockTest,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFF4B400),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        elevation: 4,
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.quiz,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                          SizedBox(width: 12),
+                          Text(
+                            'Mock Test',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
                   const Spacer(),
                   
                   // Profile completion reminder (if profile is not completed)
@@ -773,95 +964,132 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildProfileDrawer(BuildContext context) {
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.65,
-      child: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFF4B400), Color(0xFFF39C12)],
-          ),
+ Widget _buildProfileDrawer(BuildContext context) {
+  return Drawer(
+    width: MediaQuery.of(context).size.width * 0.65,
+    child: Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFF4B400), Color(0xFFF39C12)],
         ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    const CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.white,
-                      child: Icon(
-                        Icons.person,
-                        size: 48,
-                        color: Color(0xFFF4B400),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      name.isNotEmpty ? name : 'User Name',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    _navigateToViewProfile();
-                  },
-                  icon: const Icon(Icons.person, color: Color(0xFFF4B400), size: 20),
-                  label: const Text(
-                    'View Profile',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  const CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.white,
+                    child: Icon(
+                      Icons.person,
+                      size: 48,
                       color: Color(0xFFF4B400),
                     ),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                  const SizedBox(height: 12),
+                  Text(
+                    name.isNotEmpty ? name : 'User Name',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // View Profile Button
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  _navigateToViewProfile();
+                },
+                icon: const Icon(Icons.person, color: Color(0xFFF4B400), size: 20),
+                label: const Text(
+                  'View Profile',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFF4B400),
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.all(16),
-                child: ListTile(
-                  leading: const Icon(Icons.logout, color: Colors.white, size: 20),
-                  title: const Text(
-                    'Logout',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // Settings Button (NEW)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SettingsScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.settings, color: Color(0xFFF4B400), size: 20),
+                label: const Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFF4B400),
                   ),
-                  onTap: () {
-                    Navigator.of(context).pop(); // Close drawer first
-                    _showLogoutDialog(); // Show confirmation dialog
-                  },
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+            
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: ListTile(
+                leading: const Icon(Icons.logout, color: Colors.white, size: 20),
+                title: const Text(
+                  'Logout',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _showLogoutDialog();
+                },
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
-
+    ),
+  );
+}
   void _navigateToViewProfile() async {
     final result = await Navigator.of(context).push(
       MaterialPageRoute(

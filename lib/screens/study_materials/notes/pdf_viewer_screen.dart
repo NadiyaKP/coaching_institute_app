@@ -10,6 +10,7 @@ import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import '../../../service/api_config.dart';
 import 'package:coaching_institute_app/hive_model.dart';
+import '../../../common/theme_color.dart';
 
 class PDFViewerScreen extends StatefulWidget {
   final String pdfUrl;
@@ -75,6 +76,7 @@ Future<void> _initializeHive() async {
     _downloadAndSavePDF();
   }
 }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -309,6 +311,7 @@ Future<void> _initializeHive() async {
     debugPrint('=== END PDF DOWNLOAD DEBUG ===\n');
   }
 }
+
   void _cleanupTemporaryFile() {
     if (localPath != null) {
       try {
@@ -334,7 +337,7 @@ Future<void> _initializeHive() async {
             fontSize: 18,
           ),
         ),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: AppColors.primaryYellow,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
         actions: [
@@ -356,11 +359,11 @@ Future<void> _initializeHive() async {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFF2196F3),
-              Color(0xFFE3F2FD),
-              Colors.white,
+              AppColors.primaryYellow,
+              AppColors.backgroundLight,
+              AppColors.white,
             ],
-            stops: [0.0, 0.1, 0.3],
+            stops: [0.0, 0.3, 1.0],
           ),
         ),
         child: _buildBody(),
@@ -378,7 +381,7 @@ Future<void> _initializeHive() async {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3)),
+              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
             ),
             SizedBox(height: 16),
             Text(
@@ -403,15 +406,15 @@ Future<void> _initializeHive() async {
               const Icon(
                 Icons.error_outline,
                 size: 80,
-                color: Colors.red,
+                color: AppColors.errorRed,
               ),
               const SizedBox(height: 16),
-              Text(
+              const Text(
                 'Failed to load PDF',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  color: AppColors.primaryBlue,
                 ),
               ),
               const SizedBox(height: 8),
@@ -427,8 +430,12 @@ Future<void> _initializeHive() async {
               ElevatedButton(
                 onPressed: _downloadAndSavePDF,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2196F3),
+                  backgroundColor: AppColors.primaryYellow,
                   foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: const Text('Retry'),
               ),
@@ -445,7 +452,7 @@ Future<void> _initializeHive() async {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: AppColors.warningOrange.withOpacity(0.3),
               blurRadius: 8,
               offset: const Offset(0, 4),
             ),
@@ -508,13 +515,13 @@ Future<void> _initializeHive() async {
 
   Widget _buildBottomNavigationBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
+            color: AppColors.warningOrange.withOpacity(0.2),
+            blurRadius: 8,
             offset: const Offset(0, -2),
           ),
         ],
@@ -522,11 +529,30 @@ Future<void> _initializeHive() async {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          IconButton(
-            onPressed: currentPage > 0 ? _previousPage : null,
-            icon: Icon(
-              Icons.arrow_back_ios,
-              color: currentPage > 0 ? const Color(0xFF2196F3) : Colors.grey,
+          Container(
+            height: 40,
+            width: 40,
+            decoration: BoxDecoration(
+              color: currentPage > 0 
+                  ? AppColors.primaryYellow 
+                  : Colors.grey.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: currentPage > 0 ? [
+                BoxShadow(
+                  color: AppColors.primaryYellow.withOpacity(0.3),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
+                ),
+              ] : [],
+            ),
+            child: IconButton(
+              onPressed: currentPage > 0 ? _previousPage : null,
+              icon: Icon(
+                Icons.arrow_back_ios_new,
+                color: currentPage > 0 ? Colors.white : Colors.grey,
+                size: 18,
+              ),
+              padding: EdgeInsets.zero,
             ),
           ),
           Expanded(
@@ -537,34 +563,57 @@ Future<void> _initializeHive() async {
                   'Page ${currentPage + 1} of $totalPages',
                   style: const TextStyle(
                     fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primaryBlue,
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2196F3).withOpacity(0.1),
+                    color: AppColors.primaryYellow.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppColors.primaryYellow.withOpacity(0.4),
+                      width: 1,
+                    ),
                   ),
-                  child: Text(
+                  child: const Text(
                     'PDF',
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: const Color(0xFF2196F3),
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primaryYellow,
                     ),
                   ),
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: currentPage < totalPages - 1 ? _nextPage : null,
-            icon: Icon(
-              Icons.arrow_forward_ios,
-              color: currentPage < totalPages - 1 ? const Color(0xFF2196F3) : Colors.grey,
+          Container(
+            height: 40,
+            width: 40,
+            decoration: BoxDecoration(
+              color: currentPage < totalPages - 1 
+                  ? AppColors.warningOrange
+                  : Colors.grey.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: currentPage < totalPages - 1 ? [
+                BoxShadow(
+                  color: AppColors.warningOrange.withOpacity(0.3),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
+                ),
+              ] : [],
+            ),
+            child: IconButton(
+              onPressed: currentPage < totalPages - 1 ? _nextPage : null,
+              icon: Icon(
+                Icons.arrow_forward_ios,
+                color: currentPage < totalPages - 1 ? Colors.white : Colors.grey,
+                size: 18,
+              ),
+              padding: EdgeInsets.zero,
             ),
           ),
         ],
@@ -588,7 +637,7 @@ Future<void> _initializeHive() async {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Share functionality can be implemented here'),
-        backgroundColor: Color(0xFF2196F3),
+        backgroundColor: AppColors.primaryYellow,
       ),
     );
   }
@@ -612,10 +661,10 @@ Future<void> _initializeHive() async {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'readedtime: $readedTimeMinutes',
+          'Reading Time: $readedTimeMinutes minutes',
           style: const TextStyle(color: Colors.white),
         ),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: AppColors.primaryYellow,
         duration: const Duration(seconds: 2),
       ),
     );

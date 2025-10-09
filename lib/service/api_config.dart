@@ -2,7 +2,7 @@ import 'dart:io';
 
 class ApiConfig {
   // Base URL configuration
-  static const String _baseUrl = 'https://083f605e2a97.ngrok-free.app';
+  static const String _baseUrl = 'http://192.168.20.8:8000/';
   
   // API endpoints
   static const String _studentsPath = '/api/students';
@@ -17,6 +17,7 @@ class ApiConfig {
   static String get otpVerificationUrl => '$_baseUrl$_studentsPath/verify_registration/';
   static String get loginOtpVerificationUrl => '$_baseUrl$_studentsPath/verify_login/';
   static String get emailLoginScreenUrl => '$_baseUrl$_studentsPath/student_login/';
+  
   
   
   static String get profileUrl => '$_baseUrl$_studentsPath/profile/';

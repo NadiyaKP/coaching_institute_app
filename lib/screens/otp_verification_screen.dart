@@ -7,8 +7,8 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../service/api_config.dart';
 import 'package:coaching_institute_app/screens/profile_completion_page.dart';
-import '../common/theme_color.dart'; // Import the theme colors
-import '../common/continue_button.dart'; // Import the ContinueButton
+import '../common/theme_color.dart';
+import '../common/continue_button.dart';
 
 class OtpVerificationScreen extends StatefulWidget {
   const OtpVerificationScreen({super.key});
@@ -34,8 +34,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   String mobileNumber = '';
   String email = '';
   String name = '';
+  String password = '';  // ADD THIS LINE
   bool isLoginFlow = false;
-
+  
   @override
   void initState() {
     super.initState();
@@ -43,35 +44,38 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  @override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  
+  // Extract arguments passed from previous screen
+  final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+  
+  if (args != null) {
+    phoneNumber = args['phone_number'] ?? '';
+    countryCode = args['country_code'] ?? '+91';
+    mobileNumber = args['mobile_number'] ?? '';
+    email = args['email'] ?? '';
+    name = args['name'] ?? '';
+    password = args['password'] ?? '';  // ADD THIS LINE
+    isLoginFlow = args['is_login'] ?? false;
     
-    // Extract arguments passed from previous screen
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    
-    if (args != null) {
-      phoneNumber = args['phone_number'] ?? '';
-      countryCode = args['country_code'] ?? '+91';
-      mobileNumber = args['mobile_number'] ?? '';
-      email = args['email'] ?? '';
-      name = args['name'] ?? '';
-      isLoginFlow = args['is_login'] ?? false;
-      
-      // Debug prints to verify data
-      _debugLog('OTP VERIFICATION - ROUTE ARGUMENTS RECEIVED', {
-        'phone_number': phoneNumber,
-        'country_code': countryCode,
-        'mobile_number': mobileNumber,
-        'email': email,
-        'name': name,
-        'is_login': isLoginFlow,
-        'display_phone': getDisplayPhoneNumber(),
-        'formatted_phone': getFormattedPhoneNumber(),
-      });
-    } else {
-      debugPrint('WARNING: No route arguments received for OTP verification');
-    }
+    // Debug prints to verify data
+    _debugLog('OTP VERIFICATION - ROUTE ARGUMENTS RECEIVED', {
+      'phone_number': phoneNumber,
+      'country_code': countryCode,
+      'mobile_number': mobileNumber,
+      'email': email,
+      'name': name,
+      'password': password.isNotEmpty ? '***PASSWORD_RECEIVED***' : 'NOT_FOUND',  // ADD THIS LINE
+      'is_login': isLoginFlow,
+      'display_email': email,
+      'formatted_phone': getFormattedPhoneNumber(),
+    });
+  } else {
+    debugPrint('WARNING: No route arguments received for OTP verification');
   }
+}
 
   @override
   void dispose() {
@@ -123,19 +127,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     return IOClient(ApiConfig.createHttpClient());
   }
 
-  // Helper method to get display phone number
-  String getDisplayPhoneNumber() {
-    if (phoneNumber.isEmpty) return '';
-    
-    // If phone number already contains country code, return as is
-    if (phoneNumber.startsWith(countryCode)) {
-      return phoneNumber;
-    }
-    
-    // Otherwise, combine country code with phone number
-    return '$countryCode $phoneNumber';
-  }
-
   // Helper method to get formatted phone number for API call
   String getFormattedPhoneNumber() {
     if (phoneNumber.isEmpty) return '';
@@ -157,6 +148,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       // Store authentication data
       await prefs.setBool('isLoggedIn', true);
       await prefs.setString('phoneNumber', responseData['phone_number'] ?? phoneNumber);
+      await prefs.setString('email', responseData['email'] ?? email);
       await prefs.setString('accessToken', responseData['access'] ?? '');
       await prefs.setString('refreshToken', responseData['refresh'] ?? '');
       await prefs.setString('studentType', responseData['student_type'] ?? '');
@@ -172,6 +164,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       _debugLog('SHARED_PREFERENCES_DATA', {
         'isLoggedIn': true,
         'phoneNumber': responseData['phone_number'] ?? phoneNumber,
+        'email': responseData['email'] ?? email,
         'accessToken': responseData['access'] != null ? '***TOKEN_SAVED***' : 'NOT_FOUND',
         'refreshToken': responseData['refresh'] != null ? '***TOKEN_SAVED***' : 'NOT_FOUND',
         'studentType': responseData['student_type'] ?? '',
@@ -201,188 +194,169 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     }
   }
 
-  Future<void> _verifyOtp() async {
-    String otp = otpControllers.map((controller) => controller.text).join();
-    debugPrint('\n🔍 OTP VERIFICATION INITIATED');
-    debugPrint('Current OTP: "$otp"');
-    debugPrint('OTP Length: ${otp.length}');
-    debugPrint('Flow Type: ${isLoginFlow ? 'LOGIN' : 'REGISTRATION'}');
-    
-    if (otp.length != 6) {
-      debugPrint('❌ OTP validation failed - incomplete OTP');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter complete OTP'),
-          backgroundColor: AppColors.errorRed,
-        ),
-      );
-      return;
-    }
+ Future<void> _verifyOtp() async {
+  String otp = otpControllers.map((controller) => controller.text).join();
+  debugPrint('\n🔍 OTP VERIFICATION INITIATED');
+  debugPrint('Current OTP: "$otp"');
+  debugPrint('OTP Length: ${otp.length}');
+  debugPrint('Email: $email');
+  
+  if (otp.length != 6) {
+    debugPrint('❌ OTP validation failed - incomplete OTP');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Please enter complete OTP'),
+        backgroundColor: AppColors.errorRed,
+      ),
+    );
+    return;
+  }
 
-    setState(() {
-      isLoading = true;
+  setState(() {
+    isLoading = true;
+  });
+
+  // Create HTTP client using ApiConfig
+  final client = createHttpClient();
+  final stopwatch = Stopwatch()..start();
+
+  try {
+    // Use the provided API endpoint for registration verification
+    String requestUrl = ApiConfig.buildUrl('/api/students/verify_registration/');
+    
+    // Prepare the request data with email and OTP
+    final requestData = {
+      'email': email,
+      'otp': otp,
+    };
+
+    // Use ApiConfig for common headers
+    final requestHeaders = ApiConfig.commonHeaders;
+
+    // Log complete request details
+    _debugLog('🚀 OTP VERIFICATION API REQUEST', {
+      'method': 'POST',
+      'url': requestUrl,
+      'headers': requestHeaders,
+      'body': requestData,
+      'base_url': ApiConfig.currentBaseUrl,
+      'is_development': ApiConfig.isDevelopment,
+      'timestamp': DateTime.now().toIso8601String(),
     });
 
-    // Create HTTP client using ApiConfig
-    final client = createHttpClient();
-    final stopwatch = Stopwatch()..start();
+    // Make the API call with ApiConfig timeout
+    final response = await client.post(
+      Uri.parse(requestUrl),
+      headers: requestHeaders,
+      body: json.encode(requestData),
+    ).timeout(
+      ApiConfig.requestTimeout,
+      onTimeout: () {
+        throw TimeoutException('Request timeout', ApiConfig.requestTimeout);
+      },
+    );
 
+    stopwatch.stop();
+
+    // Log complete response details
+    _debugLog('📥 OTP VERIFICATION API RESPONSE', {
+      'status_code': response.statusCode,
+      'status_message': response.reasonPhrase,
+      'headers': response.headers,
+      'body_raw': response.body,
+      'response_time_ms': stopwatch.elapsedMilliseconds,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+
+    // Try to parse response body as JSON
+    dynamic responseData;
     try {
-      String requestUrl;
-      if (isLoginFlow) {
-        requestUrl = ApiConfig.buildUrl('/api/students/verify_login/');
-      } else {
-        requestUrl = ApiConfig.buildUrl('/api/students/verify_registration/');
+      responseData = json.decode(response.body);
+      _debugLog('📋 PARSED RESPONSE DATA', responseData);
+    } catch (e) {
+      debugPrint('⚠️ Failed to parse response as JSON: $e');
+      responseData = {'raw_body': response.body};
+    }
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      // Check if success is true (handle both boolean and string responses)
+      bool isSuccess = false;
+      if (responseData['success'] is bool) {
+        isSuccess = responseData['success'];
+      } else if (responseData['success'] is String) {
+        isSuccess = responseData['success'].toString().toLowerCase() == 'true';
       }
       
-      // Prepare the request data
-      final requestData = {
-        'phone_number': getFormattedPhoneNumber(),
-        'otp': otp,
-      };
-
-      // Use ApiConfig for common headers
-      final requestHeaders = ApiConfig.commonHeaders;
-
-      // Log complete request details
-      _debugLog('🚀 OTP VERIFICATION API REQUEST', {
-        'method': 'POST',
-        'url': requestUrl,
-        'endpoint_type': isLoginFlow ? 'LOGIN' : 'REGISTRATION',
-        'headers': requestHeaders,
-        'body': requestData,
-        'base_url': ApiConfig.currentBaseUrl,
-        'is_development': ApiConfig.isDevelopment,
-        'timestamp': DateTime.now().toIso8601String(),
+      debugPrint('✅ OTP verification success status determined: $isSuccess (HTTP ${response.statusCode})');
+      
+      setState(() {
+        isLoading = false;
       });
 
-      // Make the API call with ApiConfig timeout
-      final response = await client.post(
-        Uri.parse(requestUrl),
-        headers: requestHeaders,
-        body: json.encode(requestData),
-      ).timeout(
-        ApiConfig.requestTimeout,
-        onTimeout: () {
-          throw TimeoutException('Request timeout', ApiConfig.requestTimeout);
-        },
-      );
-
-      stopwatch.stop();
-
-      // Log complete response details
-      _debugLog('📥 OTP VERIFICATION API RESPONSE', {
-        'status_code': response.statusCode,
-        'status_message': response.reasonPhrase,
-        'headers': response.headers,
-        'body_raw': response.body,
-        'response_time_ms': stopwatch.elapsedMilliseconds,
-        'timestamp': DateTime.now().toIso8601String(),
-      });
-
-      // Try to parse response body as JSON
-      dynamic responseData;
-      try {
-        responseData = json.decode(response.body);
-        _debugLog('📋 PARSED RESPONSE DATA', responseData);
-      } catch (e) {
-        debugPrint('⚠️ Failed to parse response as JSON: $e');
-        responseData = {'raw_body': response.body};
-      }
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        // Check if success is true (handle both boolean and string responses)
-        bool isSuccess = false;
-        if (responseData['success'] is bool) {
-          isSuccess = responseData['success'];
-        } else if (responseData['success'] is String) {
-          isSuccess = responseData['success'].toString().toLowerCase() == 'true';
-        }
+      if (isSuccess) {
+        // Save authentication data to SharedPreferences - JUST LIKE LOGIN SCREEN
+        final prefs = await SharedPreferences.getInstance();
         
-        debugPrint('✅ OTP verification success status determined: $isSuccess (HTTP ${response.statusCode})');
+        // Store access token (changed to camelCase) - SAME AS LOGIN SCREEN
+        await prefs.setString('accessToken', responseData['access'] ?? '');
         
-        setState(() {
-          isLoading = false;
-        });
-
-        if (isSuccess) {
-          // Save authentication data to SharedPreferences
-          await _saveAuthData(responseData);
+        // Store student type (changed to camelCase) - SAME AS LOGIN SCREEN
+        await prefs.setString('studentType', responseData['student_type'] ?? '');
+        
+        // Store phone number (changed to camelCase) - SAME AS LOGIN SCREEN
+        await prefs.setString('phoneNumber', responseData['phone_number'] ?? phoneNumber);
+        
+        // Store profile completion status (changed to camelCase) - SAME AS LOGIN SCREEN
+        await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
+        
+        // Optional: Store username/email for future reference
+        await prefs.setString('username', responseData['email'] ?? email);
+        
+        debugPrint('Verification - Stored accessToken: ${prefs.getString('accessToken')}');
+        debugPrint('Verification - Stored studentType: ${prefs.getString('studentType')}');
+        
+        if (mounted) {
+          // Show success message
+          final successMessage = responseData['message'] ?? 'OTP verified successfully';
+          debugPrint('🎉 OTP verification successful: $successMessage');
           
-          if (mounted) {
-            // Show success message
-            final successMessage = responseData['message'] ?? 'OTP verified successfully';
-            debugPrint('🎉 OTP verification successful: $successMessage');
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(successMessage),
-                backgroundColor: AppColors.successGreen,
-              ),
-            );
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(successMessage),
+              backgroundColor: AppColors.successGreen,
+            ),
+          );
 
-            // Prepare navigation arguments for profile completion
-            final navigationArgs = {
-              'phone_number': responseData['phone_number'] ?? phoneNumber,
-              'country_code': countryCode,
-              'mobile_number': mobileNumber,
-              'email': email,
-              'name': name,
-              'verified': true,
-              'is_login': isLoginFlow,
-              'access_token': responseData['access'] ?? '',
-              'refresh_token': responseData['refresh'] ?? '',
-              'student_type': responseData['student_type'] ?? '',
-            };
+          // Prepare navigation arguments for profile completion
+          final navigationArgs = {
+            'phone_number': responseData['phone_number'] ?? phoneNumber,
+            'country_code': countryCode,
+            'mobile_number': mobileNumber,
+            'email': responseData['email'] ?? email,
+            'name': name,
+            'verified': true,
+            'is_login': isLoginFlow,
+            'access_token': responseData['access'] ?? '',
+            'refresh_token': responseData['refresh'] ?? '',
+            'student_type': responseData['student_type'] ?? '',
+          };
 
-            _debugLog('🧭 NAVIGATION ARGUMENTS', navigationArgs);
+          _debugLog('🧭 NAVIGATION ARGUMENTS', navigationArgs);
 
-            // Navigate based on flow type
-            if (isLoginFlow) {
-              // For login flow, navigate to home directly
-              debugPrint('🏠 Navigating to HOME screen (login flow)');
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                '/home',
-                (route) => false,
-                arguments: navigationArgs,
-              );
-            } else {
-              // For registration flow, navigate to profile completion
-              debugPrint('📝 Navigating to PROFILE COMPLETION screen (registration flow)');
-              Navigator.pushNamedAndRemoveUntil(
-                context,
-                '/profile_completion_page',
-                (route) => false,
-                arguments: navigationArgs,
-              );
-            }
-          }
-        } else {
-          // Handle unsuccessful OTP verification
-          final errorMessage = responseData['message'] ?? 'Invalid OTP. Please try again.';
-          debugPrint('❌ OTP verification failed: $errorMessage');
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(errorMessage),
-                backgroundColor: AppColors.errorRed,
-              ),
-            );
-            
-            // Clear OTP fields for retry
-            _clearOtpFields();
-          }
+          // Navigate based on profile completion status - JUST LIKE LOGIN SCREEN
+          Future.delayed(const Duration(milliseconds: 800), () {
+  debugPrint('🧭 Navigating to: /profile_completion_page');
+  Navigator.pushReplacementNamed(
+    context, 
+    '/profile_completion_page',
+    arguments: navigationArgs,
+  );
+});
         }
-      } else if (response.statusCode == 400) {
-        // Handle bad request (invalid OTP, expired, etc.)
-        setState(() {
-          isLoading = false;
-        });
-        
+      } else {
+        // Handle unsuccessful OTP verification
         final errorMessage = responseData['message'] ?? 'Invalid OTP. Please try again.';
-        debugPrint('❌ Bad Request (400): $errorMessage');
+        debugPrint('❌ OTP verification failed: $errorMessage');
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -395,109 +369,130 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           // Clear OTP fields for retry
           _clearOtpFields();
         }
-      } else if (response.statusCode == 401) {
-        // Handle unauthorized (user not found, account blocked, etc.)
-        setState(() {
-          isLoading = false;
-        });
-        
-        final errorMessage = responseData['message'] ?? 'Account not found or blocked.';
-        debugPrint('❌ Unauthorized (401): $errorMessage');
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMessage),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-          
-          // Navigate back to previous screen
-          Navigator.pop(context);
-        }
-      } else {
-        // Handle other HTTP errors
-        setState(() {
-          isLoading = false;
-        });
-        
-        debugPrint('❌ HTTP Error ${response.statusCode}: ${response.reasonPhrase}');
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Network error. Please try again.'),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-        }
       }
-    } on TimeoutException catch (e) {
-      stopwatch.stop();
+    } else if (response.statusCode == 400) {
+      // Handle bad request (invalid OTP, expired, etc.)
       setState(() {
         isLoading = false;
       });
       
-      _debugLog('⏰ REQUEST TIMEOUT', {
-        'error': e.toString(),
-        'duration_ms': stopwatch.elapsedMilliseconds,
-        'timeout_duration': ApiConfig.requestTimeout.inSeconds.toString() + ' seconds',
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Request timeout. Please check your connection and try again.'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-    } on SocketException catch (e) {
-      stopwatch.stop();
-      setState(() {
-        isLoading = false;
-      });
-      
-      _debugLog('🌐 NETWORK ERROR', {
-        'error': e.toString(),
-        'message': e.message,
-        'os_error': e.osError?.toString(),
-        'duration_ms': stopwatch.elapsedMilliseconds,
-      });
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No internet connection. Please check your network.'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-    } catch (e, stackTrace) {
-      stopwatch.stop();
-      setState(() {
-        isLoading = false;
-      });
-      
-      _debugLog('💥 UNEXPECTED ERROR', {
-        'error': e.toString(),
-        'stack_trace': stackTrace.toString(),
-        'duration_ms': stopwatch.elapsedMilliseconds,
-      });
+      final errorMessage = responseData['message'] ?? 'Invalid OTP. Please try again.';
+      debugPrint('❌ Bad Request (400): $errorMessage');
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Verification failed: ${e.toString()}'),
+            content: Text(errorMessage),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+        
+        // Clear OTP fields for retry
+        _clearOtpFields();
+      }
+    } else if (response.statusCode == 401) {
+      // Handle unauthorized (user not found, account blocked, etc.)
+      setState(() {
+        isLoading = false;
+      });
+      
+      final errorMessage = responseData['message'] ?? 'Account not found or blocked.';
+      debugPrint('❌ Unauthorized (401): $errorMessage');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: AppColors.errorRed,
+          ),
+        );
+        
+        // Navigate back to previous screen
+        Navigator.pop(context);
+      }
+    } else {
+      // Handle other HTTP errors
+      setState(() {
+        isLoading = false;
+      });
+      
+      debugPrint('❌ HTTP Error ${response.statusCode}: ${response.reasonPhrase}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Network error. Please try again.'),
             backgroundColor: AppColors.errorRed,
           ),
         );
       }
-    } finally {
-      client.close();
-      debugPrint('🔒 HTTP client closed');
     }
+  } on TimeoutException catch (e) {
+    stopwatch.stop();
+    setState(() {
+      isLoading = false;
+    });
+    
+    _debugLog('⏰ REQUEST TIMEOUT', {
+      'error': e.toString(),
+      'duration_ms': stopwatch.elapsedMilliseconds,
+      'timeout_duration': ApiConfig.requestTimeout.inSeconds.toString() + ' seconds',
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Request timeout. Please check your connection and try again.'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+    }
+  } on SocketException catch (e) {
+    stopwatch.stop();
+    setState(() {
+      isLoading = false;
+    });
+    
+    _debugLog('🌐 NETWORK ERROR', {
+      'error': e.toString(),
+      'message': e.message,
+      'os_error': e.osError?.toString(),
+      'duration_ms': stopwatch.elapsedMilliseconds,
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No internet connection. Please check your network.'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+    }
+  } catch (e, stackTrace) {
+    stopwatch.stop();
+    setState(() {
+      isLoading = false;
+    });
+    
+    _debugLog('💥 UNEXPECTED ERROR', {
+      'error': e.toString(),
+      'stack_trace': stackTrace.toString(),
+      'duration_ms': stopwatch.elapsedMilliseconds,
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Verification failed: ${e.toString()}'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+    }
+  } finally {
+    client.close();
+    debugPrint('🔒 HTTP client closed');
   }
+}
 
   void _clearOtpFields() {
     debugPrint('🧹 Clearing OTP fields');
@@ -512,7 +507,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   Future<void> _resendOtp() async {
     debugPrint('\n🔄 RESEND OTP INITIATED');
-    debugPrint('Flow Type: ${isLoginFlow ? 'LOGIN' : 'REGISTRATION'}');
+    debugPrint('Email: $email');
     
     setState(() {
       isLoading = true;
@@ -529,7 +524,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       if (isLoginFlow) {
         requestUrl = ApiConfig.buildUrl('/api/students/resend_login_otp/');
         requestData = {
-          'phone_number': getFormattedPhoneNumber(),
+          'email': email,
         };
       } else {
         requestUrl = ApiConfig.buildUrl('/api/students/register_student/');
@@ -537,6 +532,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           'phone_number': getFormattedPhoneNumber(),
           'email': email,
           'name': name,
+          'password': password,
         };
       }
 
@@ -594,7 +590,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final successMessage = responseData['message'] ?? 'OTP resent to ${getDisplayPhoneNumber()}';
+        final successMessage = responseData['message'] ?? 'OTP resent to $email';
         debugPrint('✅ OTP resend successful: $successMessage (HTTP ${response.statusCode})');
         
         if (mounted) {
@@ -675,7 +671,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('OTP resent to ${getDisplayPhoneNumber()}'),
+            content: Text('OTP resent to $email'),
             backgroundColor: AppColors.successGreen,
           ),
         );
@@ -743,9 +739,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 
                 SizedBox(height: screenHeight * 0.025),
                 
-                // Title - Reduced font size
+                // Title - Changed to Email Verification
                 Text(
-                  isLoginFlow ? 'Login Verification' : 'Verify Phone Number',
+                  isLoginFlow ? 'Login Verification' : 'Email Verification',
                   style: TextStyle(
                     fontSize: screenWidth * 0.06,
                     fontWeight: FontWeight.w700,
@@ -756,9 +752,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 
                 SizedBox(height: screenHeight * 0.012),
                 
-                // Description - Reduced font size
+                // Description - Updated text
                 Text(
-                  phoneNumber.isNotEmpty 
+                  email.isNotEmpty 
                     ? 'Enter the 6-digit code sent to'
                     : 'Enter the 6-digit verification code',
                   textAlign: TextAlign.center,
@@ -771,10 +767,10 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 
                 SizedBox(height: screenHeight * 0.006),
                 
-                // Phone Number Display - Reduced font size
-                if (phoneNumber.isNotEmpty)
+                // Email Display - Changed from phone number
+                if (email.isNotEmpty)
                   Text(
-                    getDisplayPhoneNumber(),
+                    email,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: screenWidth * 0.038,
@@ -815,7 +811,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 
                 SizedBox(height: screenHeight * 0.04),
                 
-                // OTP Input Fields with Reduced Size
+                // OTP Input Fields with Reduced Size - SINGLE INSTANCE
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Row(
@@ -884,7 +880,6 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                   isLoading: isLoading,
                   onPressed: _verifyOtp,
                   screenWidth: screenWidth,
-                  
                 ),
                 
                 SizedBox(height: screenHeight * 0.025),
