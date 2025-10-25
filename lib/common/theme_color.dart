@@ -57,14 +57,14 @@ class AppGradients {
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: AppColors.yellowGradient,
-    stops: [0.0, 0.5, 1.0],
+    stops: const [0.0, 0.5, 1.0],
   );
   
   static Gradient get background => LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
     colors: AppColors.backgroundGradient,
-    stops: [0.0, 0.5, 1.0],
+    stops: const [0.0, 0.5, 1.0],
   );
   
   static Gradient get blue => LinearGradient(

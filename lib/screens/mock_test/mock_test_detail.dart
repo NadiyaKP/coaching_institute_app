@@ -8,7 +8,7 @@ class MockTestResultDetailScreen extends StatefulWidget {
   final String unitName;
   final String attemptDate;
 
-  const MockTestResultDetailScreen({
+  const  MockTestResultDetailScreen({
     super.key,
     required this.resultData,
     required this.unitName,
@@ -33,7 +33,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Test Result Details',
           style: TextStyle(
             color: Colors.white,
@@ -42,11 +42,11 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
           ),
         ),
         backgroundColor: AppColors.primaryYellow,
-        iconTheme: IconThemeData(color: Colors.white),
+        iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -66,7 +66,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
   }
 
   Widget _buildLoadingScreen() {
-    return Center(
+    return const Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -90,8 +90,8 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
       children: [
         // Summary Card
         Container(
-          margin: EdgeInsets.all(16),
-          padding: EdgeInsets.all(16),
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
@@ -99,7 +99,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
               BoxShadow(
                 color: Colors.black.withOpacity(0.1),
                 blurRadius: 10,
-                offset: Offset(0, 4),
+                offset: const Offset(0, 4),
               ),
             ],
           ),
@@ -107,13 +107,13 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
             children: [
               Text(
                 widget.unitName,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: AppColors.primaryBlue,
                 ),
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text(
                 'Attempted on: ${_formatDate(widget.attemptDate)}',
                 style: TextStyle(
@@ -121,7 +121,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                   color: Colors.grey[600],
                 ),
               ),
-              SizedBox(height: 16),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
@@ -138,7 +138,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
         // Questions List
         Expanded(
           child: Container(
-            margin: EdgeInsets.fromLTRB(16, 0, 16, 16),
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
@@ -146,7 +146,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),
                   blurRadius: 10,
-                  offset: Offset(0, 4),
+                  offset: const Offset(0, 4),
                 ),
               ],
             ),
@@ -161,9 +161,9 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                     ),
                   )
                 : ListView.separated(
-                    padding: EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
                     itemCount: answers.length,
-                    separatorBuilder: (context, index) => SizedBox(height: 12),
+                    separatorBuilder: (context, index) => const SizedBox(height: 12),
                     itemBuilder: (context, index) {
                       final answer = answers[index];
                       return _buildQuestionItem(index + 1, answer);
@@ -197,7 +197,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
             ),
           ),
         ),
-        SizedBox(height: 4),
+        const SizedBox(height: 4),
         Text(
           title,
           style: TextStyle(
@@ -221,7 +221,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
     final skipped = answer['skipped'] ?? false;
 
     return Container(
-      padding: EdgeInsets.all(12), // Reduced padding
+      padding: const EdgeInsets.all(12), // Reduced padding
       decoration: BoxDecoration(
         color: Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
@@ -236,29 +236,29 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
           Row(
             children: [
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: isCorrect ? Colors.green : Colors.red,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
                   'Q$questionNumber',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 10, // Reduced font size
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-              SizedBox(width: 8),
+              const SizedBox(width: 8),
               if (skipped)
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppColors.warningOrange,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: Text(
+                  child: const Text(
                     'Skipped',
                     style: TextStyle(
                       color: Colors.white,
@@ -267,32 +267,32 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                     ),
                   ),
                 ),
-              Spacer(),
+              const Spacer(),
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: AppColors.primaryYellow.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   '${timeTaken}m',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: AppColors.primaryBlue,
                     fontSize: 8,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-              SizedBox(width: 4),
+              const SizedBox(width: 4),
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: AppColors.primaryBlue.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   'Mark: $mark',
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: AppColors.primaryBlue,
                     fontSize: 8,
                     fontWeight: FontWeight.bold,
@@ -301,17 +301,17 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
               ),
             ],
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           Text(
             question,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 12, // Reduced font size
               fontWeight: FontWeight.w600,
               color: AppColors.primaryBlue,
               height: 1.3,
             ),
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
           ...options.map((option) => _buildOptionItem(
             option,
             selectedAnswer: selectedAnswer,
@@ -345,8 +345,8 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
     }
 
     return Container(
-      margin: EdgeInsets.only(bottom: 6),
-      padding: EdgeInsets.all(8), // Reduced padding
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(8), // Reduced padding
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(8),
@@ -376,7 +376,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                   )
                 : null,
           ),
-          SizedBox(width: 8),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
               option,

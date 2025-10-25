@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 8),
                 
                 // Account Settings Section
-                Text(
+                const Text(
                   'Account Settings',
                   style: TextStyle(
                     fontSize: 16,
@@ -74,14 +74,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               color: AppColors.primaryYellow.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(
+                            child: const Icon(
                               Icons.lock_outline,
                               color: AppColors.primaryYellow,
                               size: 24,
                             ),
                           ),
                           const SizedBox(width: 16),
-                          Expanded(
+                          const Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -93,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     color: AppColors.textDark,
                                   ),
                                 ),
-                                const SizedBox(height: 4),
+                                 SizedBox(height: 4),
                                 Text(
                                   'Update your account password',
                                   style: TextStyle(
@@ -104,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ],
                             ),
                           ),
-                          Icon(
+                          const Icon(
                             Icons.chevron_right,
                             color: AppColors.textGrey,
                           ),
@@ -117,7 +117,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 24),
                 
                 // App Settings Section
-                Text(
+                const Text(
                   'App Settings',
                   style: TextStyle(
                     fontSize: 16,
@@ -144,14 +144,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: AppColors.primaryYellow.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Icon(
+                          child: const Icon(
                             Icons.notifications_outlined,
                             color: AppColors.primaryYellow,
                             size: 24,
                           ),
                         ),
                         const SizedBox(width: 16),
-                        Expanded(
+                        const Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -163,7 +163,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   color: AppColors.textDark,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                               SizedBox(height: 4),
                               Text(
                                 'Manage notification preferences',
                                 style: TextStyle(
@@ -174,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ],
                           ),
                         ),
-                        Text(
+                        const Text(
                           'Coming Soon',
                           style: TextStyle(
                             fontSize: 12,
@@ -218,15 +218,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
-              title: Row(
+              title: const Row(
                 children: [
                   Icon(
                     Icons.lock_reset,
                     color: AppColors.primaryYellow,
                     size: 24,
                   ),
-                  const SizedBox(width: 8),
-                  const Text(
+                   SizedBox(width: 8),
+                   Text(
                     'Change Password',
                     style: TextStyle(
                       fontSize: 18,
@@ -255,7 +255,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: InputDecoration(
                         labelText: 'Current Password',
                         hintText: 'Enter current password',
-                        prefixIcon: Icon(
+                        prefixIcon: const Icon(
                           Icons.lock_outline,
                           color: AppColors.primaryYellow,
                         ),
@@ -276,7 +276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
+                          borderSide: const BorderSide(
                             color: AppColors.primaryYellow,
                             width: 2,
                           ),
@@ -302,7 +302,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: InputDecoration(
                         labelText: 'New Password',
                         hintText: 'Enter new password',
-                        prefixIcon: Icon(
+                        prefixIcon: const Icon(
                           Icons.lock,
                           color: AppColors.primaryYellow,
                         ),
@@ -323,7 +323,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
+                          borderSide: const BorderSide(
                             color: AppColors.primaryYellow,
                             width: 2,
                           ),
@@ -349,7 +349,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: InputDecoration(
                         labelText: 'Confirm Password',
                         hintText: 'Re-enter new password',
-                        prefixIcon: Icon(
+                        prefixIcon: const Icon(
                           Icons.lock_clock,
                           color: AppColors.primaryYellow,
                         ),
@@ -370,7 +370,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide(
+                          borderSide: const BorderSide(
                             color: AppColors.primaryYellow,
                             width: 2,
                           ),
@@ -387,7 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : () {
                           Navigator.of(dialogContext).pop();
                         },
-                  child: Text(
+                  child: const Text(
                     'Cancel',
                     style: TextStyle(color: AppColors.textGrey),
                   ),

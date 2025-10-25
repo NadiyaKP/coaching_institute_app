@@ -1,10 +1,159 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 
+// ============= PROVIDER CLASS =============
+class ForgotPasswordProvider extends ChangeNotifier {
+  bool _isLoading = false;
+  String? _emailError;
+  bool _isEmailValid = false;
+
+  bool get isLoading => _isLoading;
+  String? get emailError => _emailError;
+  bool get isEmailValid => _isEmailValid;
+
+  void validateEmail(String email) {
+    if (email.isEmpty) {
+      _emailError = null;
+      _isEmailValid = false;
+      notifyListeners();
+      return;
+    }
+
+    // email validation
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    );
+
+    if (!emailRegex.hasMatch(email)) {
+      _emailError = 'Enter a valid email address';
+      _isEmailValid = false;
+    } else {
+      _emailError = null;
+      _isEmailValid = true;
+    }
+    notifyListeners();
+  }
+
+  Future<Map<String, dynamic>> sendResetOTP(String email) async {
+    if (!_isEmailValid) {
+      if (email.trim().isEmpty) {
+        return {
+          'success': false,
+          'message': 'Please enter your email',
+        };
+      }
+      return {
+        'success': false,
+        'message': _emailError ?? 'Invalid email',
+      };
+    }
+
+    _isLoading = true;
+    notifyListeners();
+
+    debugPrint('Sending OTP to email: $email');
+
+    try {
+      final httpClient = ApiConfig.createHttpClient();
+
+      final request = await httpClient.postUrl(
+        Uri.parse('${ApiConfig.baseUrl}/api/admin/forget-password/'),
+      );
+
+      ApiConfig.commonHeaders.forEach((key, value) {
+        request.headers.set(key, value);
+      });
+
+      final body = jsonEncode({
+        'email': email,
+      });
+      request.contentLength = body.length;
+      request.write(body);
+
+      final httpResponse = await request.close().timeout(
+        ApiConfig.requestTimeout,
+        onTimeout: () {
+          throw Exception('Request timeout');
+        },
+      );
+
+      final responseBody = await httpResponse.transform(utf8.decoder).join();
+
+      debugPrint('Response status: ${httpResponse.statusCode}');
+      debugPrint('Response body: $responseBody');
+
+      httpClient.close();
+
+      if (httpResponse.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(responseBody);
+
+        if (responseData['success'] == true) {
+          return {
+            'success': true,
+            'message': responseData['message'] ?? 'OTP sent successfully!',
+            'email': email,
+            'otp': responseData['OTP'],
+          };
+        } else {
+          return {
+            'success': false,
+            'message': responseData['message'] ?? 'Failed to send OTP',
+          };
+        }
+      } else if (httpResponse.statusCode == 404) {
+        final Map<String, dynamic> responseData = jsonDecode(responseBody);
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Email not found',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': 'Server error: ${httpResponse.statusCode}',
+        };
+      }
+    } on TimeoutException catch (e) {
+      debugPrint('Timeout Error: $e');
+      return {
+        'success': false,
+        'message': 'Request timeout. Please check your connection.',
+      };
+    } on FormatException catch (e) {
+      debugPrint('JSON Format Error: $e');
+      return {
+        'success': false,
+        'message': 'Invalid response format from server.',
+      };
+    } catch (e) {
+      debugPrint('API Error: $e');
+      String errorMessage = 'Network error: ${e.toString()}';
+      if (e.toString().contains('SocketException')) {
+        errorMessage = 'No internet connection. Please check your network.';
+      }
+      return {
+        'success': false,
+        'message': errorMessage,
+      };
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void reset() {
+    _isLoading = false;
+    _emailError = null;
+    _isEmailValid = false;
+    notifyListeners();
+  }
+}
+
+// ============= SCREEN CLASS =============
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
 
@@ -12,17 +161,12 @@ class ForgotPasswordScreen extends StatefulWidget {
   State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> 
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController emailController = TextEditingController();
-  bool isLoading = false;
   AnimationController? _animationController;
   Animation<double>? _scaleAnimation;
   Animation<double>? _fadeAnimation;
-  
-  // Validation variables
-  String? emailError;
-  bool isEmailValid = false;
 
   @override
   void initState() {
@@ -35,21 +179,21 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-    
+
     _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(
-        parent: _animationController!, 
+        parent: _animationController!,
         curve: Curves.easeOutBack,
       ),
     );
-    
+
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
-        parent: _animationController!, 
+        parent: _animationController!,
         curve: Curves.easeOut,
       ),
     );
-    
+
     _animationController?.forward();
   }
 
@@ -60,147 +204,38 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     super.dispose();
   }
 
-  void _validateEmail() {
+  Future<void> _handleSendOTP(BuildContext context) async {
+    final provider = Provider.of<ForgotPasswordProvider>(context, listen: false);
     final email = emailController.text.trim();
-    
-    if (email.isEmpty) {
-      setState(() {
-        emailError = null;
-        isEmailValid = false;
-      });
-      return;
-    }
-    
-    // Basic email validation
-    final emailRegex = RegExp(
-      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    );
-    
-    if (!emailRegex.hasMatch(email)) {
-      setState(() {
-        emailError = 'Enter a valid email address';
-        isEmailValid = false;
-      });
-      return;
-    }
-    
-    setState(() {
-      emailError = null;
-      isEmailValid = true;
-    });
-  }
 
-  Future<void> _sendResetOTP() async {
-    _validateEmail();
-    
-    if (!isEmailValid) {
-      if (emailController.text.trim().isEmpty) {
-        _showSnackBar('Please enter your email', AppColors.errorRed);
-      }
-      return;
-    }
+    final result = await provider.sendResetOTP(email);
 
-    setState(() {
-      isLoading = true;
-    });
+    if (!mounted) return;
 
-    final email = emailController.text.trim();
-    
-    debugPrint('Sending OTP to email: $email');
-
-    try {
-      final httpClient = ApiConfig.createHttpClient();
-      
-      final request = await httpClient.postUrl(
-        Uri.parse('${ApiConfig.baseUrl}/api/admin/forget-password/'),
+    if (result['success'] == true) {
+      _showSnackBar(
+        result['message'] ?? 'OTP sent successfully!',
+        AppColors.successGreen,
       );
-      
-      ApiConfig.commonHeaders.forEach((key, value) {
-        request.headers.set(key, value);
-      });
-      
-      final body = jsonEncode({
-        'email': email,
-      });
-      request.contentLength = body.length;
-      request.write(body);
-      
-      final httpResponse = await request.close().timeout(
-        ApiConfig.requestTimeout,
-        onTimeout: () {
-          throw Exception('Request timeout');
-        },
-      );
-      
-      final responseBody = await httpResponse.transform(utf8.decoder).join();
-      
-      debugPrint('Response status: ${httpResponse.statusCode}');
-      debugPrint('Response body: $responseBody');
 
-      if (httpResponse.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(responseBody);
-        
-        if (responseData['success'] == true) {
-          _showSnackBar(
-            responseData['message'] ?? 'OTP sent successfully!',
-            AppColors.successGreen,
-          );
-          
-          // Navigate to OTP verification page
-          Future.delayed(const Duration(milliseconds: 800), () {
-            Navigator.pushReplacementNamed(
-              context,
-              '/forgot_otp_verification',
-              arguments: {
-                'email': email,
-                'otp': responseData['OTP'],
-              },
-            );
-          });
-        } else {
-          _showSnackBar(
-            responseData['message'] ?? 'Failed to send OTP',
-            AppColors.errorRed,
+      // Navigate to OTP verification page
+      Future.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          Navigator.pushReplacementNamed(
+            context,
+            '/forgot_otp_verification',
+            arguments: {
+              'email': result['email'],
+              'otp': result['otp'],
+            },
           );
         }
-      } else if (httpResponse.statusCode == 404) {
-        final Map<String, dynamic> responseData = jsonDecode(responseBody);
-        _showSnackBar(
-          responseData['message'] ?? 'Email not found',
-          AppColors.errorRed,
-        );
-      } else {
-        _showSnackBar(
-          'Server error: ${httpResponse.statusCode}',
-          AppColors.errorRed,
-        );
-      }
-      
-      httpClient.close();
-      
-    } on TimeoutException catch (e) {
-      _showSnackBar(
-        'Request timeout. Please check your connection.',
-        AppColors.errorRed,
-      );
-      debugPrint('Timeout Error: $e');
-    } on FormatException catch (e) {
-      _showSnackBar(
-        'Invalid response format from server.',
-        AppColors.errorRed,
-      );
-      debugPrint('JSON Format Error: $e');
-    } catch (e) {
-      String errorMessage = 'Network error: ${e.toString()}';
-      if (e.toString().contains('SocketException')) {
-        errorMessage = 'No internet connection. Please check your network.';
-      }
-      _showSnackBar(errorMessage, AppColors.errorRed);
-      debugPrint('API Error: $e');
-    } finally {
-      setState(() {
-        isLoading = false;
       });
+    } else {
+      _showSnackBar(
+        result['message'] ?? 'Failed to send OTP',
+        AppColors.errorRed,
+      );
     }
   }
 
@@ -221,10 +256,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     }
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    
+
     return Container(
       width: double.infinity,
       height: screenHeight * 0.35,
@@ -282,13 +317,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
               ),
             ),
           ),
-          
+
           // Back button
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             left: 16,
             child: IconButton(
-              icon: Icon(
+              icon: const Icon(
                 Icons.arrow_back_ios_new,
                 color: AppColors.white,
                 size: 22,
@@ -296,7 +331,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
               onPressed: () => Navigator.pop(context),
             ),
           ),
-          
+
           // Title and Icon
           Center(
             child: Column(
@@ -353,9 +388,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     );
   }
 
-  Widget _buildEmailCard() {
+  Widget _buildEmailCard(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    
+
     return ScaleTransition(
       scale: _scaleAnimation!,
       child: FadeTransition(
@@ -381,165 +416,174 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
               ),
             ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Email label
-              Row(
+          child: Consumer<ForgotPasswordProvider>(
+            builder: (context, provider, child) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      gradient: AppGradients.primaryYellow,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      Icons.email_outlined,
-                      color: AppColors.white,
-                      size: screenWidth * 0.05,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    "Email Address",
-                    style: TextStyle(
-                      fontSize: screenWidth * 0.042,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textDark,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Email input field
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.grey50,
-                      AppColors.grey100,
+                  // Email label
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          gradient: AppGradients.primaryYellow,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          Icons.email_outlined,
+                          color: AppColors.white,
+                          size: screenWidth * 0.05,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        "Email Address",
+                        style: TextStyle(
+                          fontSize: screenWidth * 0.042,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textDark,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: isEmailValid 
-                      ? AppColors.successGreen.withOpacity(0.6)
-                      : emailError != null
-                        ? AppColors.errorRed.withOpacity(0.6)
-                        : AppColors.grey300,
-                    width: 1.5,
-                  ),
-                  boxShadow: isEmailValid ? [
-                    BoxShadow(
-                      color: AppColors.successGreen.withOpacity(0.1),
-                      spreadRadius: 0,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ] : emailError != null ? [
-                    BoxShadow(
-                      color: AppColors.errorRed.withOpacity(0.1),
-                      spreadRadius: 0,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ] : [],
-                ),
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.04,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.grey800,
+
+                  const SizedBox(height: 16),
+
+                  // Email input field
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.grey50,
+                          AppColors.grey100,
+                        ],
                       ),
-                      decoration: InputDecoration(
-                        hintText: "Enter your registered email",
-                        hintStyle: TextStyle(
-                          color: AppColors.grey500,
-                          fontSize: screenWidth * 0.037,
-                          fontWeight: FontWeight.w400,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 16,
-                        ),
-                        suffixIcon: isEmailValid
-                          ? Icon(
-                              Icons.check_circle,
-                              color: AppColors.successGreen,
-                              size: screenWidth * 0.055,
-                            )
-                          : emailError != null
-                            ? Icon(
-                                Icons.error,
-                                color: AppColors.errorRed,
-                                size: screenWidth * 0.055,
-                              )
-                            : null,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: provider.isEmailValid
+                            ? AppColors.successGreen.withOpacity(0.6)
+                            : provider.emailError != null
+                                ? AppColors.errorRed.withOpacity(0.6)
+                                : AppColors.grey300,
+                        width: 1.5,
                       ),
-                      onChanged: (value) {
-                        _validateEmail();
-                      },
-                    ),
-                    
-                    if (emailError != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.info_outline,
-                              color: AppColors.errorRed,
-                              size: screenWidth * 0.04,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                emailError!,
-                                style: TextStyle(
-                                  color: AppColors.errorRed,
-                                  fontSize: screenWidth * 0.034,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                      boxShadow: provider.isEmailValid
+                          ? [
+                              BoxShadow(
+                                color: AppColors.successGreen.withOpacity(0.1),
+                                spreadRadius: 0,
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
                               ),
+                            ]
+                          : provider.emailError != null
+                              ? [
+                                  BoxShadow(
+                                    color: AppColors.errorRed.withOpacity(0.1),
+                                    spreadRadius: 0,
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : [],
+                    ),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: emailController,
+                          enabled: !provider.isLoading,
+                          keyboardType: TextInputType.emailAddress,
+                          style: TextStyle(
+                            fontSize: screenWidth * 0.04,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.grey800,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: "Enter your registered email",
+                            hintStyle: TextStyle(
+                              color: AppColors.grey500,
+                              fontSize: screenWidth * 0.037,
+                              fontWeight: FontWeight.w400,
                             ),
-                          ],
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
+                            ),
+                            suffixIcon: provider.isEmailValid
+                                ? Icon(
+                                    Icons.check_circle,
+                                    color: AppColors.successGreen,
+                                    size: screenWidth * 0.055,
+                                  )
+                                : provider.emailError != null
+                                    ? Icon(
+                                        Icons.error,
+                                        color: AppColors.errorRed,
+                                        size: screenWidth * 0.055,
+                                      )
+                                    : null,
+                          ),
+                          onChanged: (value) {
+                            provider.validateEmail(value.trim());
+                          },
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(height: 24),
-              
-              // Continue button
-              _buildContinueButton(screenWidth),
-            ],
+
+                        if (provider.emailError != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline,
+                                  color: AppColors.errorRed,
+                                  size: screenWidth * 0.04,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    provider.emailError!,
+                                    style: TextStyle(
+                                      color: AppColors.errorRed,
+                                      fontSize: screenWidth * 0.034,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // Continue button
+                  _buildContinueButton(context, screenWidth, provider),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  Widget _buildContinueButton(double screenWidth) {
-    bool isEnabled = isEmailValid;
-    
+  Widget _buildContinueButton(BuildContext context, double screenWidth, ForgotPasswordProvider provider) {
+    bool isEnabled = provider.isEmailValid;
+
     return Container(
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
         gradient: isEnabled
             ? AppGradients.primaryYellow
-            : LinearGradient(
+            : const LinearGradient(
                 colors: [
                   AppColors.grey300,
                   AppColors.grey400,
@@ -558,7 +602,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
             : [],
       ),
       child: ElevatedButton(
-        onPressed: isEnabled && !isLoading ? _sendResetOTP : null,
+        onPressed: isEnabled && !provider.isLoading
+            ? () => _handleSendOTP(context)
+            : null,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -567,8 +613,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           ),
           padding: EdgeInsets.zero,
         ),
-        child: isLoading
-            ? SizedBox(
+        child: provider.isLoading
+            ? const SizedBox(
                 height: 24,
                 width: 24,
                 child: CircularProgressIndicator(
@@ -602,22 +648,27 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 40),
-              _buildEmailCard(),
-              SizedBox(height: MediaQuery.of(context).viewInsets.bottom + 20),
-            ],
+    return ChangeNotifierProvider(
+      create: (_) => ForgotPasswordProvider(),
+      child: Builder(
+        builder: (context) => Scaffold(
+          backgroundColor: const Color(0xFFF5F5F5),
+          body: GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _buildHeader(context),
+                  const SizedBox(height: 40),
+                  _buildEmailCard(context),
+                  SizedBox(height: MediaQuery.of(context).viewInsets.bottom + 20),
+                ],
+              ),
+            ),
           ),
+          resizeToAvoidBottomInset: true,
         ),
       ),
-      resizeToAvoidBottomInset: true,
     );
   }
 }

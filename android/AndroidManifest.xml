@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.example.coaching_institute_app">
 
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
 
@@ -29,6 +31,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Razorpay Checkout Activity -->
+        <activity
+            android:name="com.razorpay.CheckoutActivity"
+            android:exported="true"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:replace="android:exported">
+        </activity>
+
         <!-- THIS IS THE KEY LINE -->
         <meta-data
             android:name="flutterEmbedding"
@@ -36,4 +47,3 @@
             
     </application>
 </manifest>
-

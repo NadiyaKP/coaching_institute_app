@@ -71,7 +71,7 @@ class MockTestResultScreen extends StatelessWidget {
           automaticallyImplyLeading: false,
         ),
         body: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -80,7 +80,7 @@ class MockTestResultScreen extends StatelessWidget {
                 AppColors.backgroundLight,
                 Colors.white,
               ],
-              stops: const [0.0, 0.2, 1.0],
+              stops:  [0.0, 0.2, 1.0],
             ),
           ),
           child: SafeArea(
@@ -106,7 +106,7 @@ class MockTestResultScreen extends StatelessWidget {
                       children: [
                         Text(
                           unitName,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
                             color: AppColors.primaryBlue,
@@ -406,12 +406,12 @@ class MockTestResultScreen extends StatelessWidget {
                           },
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 16),
-                            side: BorderSide(color: AppColors.primaryBlue, width: 2),
+                            side: const BorderSide(color: AppColors.primaryBlue, width: 2),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: Text(
+                          child: const Text(
                             'Back to Units',
                             style: TextStyle(
                               fontSize: 16,
@@ -554,7 +554,7 @@ class MockTestResultScreen extends StatelessWidget {
           Expanded(
             child: Text(
               optionText,
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 14,
                 color: Colors.black87,
                 fontWeight: FontWeight.w500,

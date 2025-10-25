@@ -28,7 +28,7 @@ class _StaggeredDotsWaveState extends State<StaggeredDotsWave> with TickerProvid
   void _initAnimations() {
     _controllers = List.generate(5, (index) {
       return AnimationController(
-        duration: Duration(milliseconds: 1200),
+        duration: const Duration(milliseconds: 1200),
         vsync: this,
       )..repeat(reverse: true);
     });

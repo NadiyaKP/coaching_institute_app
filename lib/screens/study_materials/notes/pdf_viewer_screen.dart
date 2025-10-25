@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
-import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:typed_data';
-import 'dart:convert';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import '../../../service/api_config.dart';
@@ -17,6 +14,7 @@ class PDFViewerScreen extends StatefulWidget {
   final String title;
   final String accessToken;
   final String noteId;
+  final bool enableReadingData;
 
   const PDFViewerScreen({
     super.key,
@@ -24,6 +22,7 @@ class PDFViewerScreen extends StatefulWidget {
     required this.title,
     required this.accessToken,
     required this.noteId,
+    this.enableReadingData = false, // Default to false
   });
 
   @override
@@ -54,33 +53,43 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
     _initializeHive();
   }
 
-Future<void> _initializeHive() async {
-  try {
-    // Box should already be open from main.dart
-    if (Hive.isBoxOpen('pdf_records_box')) {
-      _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
-      debugPrint('✅ Using existing Hive box in PDFViewerScreen');
-    } else {
-      // Fallback: try to open if somehow not open
-      debugPrint('⚠️ Box not open, trying to open...');
-      _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
-      debugPrint('✅ Opened Hive box in PDFViewerScreen');
+  Future<void> _initializeHive() async {
+    try {
+      // Box should already be open from main.dart
+      if (Hive.isBoxOpen('pdf_records_box')) {
+        _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
+        debugPrint('✅ Using existing Hive box in PDFViewerScreen');
+      } else {
+        // Fallback: try to open if somehow not open
+        debugPrint('⚠️ Box not open, trying to open...');
+        _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
+        debugPrint('✅ Opened Hive box in PDFViewerScreen');
+      }
+      
+      // Only start tracking if reading data is enabled
+      if (widget.enableReadingData) {
+        _startTracking();
+      } else {
+        debugPrint('📊 Reading data collection DISABLED for student type');
+      }
+      
+      _downloadAndSavePDF();
+    } catch (e) {
+      debugPrint('❌ Error in Hive initialization: $e');
+      // Continue loading PDF even if Hive fails
+      if (widget.enableReadingData) {
+        _startTracking();
+      }
+      _downloadAndSavePDF();
     }
-    
-    _startTracking();
-    _downloadAndSavePDF();
-  } catch (e) {
-    debugPrint('❌ Error in Hive initialization: $e');
-    // Continue loading PDF even if Hive fails
-    _startTracking();
-    _downloadAndSavePDF();
   }
-}
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _stopTrackingAndStore();
+    if (widget.enableReadingData) {
+      _stopTrackingAndStore();
+    }
     _cleanupTemporaryFile();
     super.dispose();
   }
@@ -88,6 +97,9 @@ Future<void> _initializeHive() async {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    
+    // Only track if reading data is enabled
+    if (!widget.enableReadingData) return;
     
     switch (state) {
       case AppLifecycleState.resumed:
@@ -105,7 +117,7 @@ Future<void> _initializeHive() async {
   }
 
   void _startTracking() {
-    if (!_isTracking && _isAppInForeground) {
+    if (!_isTracking && _isAppInForeground && widget.enableReadingData) {
       _startTime = DateTime.now();
       _isTracking = true;
       debugPrint('PDF Timer Started - encrypted_note_id: ${widget.noteId}');
@@ -113,7 +125,7 @@ Future<void> _initializeHive() async {
   }
 
   void _stopTrackingAndStore() async {
-    if (_isTracking) {
+    if (_isTracking && widget.enableReadingData) {
       _isTracking = false;
       
       if (_startTime != null) {
@@ -131,6 +143,9 @@ Future<void> _initializeHive() async {
   }
 
   Future<void> _storeViewingData() async {
+    // Don't store data if reading data collection is disabled
+    if (!widget.enableReadingData) return;
+    
     try {
       // Get current date in yy-MM-dd format
       final currentDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -213,104 +228,111 @@ Future<void> _initializeHive() async {
     }
   }
 
- Future<void> _downloadAndSavePDF() async {
-  try {
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-    });
+  Future<void> _downloadAndSavePDF() async {
+    try {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
 
-    debugPrint('\n=== PDF DOWNLOAD DETAILED DEBUG ===');
-    debugPrint('PDF URL received: "${widget.pdfUrl}"');
-    debugPrint('PDF URL length: ${widget.pdfUrl.length}');
-    debugPrint('Note ID: ${widget.noteId}');
-    debugPrint('Title: ${widget.title}');
-    debugPrint('Access Token length: ${widget.accessToken.length}');
-    debugPrint('Access Token (first 50 chars): ${widget.accessToken.substring(0, widget.accessToken.length > 50 ? 50 : widget.accessToken.length)}...');
-    
-    // Parse the URL to check its components
-    Uri parsedUri = Uri.parse(widget.pdfUrl);
-    debugPrint('--- PARSED URL COMPONENTS ---');
-    debugPrint('Scheme: ${parsedUri.scheme}');
-    debugPrint('Host: ${parsedUri.host}');
-    debugPrint('Port: ${parsedUri.port}');
-    debugPrint('Path: ${parsedUri.path}');
-    debugPrint('Query: ${parsedUri.query}');
-    debugPrint('Full URL: ${parsedUri.toString()}');
-    debugPrint('--- END PARSED COMPONENTS ---');
+      debugPrint('\n=== PDF DOWNLOAD DETAILED DEBUG ===');
+      debugPrint('PDF URL received: "${widget.pdfUrl}"');
+      debugPrint('PDF URL length: ${widget.pdfUrl.length}');
+      debugPrint('Note ID: ${widget.noteId}');
+      debugPrint('Title: ${widget.title}');
+      debugPrint('Reading Data Enabled: ${widget.enableReadingData}');
+      debugPrint('Access Token length: ${widget.accessToken.length}');
+      debugPrint('Access Token (first 50 chars): ${widget.accessToken.substring(0, widget.accessToken.length > 50 ? 50 : widget.accessToken.length)}...');
 
-    // Create HTTP client with custom certificate handling
-    final client = ApiConfig.createHttpClient();
-    final httpClient = IOClient(client);
+      // Parse the URL to check its components
+      Uri parsedUri = Uri.parse(widget.pdfUrl);
+      debugPrint('--- PARSED URL COMPONENTS ---');
+      debugPrint('Scheme: ${parsedUri.scheme}');
+      debugPrint('Host: ${parsedUri.host}');
+      debugPrint('Port: ${parsedUri.port}');
+      debugPrint('Path: ${parsedUri.path}');
+      debugPrint('Query: ${parsedUri.query}');
+      debugPrint('Full URL: ${parsedUri.toString()}');
+      debugPrint('--- END PARSED COMPONENTS ---');
 
-    debugPrint('Sending GET request to: ${widget.pdfUrl}');
-    
-    // Download the PDF with authorization header
-    final response = await httpClient.get(
-      Uri.parse(widget.pdfUrl),
-      headers: {
-        'Authorization': 'Bearer ${widget.accessToken}',
+      // Create HTTP client with custom certificate handling
+      final client = ApiConfig.createHttpClient();
+      final httpClient = IOClient(client);
+
+      // Detect if the URL is a presigned MinIO/S3 URL
+      final isPresignedUrl = parsedUri.queryParameters.containsKey('X-Amz-Signature');
+      debugPrint('Presigned URL detected: $isPresignedUrl');
+
+      // Prepare headers (skip Bearer for presigned URLs)
+      final headers = {
         'ngrok-skip-browser-warning': 'true',
         ...ApiConfig.commonHeaders,
-      },
-    ).timeout(const Duration(minutes: 2));
+        if (!isPresignedUrl)
+          'Authorization': 'Bearer ${widget.accessToken}',
+      };
 
-    debugPrint('Response Status Code: ${response.statusCode}');
-    debugPrint('Response Reason: ${response.reasonPhrase}');
-    debugPrint('Response Headers: ${response.headers}');
-    debugPrint('Response Body Length: ${response.bodyBytes.length} bytes');
+      debugPrint('Sending GET request to: ${widget.pdfUrl}');
+      debugPrint('Using Authorization header: ${!isPresignedUrl}');
 
-    if (response.statusCode == 200) {
-      // SUCCESS CASE - Save the PDF file
-      debugPrint('✅ PDF downloaded successfully, saving to file...');
-      
-      // Get temporary directory
-      final dir = await getTemporaryDirectory();
-      
-      // Create a unique filename
-      final fileName = 'pdf_${widget.noteId}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final file = File('${dir.path}/$fileName');
-      
-      // Write the PDF bytes to file
-      await file.writeAsBytes(response.bodyBytes);
-      
-      debugPrint('✅ PDF saved to: ${file.path}');
-      debugPrint('File size: ${await file.length()} bytes');
-      
-      // Update state to show the PDF
+      // Perform GET request
+      final response = await httpClient
+          .get(Uri.parse(widget.pdfUrl), headers: headers)
+          .timeout(const Duration(minutes: 2));
+
+      debugPrint('Response Status Code: ${response.statusCode}');
+      debugPrint('Response Reason: ${response.reasonPhrase}');
+      debugPrint('Response Headers: ${response.headers}');
+      debugPrint('Response Body Length: ${response.bodyBytes.length} bytes');
+
+      if (response.statusCode == 200) {
+        debugPrint('✅ PDF downloaded successfully, saving to file...');
+
+        // Get temporary directory
+        final dir = await getTemporaryDirectory();
+
+        // Create a unique filename
+        final fileName = 'pdf_${widget.noteId}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        final file = File('${dir.path}/$fileName');
+
+        // Write the PDF bytes to file
+        await file.writeAsBytes(response.bodyBytes);
+
+        debugPrint('✅ PDF saved to: ${file.path}');
+        debugPrint('File size: ${await file.length()} bytes');
+
+        // Update state to show the PDF
+        setState(() {
+          localPath = file.path;
+          isLoading = false;
+        });
+
+        debugPrint('✅ PDF ready to display');
+      } else {
+        // Print first 500 characters of error response
+        final errorBody = response.body.length > 500
+            ? '${response.body.substring(0, 500)}...'
+            : response.body;
+        debugPrint('--- ERROR RESPONSE BODY ---');
+        debugPrint(errorBody);
+        debugPrint('--- END ERROR RESPONSE ---');
+
+        setState(() {
+          isLoading = false;
+          errorMessage = 'Failed to download PDF: ${response.statusCode} - ${response.reasonPhrase}';
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading PDF: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
+
       setState(() {
-        localPath = file.path;
         isLoading = false;
+        errorMessage = 'Error loading PDF: ${e.toString()}';
       });
-      
-      debugPrint('✅ PDF ready to display');
-      
-    } else {
-      // Print first 500 characters of error response
-      final errorBody = response.body.length > 500 
-          ? '${response.body.substring(0, 500)}...' 
-          : response.body;
-      debugPrint('--- ERROR RESPONSE BODY ---');
-      debugPrint(errorBody);
-      debugPrint('--- END ERROR RESPONSE ---');
-      
-      setState(() {
-        isLoading = false;
-        errorMessage = 'Failed to download PDF: ${response.statusCode} - ${response.reasonPhrase}';
-      });
+    } finally {
+      debugPrint('=== END PDF DOWNLOAD DEBUG ===\n');
     }
-  } catch (e) {
-    debugPrint('❌ Error loading PDF: $e');
-    debugPrint('Stack trace: ${StackTrace.current}');
-    
-    setState(() {
-      isLoading = false;
-      errorMessage = 'Error loading PDF: ${e.toString()}';
-    });
-  } finally {
-    debugPrint('=== END PDF DOWNLOAD DEBUG ===\n');
   }
-}
 
   void _cleanupTemporaryFile() {
     if (localPath != null) {
@@ -346,7 +368,7 @@ Future<void> _initializeHive() async {
               icon: const Icon(Icons.share),
               onPressed: _sharePDF,
             ),
-          if (!isLoading && localPath != null)
+          if (!isLoading && localPath != null && widget.enableReadingData)
             IconButton(
               icon: const Icon(Icons.timer),
               onPressed: _showTimerStatus,
@@ -578,12 +600,12 @@ Future<void> _initializeHive() async {
                       width: 1,
                     ),
                   ),
-                  child: const Text(
-                    'PDF',
+                  child: Text(
+                    widget.enableReadingData ? 'PDF 📊' : 'PDF',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.primaryYellow,
+                      color: widget.enableReadingData ? AppColors.primaryBlue : AppColors.primaryYellow,
                     ),
                   ),
                 ),
@@ -643,6 +665,18 @@ Future<void> _initializeHive() async {
   }
 
   void _showTimerStatus() {
+    // Only show timer status if reading data is enabled
+    if (!widget.enableReadingData) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reading data collection is disabled for your account type'),
+          backgroundColor: Colors.grey,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     final totalSeconds = _totalViewingTime.inSeconds;
     final readedTimeMinutes = totalSeconds > 0 
         ? double.parse((totalSeconds / 60.0).toStringAsFixed(2))

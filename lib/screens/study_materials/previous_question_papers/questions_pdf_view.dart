@@ -1,11 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_pdfview/flutter_pdfview.dart';
-import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:typed_data';
-import 'dart:convert';
 import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
 import '../../../../service/api_config.dart';
@@ -17,6 +14,7 @@ class QuestionsPDFViewScreen extends StatefulWidget {
   final String title;
   final String accessToken;
   final String questionPaperId;
+  final bool enableReadingData; 
 
   const QuestionsPDFViewScreen({
     super.key,
@@ -24,6 +22,7 @@ class QuestionsPDFViewScreen extends StatefulWidget {
     required this.title,
     required this.accessToken,
     required this.questionPaperId,
+    this.enableReadingData = true, // Default to true for backward compatibility
   });
 
   @override
@@ -54,33 +53,46 @@ class _QuestionsPDFViewScreenState extends State<QuestionsPDFViewScreen> with Wi
     _initializeHive();
   }
 
-Future<void> _initializeHive() async {
-  try {
-    // Box should already be open from main.dart
-    if (Hive.isBoxOpen('pdf_records_box')) {
-      _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
-      debugPrint('✅ Using existing Hive box in QuestionsPDFViewScreen');
-    } else {
-      // Fallback: try to open if somehow not open
-      debugPrint('⚠️ Box not open, trying to open...');
-      _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
-      debugPrint('✅ Opened Hive box in QuestionsPDFViewScreen');
+  Future<void> _initializeHive() async {
+    try {
+      // Box should already be open from main.dart
+      if (Hive.isBoxOpen('pdf_records_box')) {
+        _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
+        debugPrint('✅ Using existing Hive box in QuestionsPDFViewScreen');
+      } else {
+        // Fallback: try to open if somehow not open
+        debugPrint('⚠️ Box not open, trying to open...');
+        _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
+        debugPrint('✅ Opened Hive box in QuestionsPDFViewScreen');
+      }
+      
+      // Only start tracking if reading data is enabled
+      if (widget.enableReadingData) {
+        _startTracking();
+      } else {
+        debugPrint('📊 Reading data collection DISABLED for student type');
+      }
+      
+      _downloadAndSavePDF();
+    } catch (e) {
+      debugPrint('❌ Error in Hive initialization for Questions: $e');
+      // Continue loading PDF even if Hive fails
+      if (widget.enableReadingData) {
+        _startTracking();
+      }
+      _downloadAndSavePDF();
     }
-    
-    _startTracking();
-    _downloadAndSavePDF();
-  } catch (e) {
-    debugPrint('❌ Error in Hive initialization for Questions: $e');
-    // Continue loading PDF even if Hive fails
-    _startTracking();
-    _downloadAndSavePDF();
   }
-}
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _stopTrackingAndStore();
+    
+    // Only stop tracking and store if reading data is enabled
+    if (widget.enableReadingData) {
+      _stopTrackingAndStore();
+    }
+    
     _cleanupTemporaryFile();
     super.dispose();
   }
@@ -88,6 +100,9 @@ Future<void> _initializeHive() async {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    
+    // Only handle lifecycle events if reading data is enabled
+    if (!widget.enableReadingData) return;
     
     switch (state) {
       case AppLifecycleState.resumed:
@@ -105,14 +120,21 @@ Future<void> _initializeHive() async {
   }
 
   void _startTracking() {
+    // Only track if enabled and conditions are met
+    if (!widget.enableReadingData) return;
+    
     if (!_isTracking && _isAppInForeground) {
       _startTime = DateTime.now();
       _isTracking = true;
-      debugPrint('Question Paper Timer Started - encrypted_questionpaper_id: ${widget.questionPaperId}');
+      debugPrint('📖 Question Paper Timer Started - encrypted_questionpaper_id: ${widget.questionPaperId}');
+      debugPrint('📊 Reading data collection: ${widget.enableReadingData ? "ENABLED" : "DISABLED"}');
     }
   }
 
   void _stopTrackingAndStore() async {
+    // Only track if enabled
+    if (!widget.enableReadingData) return;
+    
     if (_isTracking) {
       _isTracking = false;
       
@@ -120,9 +142,10 @@ Future<void> _initializeHive() async {
         final sessionDuration = DateTime.now().difference(_startTime!);
         _totalViewingTime += sessionDuration;
         
-        debugPrint('Question Paper Timer Stopped - encrypted_questionpaper_id: ${widget.questionPaperId}');
-        debugPrint('Session Duration: ${sessionDuration.inSeconds} seconds');
-        debugPrint('Total Viewing Time: ${_totalViewingTime.inSeconds} seconds');
+        debugPrint('⏹️ Question Paper Timer Stopped - encrypted_questionpaper_id: ${widget.questionPaperId}');
+        debugPrint('⏱️ Session Duration: ${sessionDuration.inSeconds} seconds');
+        debugPrint('📊 Total Viewing Time: ${_totalViewingTime.inSeconds} seconds');
+        debugPrint('🔧 Reading data collection: ${widget.enableReadingData ? "ENABLED" : "DISABLED"}');
         
         // Store the viewing data in Hive (don't send to API yet)
         await _storeViewingData();
@@ -131,6 +154,12 @@ Future<void> _initializeHive() async {
   }
 
   Future<void> _storeViewingData() async {
+    // Only store data if reading data is enabled
+    if (!widget.enableReadingData) {
+      debugPrint('🚫 Reading data collection disabled - skipping storage');
+      return;
+    }
+    
     try {
       // Get current date in yy-MM-dd format
       final currentDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -155,7 +184,7 @@ Future<void> _initializeHive() async {
       if (existingRecord.recordKey.isNotEmpty) {
         // Add the new duration to existing record
         totalSeconds = existingRecord.readedtimeSeconds + _totalViewingTime.inSeconds;
-        debugPrint('Found existing question paper record. Adding ${_totalViewingTime.inSeconds}s to ${existingRecord.readedtimeSeconds}s');
+        debugPrint('📝 Found existing question paper record. Adding ${_totalViewingTime.inSeconds}s to ${existingRecord.readedtimeSeconds}s');
         
         // Remove the existing record to update it
         await existingRecord.delete();
@@ -178,17 +207,18 @@ Future<void> _initializeHive() async {
       // Store the record in Hive
       await _pdfRecordsBox.add(viewingRecord);
       
-      debugPrint('Stored question paper viewing data for encrypted_questionpaper_id: ${widget.questionPaperId}');
-      debugPrint('readed_date: $currentDate');
-      debugPrint('Total Seconds: $totalSeconds');
-      debugPrint('readedtime (minutes): $readedTimeMinutes');
-      debugPrint('Storage Key: $recordKey');
+      debugPrint('💾 Stored question paper viewing data for encrypted_questionpaper_id: ${widget.questionPaperId}');
+      debugPrint('📅 readed_date: $currentDate');
+      debugPrint('⏱️ Total Seconds: $totalSeconds');
+      debugPrint('📊 readedtime (minutes): $readedTimeMinutes');
+      debugPrint('🔑 Storage Key: $recordKey');
+      debugPrint('🔧 Reading data collection: ${widget.enableReadingData ? "ENABLED" : "DISABLED"}');
       
       // Print all stored records for debugging
       _printStoredRecords();
       
     } catch (e) {
-      debugPrint('Error storing question paper viewing data: $e');
+      debugPrint('❌ Error storing question paper viewing data: $e');
     }
   }
 
@@ -209,108 +239,108 @@ Future<void> _initializeHive() async {
       }
       debugPrint('=== END STORED QUESTION PAPER RECORDS ===');
     } catch (e) {
-      debugPrint('Error reading stored question paper records: $e');
+      debugPrint('❌ Error reading stored question paper records: $e');
     }
   }
 
- Future<void> _downloadAndSavePDF() async {
-  try {
-    setState(() {
-      isLoading = true;
-      errorMessage = null;
-    });
+  Future<void> _downloadAndSavePDF() async {
+    try {
+      setState(() {
+        isLoading = true;
+        errorMessage = null;
+      });
 
-    debugPrint('\n=== QUESTION PAPER PDF DOWNLOAD DETAILED DEBUG ===');
-    debugPrint('PDF URL received: "${widget.pdfUrl}"');
-    debugPrint('PDF URL length: ${widget.pdfUrl.length}');
-    debugPrint('Question Paper ID: ${widget.questionPaperId}');
-    debugPrint('Title: ${widget.title}');
-    debugPrint('Access Token length: ${widget.accessToken.length}');
-    debugPrint('Access Token (first 50 chars): ${widget.accessToken.substring(0, widget.accessToken.length > 50 ? 50 : widget.accessToken.length)}...');
-    
-    // Parse the URL to check its components
-    Uri parsedUri = Uri.parse(widget.pdfUrl);
-    debugPrint('--- PARSED URL COMPONENTS ---');
-    debugPrint('Scheme: ${parsedUri.scheme}');
-    debugPrint('Host: ${parsedUri.host}');
-    debugPrint('Port: ${parsedUri.port}');
-    debugPrint('Path: ${parsedUri.path}');
-    debugPrint('Query: ${parsedUri.query}');
-    debugPrint('Full URL: ${parsedUri.toString()}');
-    debugPrint('--- END PARSED COMPONENTS ---');
+      debugPrint('\n=== QUESTION PAPER PDF DOWNLOAD DETAILED DEBUG ===');
+      debugPrint('PDF URL received: "${widget.pdfUrl}"');
+      debugPrint('PDF URL length: ${widget.pdfUrl.length}');
+      debugPrint('Question Paper ID: ${widget.questionPaperId}');
+      debugPrint('Title: ${widget.title}');
+      debugPrint('Access Token length: ${widget.accessToken.length}');
+      debugPrint('Access Token (first 50 chars): ${widget.accessToken.substring(0, widget.accessToken.length > 50 ? 50 : widget.accessToken.length)}...');
+      debugPrint('Reading Data Collection: ${widget.enableReadingData ? "ENABLED" : "DISABLED"}');
 
-    // Create HTTP client with custom certificate handling
-    final client = ApiConfig.createHttpClient();
-    final httpClient = IOClient(client);
+      // Parse and inspect URL
+      Uri parsedUri = Uri.parse(widget.pdfUrl);
+      debugPrint('--- PARSED URL COMPONENTS ---');
+      debugPrint('Scheme: ${parsedUri.scheme}');
+      debugPrint('Host: ${parsedUri.host}');
+      debugPrint('Path: ${parsedUri.path}');
+      debugPrint('Query: ${parsedUri.query}');
+      debugPrint('--- END PARSED COMPONENTS ---');
 
-    debugPrint('Sending GET request to: ${widget.pdfUrl}');
-    
-    // Download the PDF with authorization header
-    final response = await httpClient.get(
-      Uri.parse(widget.pdfUrl),
-      headers: {
-        'Authorization': 'Bearer ${widget.accessToken}',
+      // Detect presigned MinIO/S3 URL
+      final isPresignedUrl = parsedUri.queryParameters.containsKey('X-Amz-Signature');
+      debugPrint('Presigned URL detected: $isPresignedUrl');
+
+      // Create secure HTTP client
+      final client = ApiConfig.createHttpClient();
+      final httpClient = IOClient(client);
+
+      // Build headers conditionally
+      final headers = {
         'ngrok-skip-browser-warning': 'true',
         ...ApiConfig.commonHeaders,
-      },
-    ).timeout(const Duration(minutes: 2));
+        if (!isPresignedUrl)
+          'Authorization': 'Bearer ${widget.accessToken}',
+      };
 
-    debugPrint('Response Status Code: ${response.statusCode}');
-    debugPrint('Response Reason: ${response.reasonPhrase}');
-    debugPrint('Response Headers: ${response.headers}');
-    debugPrint('Response Body Length: ${response.bodyBytes.length} bytes');
+      debugPrint('Sending GET request to: ${widget.pdfUrl}');
+      debugPrint('Using Authorization header: ${!isPresignedUrl}');
 
-    if (response.statusCode == 200) {
-      // SUCCESS CASE - Save the PDF file
-      debugPrint('✅ Question Paper PDF downloaded successfully, saving to file...');
-      
-      // Get temporary directory
-      final dir = await getTemporaryDirectory();
-      
-      // Create a unique filename
-      final fileName = 'questionpaper_${widget.questionPaperId}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-      final file = File('${dir.path}/$fileName');
-      
-      // Write the PDF bytes to file
-      await file.writeAsBytes(response.bodyBytes);
-      
-      debugPrint('✅ Question Paper PDF saved to: ${file.path}');
-      debugPrint('File size: ${await file.length()} bytes');
-      
-      // Update state to show the PDF
+      // Perform GET request
+      final response = await httpClient
+          .get(Uri.parse(widget.pdfUrl), headers: headers)
+          .timeout(const Duration(minutes: 2));
+
+      debugPrint('Response Status Code: ${response.statusCode}');
+      debugPrint('Response Reason: ${response.reasonPhrase}');
+      debugPrint('Response Headers: ${response.headers}');
+      debugPrint('Response Body Length: ${response.bodyBytes.length} bytes');
+
+      if (response.statusCode == 200) {
+        debugPrint('✅ Question Paper PDF downloaded successfully, saving to file...');
+
+        final dir = await getTemporaryDirectory();
+        final fileName = 'questionpaper_${widget.questionPaperId}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        final file = File('${dir.path}/$fileName');
+
+        await file.writeAsBytes(response.bodyBytes);
+
+        debugPrint('✅ PDF saved at: ${file.path}');
+        debugPrint('File size: ${await file.length()} bytes');
+
+        setState(() {
+          localPath = file.path;
+          isLoading = false;
+        });
+
+        debugPrint('✅ PDF ready to display');
+      } else {
+        final errorBody = response.body.length > 500
+            ? '${response.body.substring(0, 500)}...'
+            : response.body;
+
+        debugPrint('--- ERROR RESPONSE BODY ---');
+        debugPrint(errorBody);
+        debugPrint('--- END ERROR RESPONSE ---');
+
+        setState(() {
+          isLoading = false;
+          errorMessage =
+              'Failed to download Question Paper PDF: ${response.statusCode} - ${response.reasonPhrase}';
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading Question Paper PDF: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
       setState(() {
-        localPath = file.path;
         isLoading = false;
+        errorMessage = 'Error loading Question Paper PDF: ${e.toString()}';
       });
-      
-      debugPrint('✅ Question Paper PDF ready to display');
-      
-    } else {
-      // Print first 500 characters of error response
-      final errorBody = response.body.length > 500 
-          ? '${response.body.substring(0, 500)}...' 
-          : response.body;
-      debugPrint('--- ERROR RESPONSE BODY ---');
-      debugPrint(errorBody);
-      debugPrint('--- END ERROR RESPONSE ---');
-      
-      setState(() {
-        isLoading = false;
-        errorMessage = 'Failed to download Question Paper PDF: ${response.statusCode} - ${response.reasonPhrase}';
-      });
+    } finally {
+      debugPrint('=== END QUESTION PAPER PDF DOWNLOAD DEBUG ===\n');
     }
-  } catch (e) {
-    debugPrint('❌ Error loading Question Paper PDF: $e');
-    debugPrint('Stack trace: ${StackTrace.current}');
-    
-    setState(() {
-      isLoading = false;
-      errorMessage = 'Error loading Question Paper PDF: ${e.toString()}';
-    });
-  } finally {
-    debugPrint('=== END QUESTION PAPER PDF DOWNLOAD DEBUG ===\n');
   }
-}
 
   void _cleanupTemporaryFile() {
     if (localPath != null) {
@@ -348,13 +378,16 @@ Future<void> _initializeHive() async {
             ),
           if (!isLoading && localPath != null)
             IconButton(
-              icon: const Icon(Icons.timer),
+              icon: Icon(
+                widget.enableReadingData ? Icons.timer : Icons.timer_off,
+                color: widget.enableReadingData ? Colors.white : Colors.white70,
+              ),
               onPressed: _showTimerStatus,
             ),
         ],
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
@@ -538,7 +571,7 @@ Future<void> _initializeHive() async {
               children: [
                 Text(
                   'Page ${currentPage + 1} of $totalPages',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w500,
                     color: AppColors.primaryBlue,
@@ -548,12 +581,12 @@ Future<void> _initializeHive() async {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: AppColors.warningOrange,
+                    color: widget.enableReadingData ? AppColors.warningOrange : Colors.grey,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: const Text(
-                    'Question Paper',
-                    style: TextStyle(
+                  child: Text(
+                    widget.enableReadingData ? 'Question Paper' : 'No Tracking',
+                    style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
                       color: Colors.white,
@@ -610,16 +643,35 @@ Future<void> _initializeHive() async {
     debugPrint('readedtime (minutes): $readedTimeMinutes');
     debugPrint('Current Page: $currentPage');
     debugPrint('Total Pages: $totalPages');
+    debugPrint('Reading Data Collection: ${widget.enableReadingData ? "ENABLED" : "DISABLED"}');
     debugPrint('=== END QUESTION PAPER TIMER STATUS ===');
     
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          'readedtime: $readedTimeMinutes minutes',
-          style: const TextStyle(color: Colors.white),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'readedtime: $readedTimeMinutes minutes',
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Tracking: ${widget.enableReadingData ? "Enabled" : "Disabled"}',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+            if (!widget.enableReadingData) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Student Type: Not Online',
+                style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 10),
+              ),
+            ],
+          ],
         ),
-        backgroundColor: AppColors.primaryYellow,
-        duration: const Duration(seconds: 2),
+        backgroundColor: widget.enableReadingData ? AppColors.primaryYellow : Colors.grey,
+        duration: const Duration(seconds: 3),
       ),
     );
   }

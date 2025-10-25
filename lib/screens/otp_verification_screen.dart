@@ -34,7 +34,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   String mobileNumber = '';
   String email = '';
   String name = '';
-  String password = '';  // ADD THIS LINE
+  String password = ''; 
   bool isLoginFlow = false;
   
   @override
@@ -791,12 +791,12 @@ void didChangeDependencies() {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.timer_outlined,
                         color: AppColors.primaryBlue,
                         size: 16,
                       ),
-                      SizedBox(width: 5),
+                      const SizedBox(width: 5),
                       Text(
                         '$_countdown seconds',
                         style: TextStyle(
@@ -852,14 +852,14 @@ void didChangeDependencies() {
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
+                              borderSide: const BorderSide(
                                 color: AppColors.primaryYellow,
                                 width: 2,
                               ),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
+                              borderSide: const BorderSide(
                                 color: AppColors.grey300,
                                 width: 1,
                               ),
@@ -894,7 +894,7 @@ void didChangeDependencies() {
                         color: AppColors.textLightGrey,
                       ),
                     ),
-                    SizedBox(height: 6),
+                    const SizedBox(height: 6),
                     TextButton(
                       onPressed: _canResend && !isLoading ? _resendOtp : null,
                       style: TextButton.styleFrom(

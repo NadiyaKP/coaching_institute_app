@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'login_screen.dart';
 import '../service/auth_service.dart';
 import 'home.dart';
+import 'package:coaching_institute_app/common/theme_color.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -23,7 +24,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _checkAuthAndNavigate() async {
     try {
       // Add a small delay for the splash screen to be visible
-      await Future.delayed(const Duration(seconds: 2));
+      await Future.delayed(const Duration(seconds: 3));
 
       // Print SharedPreferences data for debugging
       print('=== SPLASH SCREEN: Printing SharedPreferences data ===');
@@ -86,41 +87,117 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: AppGradients.background,
+        ),
+        child: Stack(
           children: [
-            // Add error handling for the image
-            Image.asset(
-              'assets/images/signature_logo.png',
-              width: 200,
-              height: 200,
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) {
-                return Container(
-                  width: 200,
-                  height: 200,
-                  color: Colors.grey[300],
-                  child: const Icon(
-                    Icons.image_not_supported,
-                    size: 50,
-                    color: Colors.grey,
+            // Decorative circles - same as login screen
+            Positioned(
+              top: -30,
+              right: -20,
+              child: Container(
+                width: 80,
+                height: 80,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.grey300.withOpacity(0.1),
+                ),
+              ),
+            ),
+            Positioned(
+              top: screenHeight * 0.1,
+              left: -25,
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.grey400.withOpacity(0.08),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: screenHeight * 0.15,
+              left: 30,
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.white.withOpacity(0.06),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: screenHeight * 0.25,
+              right: 40,
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.grey300.withOpacity(0.08),
+                ),
+              ),
+            ),
+            
+            // Main content - Centered with slight downward offset
+            Align(
+              alignment: const Alignment(0, 0.15), // Moved slightly down
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Logo - Increased size
+                  Image.asset(
+                    'assets/images/signature_logo.png',
+                    width: screenWidth * 0.7,  // Increased from 60% to 70% of screen width
+                    height: screenWidth * 0.7, // Keeping it square
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: screenWidth * 0.7,
+                        height: screenWidth * 0.7,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Icon(
+                          Icons.image_not_supported,
+                          size: 80,
+                          color: AppColors.white.withOpacity(0.5),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Loading...',
-              style: TextStyle(
-                color: Colors.grey,
-                fontSize: 16,
+                  const SizedBox(height: 40),
+                  
+                  // Loading indicator
+                  const CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
+                    strokeWidth: 3,
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // Loading text
+                  Text(
+                    'Loading...',
+                    style: TextStyle(
+                      color: AppColors.white,
+                      fontSize: screenWidth * 0.045,
+                      fontWeight: FontWeight.w500,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],

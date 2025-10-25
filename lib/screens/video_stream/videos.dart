@@ -1,30 +1,27 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart';
-import 'dart:convert';
-import 'dart:io';
-import '../../../../service/api_config.dart';
-import '../../../../service/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:coaching_institute_app/service/auth_service.dart';
+import 'package:coaching_institute_app/service/api_config.dart';
+import '../../../../common/theme_color.dart';
+import '../video_stream/video_stream.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:coaching_institute_app/hive_model.dart';
-import '../../../../common/theme_color.dart';
-import '../../study_materials/notes/pdf_viewer_screen.dart';
 
-class NotesScreen extends StatefulWidget {
-  const NotesScreen({super.key});
+class VideosScreen extends StatefulWidget {
+  const VideosScreen({super.key});
 
   @override
-  State<NotesScreen> createState() => _NotesScreenState();
+  State<VideosScreen> createState() => _VideosScreenState();
 }
 
-class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
+class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _accessToken;
   
   // Navigation state
-  String _currentPage = 'subjects'; // subjects, units, chapters, notes
+  String _currentPage = 'subjects'; // subjects, units, chapters, videos
   String _courseName = '';
   String _subcourseName = '';
   String _subcourseId = '';
@@ -37,7 +34,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   List<dynamic> _subjects = [];
   List<dynamic> _units = [];
   List<dynamic> _chapters = [];
-  List<dynamic> _notes = [];
+  List<dynamic> _videos = [];
   
   // Selected IDs for navigation
   String? _selectedSubjectId;
@@ -45,7 +42,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   String? _selectedChapterId;
 
   final AuthService _authService = AuthService();
-  late Box<PdfReadingRecord> _pdfRecordsBox;
+  late Box _videoEventsBox;
   bool _hiveInitialized = false;
 
   @override
@@ -56,33 +53,28 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initializeHive() async {
-    // Check if Hive is already initialized for this adapter
-    if (!_hiveInitialized) {
+    try {
+      // Use the same box name as video_stream.dart - 'videoEvents'
+      if (!Hive.isBoxOpen('videoEvents')) {
+        _videoEventsBox = await Hive.openBox('videoEvents');
+      } else {
+        _videoEventsBox = Hive.box('videoEvents');
+      }
+      
+      _hiveInitialized = true;
+      debugPrint('✅ Hive initialized successfully for videos with box: videoEvents');
+      
+      // Print current stored data
+      _printStoredVideoEvents();
+    } catch (e) {
+      debugPrint('❌ Error initializing Hive for videos: $e');
+      // Try to create the box if it doesn't exist
       try {
-        // Check if adapter is already registered
-        if (!Hive.isAdapterRegistered(0)) {
-          Hive.registerAdapter(PdfReadingRecordAdapter());
-        }
-        
-        // Initialize Hive if not already initialized
-        if (!Hive.isBoxOpen('pdf_records_box')) {
-          _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
-        } else {
-          _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
-        }
-        
+        _videoEventsBox = await Hive.openBox('videoEvents');
         _hiveInitialized = true;
-        debugPrint('✅ Hive initialized successfully for Notes');
-      } catch (e) {
-        debugPrint('❌ Error initializing Hive for Notes: $e');
-        // Fallback: try to use existing box if available
-        try {
-          _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
-          _hiveInitialized = true;
-          debugPrint('✅ Using existing Hive box for Notes');
-        } catch (e) {
-          debugPrint('❌ Failed to use existing Hive box for Notes: $e');
-        }
+        debugPrint('✅ Created new videoEvents box');
+      } catch (e2) {
+        debugPrint('❌ Failed to create videoEvents box: $e2');
       }
     }
     
@@ -90,14 +82,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   }
 
   @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
+    debugPrint('🎬 VideoScreen Lifecycle State Changed: $state');
     
     // Send stored data when app goes to background (minimized or device locked)
     // Only for online students
@@ -105,9 +91,18 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       if (state == AppLifecycleState.paused || 
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
-        _sendStoredReadingDataToAPI();
+        debugPrint('🎬 App going to background - sending video events to API');
+        _sendStoredVideoEventsToAPI();
       }
+    } else {
+      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   Future<void> _initializeData() async {
@@ -137,17 +132,17 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   Future<void> _getAccessToken() async {
     try {
       _accessToken = await _authService.getAccessToken();
+      debugPrint('🎬 Access token retrieved: ${_accessToken != null ? "Yes" : "No"}');
     } catch (e) {
       _showError('Failed to retrieve access token: $e');
     }
   }
 
-  // Load data from SharedPreferences instead of API calls
+  // Load data from SharedPreferences
   Future<void> _loadDataFromSharedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Load course and subcourse data
       setState(() {
         _courseName = prefs.getString('profile_course') ?? 'Course';
         _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
@@ -161,28 +156,37 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         _isLoading = false;
       });
 
+      debugPrint('========== LOADED VIDEOS DATA ==========');
+      debugPrint('Course Name: $_courseName');
+      debugPrint('Subcourse Name: $_subcourseName');
+      debugPrint('Subcourse ID: $_subcourseId');
+      debugPrint('Student Type: $_studentType');
+      debugPrint('Subjects Count: ${_subjects.length}');
+      debugPrint('========================================');
+
     } catch (e) {
       debugPrint('Error loading data from SharedPreferences: $e');
-      _showError('Failed to load study materials data: $e');
+      _showError('Failed to load course data: $e');
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  // Reload subjects from SharedPreferences (used when returning to course page)
+  // Reload subjects from SharedPreferences
   Future<void> _reloadSubjectsFromSharedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? subjectsDataJson = prefs.getString('subjects_data');
+      
       if (subjectsDataJson != null && subjectsDataJson.isNotEmpty) {
         final List<dynamic> subjects = json.decode(subjectsDataJson);
         setState(() {
           _subjects = subjects;
         });
-        debugPrint('✅ Reloaded ${_subjects.length} subjects from SharedPreferences for Notes');
+        debugPrint('✅ Reloaded ${_subjects.length} subjects from SharedPreferences for Videos');
       } else {
-        debugPrint('⚠️ No subjects data found in SharedPreferences for Notes');
+        debugPrint('⚠️ No subjects data found in SharedPreferences for Videos');
         setState(() {
           _subjects = [];
         });
@@ -192,40 +196,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       setState(() {
         _subjects = [];
       });
-    }
-  }
-
-  // Create HTTP client with custom certificate handling for development
-  http.Client _createHttpClientWithCustomCert() {
-    final client = ApiConfig.createHttpClient();
-    return IOClient(client);
-  }
-
-  // Helper method to get authorization headers
-  Map<String, String> _getAuthHeaders() {
-    if (_accessToken == null || _accessToken!.isEmpty) {
-      throw Exception('Access token is null or empty');
-    }
-    
-    return {
-      'Authorization': 'Bearer $_accessToken',
-      ...ApiConfig.commonHeaders,
-    };
-  }
-
-  // Helper method to handle token expiration
-  void _handleTokenExpiration() async {
-    await _authService.logout();
-    _showError('Session expired. Please login again.');
-    _navigateToLogin();
-  }
-
-  void _navigateToLogin() {
-    if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/signup',
-        (Route<dynamic> route) => false,
-      );
     }
   }
 
@@ -308,8 +278,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Fetch notes for a chapter from API
-  Future<void> _fetchNotes(String chapterId, String chapterName) async {
+  // Fetch videos for a chapter from API
+  Future<void> _fetchVideos(String chapterId, String chapterName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found');
       return;
@@ -317,100 +287,64 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
     setState(() => _isLoading = true);
 
-    final client = _createHttpClientWithCustomCert();
-
     try {
       String encodedId = Uri.encodeComponent(chapterId);
-      final apiUrl = '${ApiConfig.currentBaseUrl}/api/notes/list_notes?chapter_id=$encodedId';
+      String apiUrl = '${ApiConfig.baseUrl}/api/videos/list?chapter_id=$encodedId';
       
-      debugPrint('=== FETCHING NOTES API CALL ===');
-      debugPrint('URL: $apiUrl');
-      debugPrint('Method: GET');
-      debugPrint('Headers: ${_getAuthHeaders()}');
+      debugPrint('Fetching videos from: $apiUrl');
       
-      final response = await client.get(
+      final response = await http.get(
         Uri.parse(apiUrl),
-        headers: _getAuthHeaders(),
+        headers: {
+          ...ApiConfig.commonHeaders,
+          'Authorization': 'Bearer $_accessToken',
+        },
       ).timeout(ApiConfig.requestTimeout);
 
-      debugPrint('\n=== NOTES API RESPONSE ===');
-      debugPrint('Status Code: ${response.statusCode}');
-      debugPrint('Response Headers: ${response.headers}');
-      
-      // Use print() instead of debugPrint() to avoid masking
-      print('Response Body (Raw):');
-      print(response.body);
-      
-      // Pretty print JSON if possible
-      try {
-        final responseJson = jsonDecode(response.body);
-        print('\nResponse Body (Formatted):');
-        print(const JsonEncoder.withIndent('  ').convert(responseJson));
-        
-        // Print file URLs explicitly using print()
-        if (responseJson['notes'] != null && responseJson['notes'] is List) {
-          print('\n=== EXTRACTED FILE URLS ===');
-          for (var i = 0; i < responseJson['notes'].length; i++) {
-            final note = responseJson['notes'][i];
-            print('Note ${i + 1}:');
-            print('  ID: ${note['id']}');
-            print('  Title: ${note['title']}');
-            print('  File URL: ${note['file_url']}');
-          }
-          print('=== END FILE URLS ===\n');
-        }
-      } catch (e) {
-        debugPrint('Unable to format JSON: $e');
-      }
-      debugPrint('=== END NOTES API RESPONSE ===\n');
+      debugPrint('Response Status Code: ${response.statusCode}');
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['success'] ?? false) {
-          setState(() {
-            _notes = data['notes'] ?? [];
-            _selectedChapterId = chapterId;
-            _selectedChapterName = chapterName;
-            _currentPage = 'notes';
-            _isLoading = false;
-          });
-        } else {
-          _showError(data['message'] ?? 'Failed to fetch notes');
+        final List<dynamic> videos = json.decode(response.body);
+        
+        setState(() {
+          _videos = videos;
+          _selectedChapterId = chapterId;
+          _selectedChapterName = chapterName;
+          _currentPage = 'videos';
+          _isLoading = false;
+        });
+        
+        debugPrint('✅ Successfully loaded ${_videos.length} videos for chapter: $chapterName');
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${_videos.length} videos found'),
+              backgroundColor: AppColors.successGreen,
+              duration: const Duration(seconds: 2),
+            ),
+          );
         }
       } else if (response.statusCode == 401) {
         _handleTokenExpiration();
       } else {
-        _showError('Failed to fetch notes: ${response.statusCode}');
-      }
-    } on HandshakeException catch (e) {
-      debugPrint('SSL Handshake error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SSL certificate issue - this is normal in development'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } on SocketException catch (e) {
-      debugPrint('Network error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No network connection'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        debugPrint('Error: Failed to fetch videos. Status code: ${response.statusCode}');
+        _showError('Failed to load videos: ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Error fetching notes: $e');
-      _showError('Error fetching notes: $e');
-      setState(() => _isLoading = false);
+      debugPrint('Exception occurred while fetching videos: $e');
+      _showError('Error fetching videos: $e');
     } finally {
-      client.close();
+      setState(() {
+        _isLoading = false;
+      });
     }
+  }
+
+  void _handleTokenExpiration() async {
+    await _authService.logout();
+    _showError('Session expired. Please login again.');
+    _navigateToLogin();
   }
 
   void _showError(String message) {
@@ -433,6 +367,291 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
+  void _navigateToLogin() {
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  }
+
+  // Method to check if there is stored video events data
+  Future<bool> _hasStoredVideoEvents() async {
+    try {
+      final hasData = _videoEventsBox.isNotEmpty;
+      debugPrint('🎬 Checking stored video events in videoEvents box: $hasData');
+      if (hasData) {
+        final allKeys = _videoEventsBox.keys.toList();
+        debugPrint('🎬 Found ${allKeys.length} videos with events');
+      }
+      return hasData;
+    } catch (e) {
+      debugPrint('Error checking stored video events: $e');
+      return false;
+    }
+  }
+
+  // Method to send all stored video events data to API (only called from subjects page back button and app lifecycle)
+  Future<void> _sendStoredVideoEventsToAPI() async {
+    // Only send data for online students
+    if (_studentType.toLowerCase() != 'online') {
+      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+      return;
+    }
+
+    try {
+      debugPrint('\n🎬 ===== ATTEMPTING TO SEND STORED VIDEO EVENTS TO API =====');
+      
+      final allKeys = _videoEventsBox.keys.toList();
+      
+      if (allKeys.isEmpty) {
+        debugPrint('🎬 No stored video events found to send');
+        return;
+      }
+
+      debugPrint('🎬 Total video entries to send: ${allKeys.length}');
+
+      // Check if we have access token
+      if (_accessToken == null || _accessToken!.isEmpty) {
+        debugPrint('🎬 ❌ No access token available, cannot send video events');
+        return;
+      }
+
+      bool anyDataSent = false;
+      final List<String> successfullySentVideoIds = [];
+
+      for (final videoId in allKeys) {
+        final videoData = _videoEventsBox.get(videoId);
+        
+        if (videoData != null && videoData is Map) {
+          final events = videoData['events'] as List?;
+          final videoTitle = videoData['video_title'] as String? ?? 'Unknown Video';
+          
+          if (events != null && events.isNotEmpty) {
+            debugPrint('\n🎬 Processing video: $videoTitle');
+            debugPrint('🎬 Video ID: $videoId');
+            debugPrint('🎬 Events count: ${events.length}');
+            
+            // Filter events to ensure only one 'ended' event
+            List<dynamic> filteredEvents = _filterEvents(events);
+            debugPrint('🎬 Filtered events count: ${filteredEvents.length}');
+            
+            // Flatten the events array if it contains nested sessions
+            List<dynamic> flattenedEvents = _flattenEvents(filteredEvents);
+            debugPrint('🎬 Flattened events count: ${flattenedEvents.length}');
+            
+            // Prepare request body according to API specification
+            final requestBody = {
+              "video_id": videoId,
+              "events": flattenedEvents,
+            };
+
+            debugPrint('🎬 Request Body:');
+            debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
+
+            // API endpoint
+            final apiUrl = '${ApiConfig.baseUrl}/api/performance/video_events/';
+
+            debugPrint('🎬 API URL: $apiUrl');
+
+            try {
+              // Send POST request
+              final response = await http.post(
+                Uri.parse(apiUrl),
+                headers: {
+                  'Authorization': 'Bearer $_accessToken',
+                  'Content-Type': 'application/json',
+                  ...ApiConfig.commonHeaders,
+                },
+                body: jsonEncode(requestBody),
+              ).timeout(const Duration(seconds: 30));
+
+              debugPrint('🎬 Response Status Code: ${response.statusCode}');
+              debugPrint('🎬 Response Body: ${response.body}');
+
+              if (response.statusCode == 200 || response.statusCode == 201) {
+                try {
+                  final responseJson = jsonDecode(response.body);
+                  if (responseJson['success'] == true) {
+                    debugPrint('🎬 ✅ Video events sent successfully for video: $videoTitle');
+                    
+                    // Mark this video for removal after successful API call
+                    successfullySentVideoIds.add(videoId);
+                    anyDataSent = true;
+                    
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Video progress synced for $videoTitle'),
+                          backgroundColor: AppColors.successGreen,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  } else {
+                    debugPrint('🎬 ❌ API returned success: false for video: $videoTitle');
+                  }
+                } catch (e) {
+                  debugPrint('🎬 ❌ Error parsing response JSON: $e');
+                }
+              } else if (response.statusCode == 401) {
+                debugPrint('🎬 ❌ Unauthorized - token may be expired');
+                _handleTokenExpiration();
+                break; // Stop trying to send more requests
+              } else {
+                debugPrint('🎬 ❌ Failed to send video events. Status: ${response.statusCode}');
+              }
+            } catch (e) {
+              debugPrint('🎬 ❌ Error sending video events for $videoId: $e');
+            }
+          } else {
+            debugPrint('🎬 ⚠️ No events found for video: $videoTitle');
+            // Remove empty video entry
+            successfullySentVideoIds.add(videoId);
+          }
+        }
+      }
+
+      // Remove successfully sent videos from Hive
+      for (final videoId in successfullySentVideoIds) {
+        await _videoEventsBox.delete(videoId);
+        debugPrint('🎬 ✅ Removed video $videoId from local storage');
+      }
+
+      if (anyDataSent) {
+        debugPrint('🎬 ✅ Successfully sent some video events to API');
+      } else {
+        debugPrint('🎬 ⚠️ No video events were successfully sent to API');
+      }
+
+      debugPrint('🎬 ===== FINISHED SENDING VIDEO EVENTS =====\n');
+      
+      // Print remaining data in Hive
+      _printStoredVideoEvents();
+
+    } catch (e) {
+      debugPrint('🎬 ❌ Error in _sendStoredVideoEventsToAPI: $e');
+    }
+  }
+
+  // Print stored video events for debugging
+  void _printStoredVideoEvents() {
+    final allKeys = _videoEventsBox.keys.toList();
+    debugPrint('\n🎬 CURRENTLY STORED VIDEO EVENTS in videoEvents box:');
+    debugPrint('═══════════════════════════════════════════════════════');
+    if (allKeys.isEmpty) {
+      debugPrint('No video events stored.');
+    } else {
+      debugPrint('Total videos with events: ${allKeys.length}');
+      for (var key in allKeys) {
+        final data = _videoEventsBox.get(key);
+        if (data is Map) {
+          final videoTitle = data['video_title'] as String? ?? 'Unknown Video';
+          final events = data['events'] as List?;
+          debugPrint('Video ID: $key');
+          debugPrint('Title: $videoTitle');
+          debugPrint('Events count: ${events?.length ?? 0}');
+          if (events != null && events.isNotEmpty) {
+            for (var event in events.take(3)) { // Show first 3 events
+              debugPrint('  - ${event['event_type']} at ${event['time'] ?? event['new_position']}');
+            }
+            if (events.length > 3) {
+              debugPrint('  ... and ${events.length - 3} more events');
+            }
+          }
+          debugPrint('---');
+        } else {
+          debugPrint('Video ID: $key, Data: $data');
+        }
+      }
+    }
+    debugPrint('═══════════════════════════════════════════════════════\n');
+  }
+
+  // Filter events to ensure only one 'ended' event (the last one)
+  List<dynamic> _filterEvents(List<dynamic> events) {
+    List<dynamic> filtered = [];
+    Map<String, dynamic>? lastEndedEvent;
+    
+    // First pass: collect all events and find the last 'ended' event
+    for (var event in events) {
+      if (event is Map) {
+        final eventType = event['event_type'] as String?;
+        
+        if (eventType == 'ended') {
+          // Store the last ended event
+          lastEndedEvent = Map<String, dynamic>.from(event);
+        } else {
+          // Keep all non-ended events
+          filtered.add(event);
+        }
+      } else if (event is List) {
+        // Recursively filter nested events
+        filtered.add(_filterEvents(event));
+      } else {
+        // Keep other types of events
+        filtered.add(event);
+      }
+    }
+    
+    // Add the last ended event at the end if found
+    if (lastEndedEvent != null) {
+      filtered.add(lastEndedEvent);
+      debugPrint('🎬 Filtered: Keeping only one ended event at position ${lastEndedEvent['time'] ?? lastEndedEvent['new_position']}');
+    }
+    
+    debugPrint('🎬 Filtered ${events.length} events to ${filtered.length} events');
+    return filtered;
+  }
+
+  // Method: Flatten nested events structure
+  List<dynamic> _flattenEvents(List<dynamic> events) {
+    List<dynamic> flattened = [];
+    
+    for (var event in events) {
+      if (event is List) {
+        // If event is a list (nested session), recursively flatten it
+        flattened.addAll(_flattenEvents(event));
+      } else if (event is Map) {
+        // If event is a map, add it directly
+        flattened.add(event);
+      }
+    }
+    
+    debugPrint('🎬 Flattened ${events.length} events to ${flattened.length} events');
+    return flattened;
+  }
+
+  // Method: Send stored events for other videos when starting a new video
+  Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) async {
+    // Only send data for online students
+    if (_studentType.toLowerCase() != 'online') {
+      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+      return;
+    }
+
+    try {
+      debugPrint('\n🎬 ===== CHECKING FOR OTHER VIDEO EVENTS BEFORE STARTING NEW VIDEO =====');
+      debugPrint('🎬 New video ID: $newVideoId');
+      
+      final allKeys = _videoEventsBox.keys.toList();
+      final otherVideoKeys = allKeys.where((key) => key != newVideoId).toList();
+      
+      if (otherVideoKeys.isNotEmpty) {
+        debugPrint('🎬 Found stored events for ${otherVideoKeys.length} other videos - sending to API first');
+        await _sendStoredVideoEventsToAPI();
+        debugPrint('🎬 Finished sending other video events, now starting new video');
+      } else {
+        debugPrint('🎬 No stored events for other videos found');
+      }
+      
+      debugPrint('🎬 ===== FINISHED CHECKING OTHER VIDEO EVENTS =====\n');
+    } catch (e) {
+      debugPrint('🎬 ❌ Error in _sendOtherVideoEventsBeforeStartingNewVideo: $e');
+    }
+  }
+
   void _navigateBack() {
     setState(() {
       switch (_currentPage) {
@@ -440,7 +659,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           // When going back from subjects page, check for stored data and send if exists
           // Only for online students
           if (_studentType.toLowerCase() == 'online') {
-            _sendStoredReadingDataToAPI();
+            _sendStoredVideoEventsToAPI();
           }
           if (mounted) {
             Navigator.pop(context);
@@ -458,9 +677,9 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           _selectedUnitId = null;
           _selectedUnitName = '';
           break;
-        case 'notes':
+        case 'videos':
           _currentPage = 'chapters';
-          _notes.clear(); // Only clear notes as they come from API
+          _videos.clear(); // Only clear videos as they come from API
           _selectedChapterId = null;
           _selectedChapterName = '';
           break;
@@ -468,147 +687,36 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     });
   }
 
-  // Method to check if there is stored reading data
-  Future<bool> _hasStoredReadingData() async {
-    try {
-      return _pdfRecordsBox.isNotEmpty;
-    } catch (e) {
-      debugPrint('Error checking stored reading data: $e');
-      return false;
-    }
-  }
-
-  // Method to send all stored reading data to API (only called from subjects page back button and app lifecycle)
-  Future<void> _sendStoredReadingDataToAPI() async {
-    // Only send data for online students
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('Student type is $_studentType - skipping reading data collection');
-      return;
-    }
-
-    try {
-      final allRecords = _pdfRecordsBox.values.toList();
-      
-      if (allRecords.isEmpty) {
-        debugPrint('No stored note reading data found to send');
-        return;
-      }
-
-      debugPrint('=== SENDING ALL STORED NOTE READING DATA TO API ===');
-      debugPrint('Total records to send: ${allRecords.length}');
-
-      List<Map<String, dynamic>> allNotesData = [];
-
-      for (final record in allRecords) {
-        // Prepare the note data (without readedtime_seconds)
-        final noteData = {
-          'encrypted_note_id': record.encryptedNoteId,
-          'readedtime': record.readedtime,
-          'readed_date': record.readedDate,
-        };
-        allNotesData.add(noteData);
-        
-        debugPrint('Prepared record for encrypted_note_id: ${record.encryptedNoteId}');
-      }
-
-      if (allNotesData.isEmpty) {
-        debugPrint('No valid note records to send');
-        return;
-      }
-
-      // Prepare request body with all note records
-      final requestBody = {
-        'notes': allNotesData,
-      };
-
-      debugPrint('REQUEST:');
-      debugPrint('Endpoint: /api/performance/add_readed_notes/');
-      debugPrint('Method: POST');
-      debugPrint('Authorization: Bearer $_accessToken');
-      debugPrint('Request Body:');
-      debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
-
-      // Create HTTP client
-      final client = ApiConfig.createHttpClient();
-      final httpClient = IOClient(client);
-
-      // API endpoint
-      final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_notes/';
-
-      debugPrint('Full URL: $apiUrl');
-
-      // Send POST request
-      final response = await httpClient.post(
-        Uri.parse(apiUrl),
-        headers: {
-          'Authorization': 'Bearer $_accessToken',
-          'Content-Type': 'application/json',
-          ...ApiConfig.commonHeaders,
-        },
-        body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 30));
-
-      debugPrint('\nRESPONSE:');
-      debugPrint('Status Code: ${response.statusCode}');
-      debugPrint('Response Headers: ${response.headers}');
-
-      // Pretty print JSON response if possible
-      try {
-        final responseJson = jsonDecode(response.body);
-        debugPrint('Response Body:');
-        debugPrint(const JsonEncoder.withIndent('  ').convert(responseJson));
-      } catch (e) {
-        debugPrint('Response Body: ${response.body}');
-      }
-
-      debugPrint('=== END BULK NOTES API CALL ===\n');
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        debugPrint('✓ All note data sent successfully to API');
-        
-        // Clear all stored records after successful API call
-        await _clearStoredReadingData();
-        
-      } else {
-        debugPrint('✗ Failed to send note data. Status: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('✗ Error sending stored note records to API: $e');
-      debugPrint('=== END BULK NOTES API CALL (ERROR) ===\n');
-    }
-  }
-
-  // Method to clear all stored reading data
-  Future<void> _clearStoredReadingData() async {
-    try {
-      await _pdfRecordsBox.clear();
-      debugPrint('✓ All stored note reading data cleared');
-    } catch (e) {
-      debugPrint('Error clearing stored note reading data: $e');
-    }
-  }
-
   // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
+    debugPrint('🎬 Back button pressed - current page: $_currentPage');
+    
     if (_currentPage == 'subjects') {
       // On subjects page - check for stored data and send if exists
       // Only for online students
       if (_studentType.toLowerCase() == 'online') {
-        final hasData = await _hasStoredReadingData();
+        debugPrint('🎬 On subjects page - checking for stored video events');
+        final hasData = await _hasStoredVideoEvents();
         if (hasData) {
+          debugPrint('🎬 Found stored video events - sending to API');
           // Send data in background without waiting for response
-          _sendStoredReadingDataToAPI();
+          _sendStoredVideoEventsToAPI();
+        } else {
+          debugPrint('🎬 No stored video events found');
         }
+      } else {
+        debugPrint('🎬 Student type is $_studentType - skipping video events collection');
       }
       // Allow normal back navigation
       return true;
-    } else if (_currentPage == 'notes') {
-      // From notes page, go back to chapters page
+    } else if (_currentPage == 'videos') {
+      // From videos page, go back to chapters page
       _navigateBack();
       // Prevent default back behavior
       return false;
     } else {
       // For other pages (units, chapters), do normal navigation
+      debugPrint('🎬 On $_currentPage page - normal back navigation');
       _navigateBack();
       // Prevent default back behavior
       return false;
@@ -618,15 +726,15 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   String _getAppBarTitle() {
     switch (_currentPage) {
       case 'subjects':
-        return 'Notes';
+        return 'Videos';
       case 'units':
         return 'Units - $_selectedSubjectName';
       case 'chapters':
         return 'Chapters - $_selectedUnitName';
-      case 'notes':
-        return 'Notes - $_selectedChapterName';
+      case 'videos':
+        return 'Videos - $_selectedChapterName';
       default:
-        return 'Notes';
+        return 'Videos';
     }
   }
 
@@ -693,9 +801,9 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                               onPressed: () async {
                                 if (_currentPage == 'subjects') {
                                   if (_studentType.toLowerCase() == 'online') {
-                                    final hasData = await _hasStoredReadingData();
+                                    final hasData = await _hasStoredVideoEvents();
                                     if (hasData) {
-                                      _sendStoredReadingDataToAPI();
+                                      _sendStoredVideoEventsToAPI();
                                     }
                                   }
                                   if (mounted) {
@@ -825,8 +933,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         return _buildUnitsPage();
       case 'chapters':
         return _buildChaptersPage();
-      case 'notes':
-        return _buildNotesPage();
+      case 'videos':
+        return _buildVideosPage();
       default:
         return _buildSubjectsPage();
     }
@@ -873,7 +981,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Choose a subject to view notes',
+                        'Choose a subject to view videos',
                         style: TextStyle(
                           fontSize: 14,
                           color: AppColors.textGrey,
@@ -1211,10 +1319,10 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                 children: _chapters
                     .map((chapter) => _buildSubjectCard(
                           title: chapter['title']?.toString() ?? 'Unknown Chapter',
-                          subtitle: 'Tap to view notes',
+                          subtitle: 'Tap to view videos',
                           icon: Icons.menu_book_rounded,
                           color: AppColors.primaryBlue,
-                          onTap: () => _fetchNotes(
+                          onTap: () => _fetchVideos(
                             chapter['id']?.toString() ?? '',
                             chapter['title']?.toString() ?? 'Unknown Chapter',
                           ),
@@ -1227,7 +1335,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildNotesPage() {
+  Widget _buildVideosPage() {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
@@ -1255,7 +1363,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Text(
-                            'Notes',
+                            'Videos',
                             style: TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
@@ -1284,7 +1392,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                 Padding(
                   padding: const EdgeInsets.only(left: 16),
                   child: Text(
-                    '${_notes.length} note${_notes.length != 1 ? 's' : ''} available',
+                    '${_videos.length} video${_videos.length != 1 ? 's' : ''} available',
                     style: const TextStyle(
                       fontSize: 12,
                       color: AppColors.grey400,
@@ -1297,7 +1405,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
             const SizedBox(height: 32),
 
-            if (_notes.isEmpty)
+            if (_videos.isEmpty)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 60),
@@ -1311,14 +1419,14 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          Icons.note_rounded,
+                          Icons.videocam_off_rounded,
                           size: 60,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        'No notes available',
+                        'No videos available',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -1328,7 +1436,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        'Notes for this chapter\nwill be added soon',
+                        'Videos for this chapter\nwill be added soon',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 14,
@@ -1342,12 +1450,11 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               )
             else
               Column(
-                children: _notes
-                    .map((note) => _buildNoteCard(
-                          noteId: note['id']?.toString() ?? '',
-                          title: note['title']?.toString() ?? 'Untitled Note',
-                          fileUrl: note['file_url']?.toString() ?? '',
-                          uploadedAt: note['uploaded_at']?.toString() ?? '',
+                children: _videos
+                    .map((video) => _buildVideoCard(
+                          videoId: video['id']?.toString() ?? '',
+                          title: video['title']?.toString() ?? 'Untitled Video',
+                          duration: video['duration_minutes']?.toString() ?? 'N/A',
                         ))
                     .toList(),
               ),
@@ -1445,92 +1552,39 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
   }
 
-  String _formatDate(String dateString) {
-    try {
-      if (dateString.isEmpty) return 'Unknown date';
-      
-      final DateTime date = DateTime.parse(dateString);
-      final DateTime now = DateTime.now();
-      final Duration difference = now.difference(date);
-
-      if (difference.inDays == 0) {
-        return 'Today';
-      } else if (difference.inDays == 1) {
-        return 'Yesterday';
-      } else if (difference.inDays < 7) {
-        return '${difference.inDays} days ago';
-      } else if (difference.inDays < 30) {
-        final weeks = (difference.inDays / 7).floor();
-        return '$weeks week${weeks > 1 ? 's' : ''} ago';
-      } else if (difference.inDays < 365) {
-        final months = (difference.inDays / 30).floor();
-        return '$months month${months > 1 ? 's' : ''} ago';
-      } else {
-        final years = (difference.inDays / 365).floor();
-        return '$years year${years > 1 ? 's' : ''} ago';
-      }
-    } catch (e) {
-      try {
-        final parts = dateString.split('T')[0].split('-');
-        if (parts.length == 3) {
-          return '${parts[2]}/${parts[1]}/${parts[0]}';
-        }
-      } catch (e) {
-        // If all else fails
-      }
-      return dateString.isNotEmpty ? dateString : 'Unknown date';
-    }
-  }
-
-  Widget _buildNoteCard({
-    required String noteId,
+  Widget _buildVideoCard({
+    required String videoId,
     required String title,
-    required String fileUrl,
-    required String uploadedAt,
+    required String duration,
   }) {
     return GestureDetector(
-      onTap: () {
-        debugPrint('=== NOTE CARD CLICKED ===');
-        debugPrint('Note ID: $noteId');
-        debugPrint('Title: $title');
-        debugPrint('Raw File URL from API: "$fileUrl"');
-        debugPrint('Student Type: $_studentType');
-        
-        if (fileUrl.isEmpty) {
-          debugPrint('❌ File URL is empty');
+      onTap: () async {
+        if (videoId.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('PDF URL is empty'),
-              backgroundColor: Colors.red,
+              content: Text('Video ID not available'),
+              backgroundColor: AppColors.errorRed,
             ),
           );
           return;
         }
         
-        if (_accessToken == null || _accessToken!.isEmpty) {
-          debugPrint('❌ Access token is null or empty');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Access token not available. Please login again.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
+        // Send stored events for other videos before starting new video
+        // Only for online students
+        if (_studentType.toLowerCase() == 'online') {
+          await _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
+        } else {
+          debugPrint('🎬 Student type is $_studentType - skipping video events collection');
         }
         
-        debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
-        debugPrint('Reading data collection enabled for student type: $_studentType');
-        debugPrint('=== END NOTE CARD CLICK ===\n');
-        
+        // Navigate to video stream page
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => PDFViewerScreen(
-              pdfUrl: fileUrl,
-              title: title,
-              accessToken: _accessToken!,
-              noteId: noteId,
-              enableReadingData: _studentType.toLowerCase() == 'online', // Pass student type check
+            builder: (context) => VideoStreamScreen(
+              videoId: videoId,
+              videoTitle: title,
+              videoDuration: duration,
             ),
           ),
         );
@@ -1560,7 +1614,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Icon(
-                  Icons.picture_as_pdf_rounded,
+                  Icons.play_circle_fill_rounded,
                   size: 24,
                   color: AppColors.primaryBlue,
                 ),
@@ -1581,10 +1635,10 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    if (uploadedAt.isNotEmpty) ...[
+                    if (duration.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
-                        _formatDate(uploadedAt),
+                        'Duration: ${duration}min',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.grey400,
@@ -1604,7 +1658,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
-                  Icons.open_in_new_rounded,
+                  Icons.play_arrow_rounded,
                   color: AppColors.primaryBlue,
                   size: 18,
                 ),

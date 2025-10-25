@@ -19,7 +19,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
   String? _accessToken;
   
   // Navigation state
-  String _currentPage = 'course'; // course, subjects, units
+  String _currentPage = 'subjects'; // subjects, units
   
   // Course data from SharedPreferences
   String _courseName = '';
@@ -235,22 +235,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
     _navigateToLogin();
   }
 
-  // Load subjects from SharedPreferences or fetch from API
-  Future<void> _loadSubjects() async {
-    if (_subjects.isEmpty) {
-      // No subjects in SharedPreferences, fetch from API
-      await _fetchAndStoreSubjects();
-    }
-    
-    // Only navigate if subjects are now available
-    if (_subjects.isNotEmpty) {
-      setState(() {
-        _currentPage = 'subjects';
-      });
-    }
-  }
-
-  // Load units for selected subject - FIXED VERSION
+  // Load units for selected subject
   void _loadUnits(String subjectId, String subjectName) {
     debugPrint('========== LOADING UNITS ==========');
     debugPrint('Subject ID: $subjectId');
@@ -355,18 +340,12 @@ class _MockTestScreenState extends State<MockTestScreen> {
     }
   }
 
-  // MODIFIED: Keep track of selected subject ID
   void _navigateBack() {
     setState(() {
       switch (_currentPage) {
-        case 'subjects':
-          _currentPage = 'course';
-          break;
         case 'units':
           _currentPage = 'subjects';
           _units.clear();
-          // Keep _selectedSubjectId and _selectedSubjectName for potential re-navigation
-          // But clear them if you want a fresh state
           _selectedSubjectId = null;
           _selectedSubjectName = '';
           break;
@@ -374,68 +353,206 @@ class _MockTestScreenState extends State<MockTestScreen> {
     });
   }
 
+  // Handle device back button press
+  Future<bool> _handleDeviceBackButton() async {
+    if (_currentPage == 'subjects') {
+      // On subjects page - allow normal back navigation
+      return true;
+    } else {
+      // For units page, do normal navigation
+      _navigateBack();
+      // Prevent default back behavior
+      return false;
+    }
+  }
+
   String _getAppBarTitle() {
     switch (_currentPage) {
-      case 'course':
-        return 'Mock Test';
       case 'subjects':
-        return 'Subjects';
+        return 'Mock Tests';
       case 'units':
         return 'Units - $_selectedSubjectName';
       default:
-        return 'Mock Test';
+        return 'Mock Tests';
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _currentPage == 'course',
+      canPop: false,
       onPopInvoked: (bool didPop) async {
-        if (!didPop && _currentPage != 'course') {
-          _navigateBack();
+        if (didPop) {
+          return;
+        }
+        
+        final shouldPop = await _handleDeviceBackButton();
+        if (shouldPop && mounted) {
+          Navigator.of(context).pop();
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            _getAppBarTitle(),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
+        backgroundColor: AppColors.backgroundLight,
+        body: Stack(
+          children: [
+            // Gradient background
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.primaryYellow.withOpacity(0.08),
+                    AppColors.backgroundLight,
+                    Colors.white,
+                  ],
+                  stops: const [0.0, 0.4, 1.0],
+                ),
+              ),
             ),
-          ),
-          backgroundColor: AppColors.primaryYellow,
-          iconTheme: const IconThemeData(color: Colors.white),
-          elevation: 0,
-          leading: _currentPage != 'course'
-              ? IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: _navigateBack,
-                )
-              : null,
-        ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                AppColors.primaryYellow,
-                AppColors.backgroundLight,
-                Colors.white,
-              ],
-              stops: const [0.0, 0.3, 1.0],
-            ),
-          ),
-          child: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
+            
+            // Main content
+            Column(
+              children: [
+                // Header Section with Curved Bottom
+                ClipPath(
+                  clipper: CurvedHeaderClipper(),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.primaryYellow,
+                          AppColors.primaryYellowDark,
+                        ],
+                      ),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Back button and title row
+                        Row(
+                          children: [
+                            IconButton(
+                              onPressed: () async {
+                                if (_currentPage == 'subjects') {
+                                  if (mounted) {
+                                    Navigator.pop(context);
+                                  }
+                                } else {
+                                  _navigateBack();
+                                }
+                              },
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _getAppBarTitle(),
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Course and Subcourse Info
+                        if (_courseName.isNotEmpty || _subcourseName.isNotEmpty)
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                child: const Icon(
+                                  Icons.school_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: RichText(
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  text: TextSpan(
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w500,
+                                      color: Colors.white,
+                                      letterSpacing: -0.1,
+                                    ),
+                                    children: [
+                                      if (_courseName.isNotEmpty)
+                                        TextSpan(
+                                          text: _courseName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      if (_courseName.isNotEmpty && _subcourseName.isNotEmpty)
+                                        const TextSpan(
+                                          text: ' • ',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      if (_subcourseName.isNotEmpty)
+                                        TextSpan(
+                                          text: _subcourseName,
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.85),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
                   ),
-                )
-              : _buildCurrentPage(),
+                ),
+
+                // Content Area
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
+                              ),
+                               SizedBox(height: 16),
+                              Text(
+                                'Loading...',
+                                style: TextStyle(
+                                  color: AppColors.textGrey,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : _buildCurrentPage(),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -443,223 +560,138 @@ class _MockTestScreenState extends State<MockTestScreen> {
 
   Widget _buildCurrentPage() {
     switch (_currentPage) {
-      case 'course':
-        return _buildCoursePage();
       case 'subjects':
         return _buildSubjectsPage();
       case 'units':
         return _buildUnitsPage();
       default:
-        return _buildCoursePage();
+        return _buildSubjectsPage();
     }
   }
 
-  Widget _buildCoursePage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
+  Widget _buildSubjectsPage() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 20),
-            Text(
-              'Your Enrolled Course',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primaryBlue,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            // Course Card
-            Card(
-              elevation: 8,
-              shadowColor: AppColors.warningOrange.withOpacity(0.3),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white,
-                      AppColors.warningOrange.withOpacity(0.05),
+            // Header Section
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Subjects',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Choose a subject to take mock tests',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_subjects.length} subject${_subjects.length != 1 ? 's' : ''} available',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.grey400,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          height: 60,
-                          width: 60,
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryYellow.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Icon(
-                            Icons.school,
-                            size: 32,
-                            color: AppColors.primaryYellow,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                _courseName.isNotEmpty ? _courseName : 'Course',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.primaryBlue,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Course',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.black54,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    
-                    // Subcourse Card
-                    InkWell(
-                      onTap: _loadSubjects,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.warningOrange.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.warningOrange.withOpacity(0.3),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.book,
-                              color: AppColors.primaryYellow,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _subcourseName.isNotEmpty ? _subcourseName : 'Subcourse',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.primaryBlue,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'Tap to view subjects',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black54,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(
-                              Icons.arrow_forward_ios,
-                              color: AppColors.warningOrange,
-                              size: 16,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
 
-  Widget _buildSubjectsPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 20),
-            Text(
-              'Select Subject',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primaryBlue,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Choose a subject from $_subcourseName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
+            const SizedBox(height: 32),
+
             if (_subjects.isEmpty)
-              const Center(
-                child: Column(
-                  children: [
-                    SizedBox(height: 50),
-                    Icon(
-                      Icons.subject,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'No subjects available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey,
-                        fontWeight: FontWeight.w500,
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryYellow.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.subject_rounded,
+                          size: 60,
+                          color: AppColors.primaryYellow.withOpacity(0.5),
+                        ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 20),
+                      const Text(
+                        'No subjects available',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Please load study materials first',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               )
             else
-              ..._subjects.map((subject) => _buildListCard(
-                title: subject['title']?.toString() ?? 'Unknown Subject',
-                subtitle: 'Tap to view units',
-                icon: Icons.subject,
-                onTap: () => _loadUnits(
-                  subject['id']?.toString() ?? '', 
-                  subject['title']?.toString() ?? 'Unknown Subject'
-                ),
-              )).toList(),
+              Column(
+                children: _subjects
+                    .map((subject) => _buildSubjectCard(
+                          title: subject['title']?.toString() ?? 'Unknown Subject',
+                          subtitle: '${subject['units']?.length ?? 0} units available',
+                          icon: Icons.subject_rounded,
+                          color: AppColors.primaryBlue,
+                          onTap: () => _loadUnits(
+                            subject['id']?.toString() ?? '',
+                            subject['title']?.toString() ?? 'Unknown Subject',
+                          ),
+                        ))
+                    .toList(),
+              ),
           ],
         ),
       ),
@@ -667,121 +699,181 @@ class _MockTestScreenState extends State<MockTestScreen> {
   }
 
   Widget _buildUnitsPage() {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 20),
-            Text(
-              'Units',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primaryBlue,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Units for $_selectedSubjectName',
-              style: const TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
-            ),
-            const SizedBox(height: 30),
-            
-            if (_units.isEmpty)
-              Center(
-                child: Column(
+            // Header Section
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    const SizedBox(height: 50),
-                    Icon(
-                      Icons.list_alt,
-                      size: 80,
-                      color: Colors.grey[400],
+                    Container(
+                      width: 4,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryBlue,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No units available',
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Units',
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedSubjectName,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Text(
+                    '${_units.length} unit${_units.length != 1 ? 's' : ''} available',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.grey400,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 32),
+
+            if (_units.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.quiz_rounded,
+                          size: 60,
+                          color: AppColors.primaryBlue.withOpacity(0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'No units available',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Mock tests for this subject will be added soon',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               )
             else
-              ..._units.map((unit) => _buildListCard(
-                title: unit['title']?.toString() ?? 'Untitled Unit',
-                subtitle: '${unit['chapters']?.length ?? 0} chapters',
-                icon: Icons.folder_open,
-                onTap: () {
-                  final unitId = unit['id']?.toString();
-                  final unitName = unit['title']?.toString() ?? 'Untitled Unit';
-                  
-                  if (unitId != null && unitId.isNotEmpty) {
-                    _navigateToMockTest(unitId, unitName);
-                  } else {
-                    _showError('Invalid unit ID');
-                  }
-                },
-              )).toList(),
+              Column(
+                children: _units
+                    .map((unit) => _buildUnitCard(
+                          title: unit['title']?.toString() ?? 'Unknown Unit',
+                          subtitle: 'Take mock test for this unit',
+                          icon: Icons.quiz_rounded,
+                          color: AppColors.primaryBlue,
+                          onTap: () {
+                            final unitId = unit['id']?.toString();
+                            final unitName = unit['title']?.toString() ?? 'Unknown Unit';
+                            
+                            if (unitId != null && unitId.isNotEmpty) {
+                              _navigateToMockTest(unitId, unitName);
+                            } else {
+                              _showError('Invalid unit ID');
+                            }
+                          },
+                        ))
+                    .toList(),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildListCard({
+  Widget _buildSubjectCard({
     required String title,
     required String subtitle,
     required IconData icon,
+    required Color color,
     required VoidCallback onTap,
   }) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 4,
-      shadowColor: AppColors.warningOrange.withOpacity(0.2),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                AppColors.warningOrange.withOpacity(0.03),
-              ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.15),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
             ),
-          ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
           child: Row(
             children: [
               Container(
                 height: 50,
                 width: 50,
                 decoration: BoxDecoration(
-                  color: AppColors.primaryYellow.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.primaryYellow.withOpacity(0.4),
-                    width: 1,
-                  ),
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(
                   icon,
+                  color: color,
                   size: 24,
-                  color: AppColors.primaryYellow,
                 ),
               ),
               const SizedBox(width: 16),
@@ -791,41 +883,39 @@ class _MockTestScreenState extends State<MockTestScreen> {
                   children: [
                     Text(
                       title,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primaryBlue,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.1,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       subtitle,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppColors.primaryBlue.withOpacity(0.7),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
               ),
+              const SizedBox(width: 12),
               Container(
                 height: 40,
                 width: 40,
                 decoration: BoxDecoration(
-                  color: AppColors.warningOrange,
+                  color: color.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.warningOrange.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
                 ),
-                child: const Icon(
-                  Icons.arrow_forward_ios,
-                  color: Colors.white,
-                  size: 18,
+                child: Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: color,
+                  size: 16,
                 ),
               ),
             ],
@@ -834,4 +924,115 @@ class _MockTestScreenState extends State<MockTestScreen> {
       ),
     );
   }
+
+  Widget _buildUnitCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.15),
+              blurRadius: 14,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                height: 50,
+                width: 50,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.1,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+               Container(
+                height: 40,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: color,
+                  size: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class CurvedHeaderClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    Path path = Path();
+    path.lineTo(0, size.height - 30);
+    
+    // Create a quadratic bezier curve for smooth bottom
+    path.quadraticBezierTo(
+      size.width / 2,
+      size.height,
+      size.width,
+      size.height - 30,
+    );
+    
+    path.lineTo(size.width, 0);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(CurvedHeaderClipper oldClipper) => false;
 }

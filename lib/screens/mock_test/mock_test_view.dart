@@ -492,11 +492,11 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          title: Row(
+          title: const Row(
             children: [
               Icon(Icons.assignment_turned_in, color: AppColors.primaryYellow, size: 20),
-              const SizedBox(width: 12),
-              const Text(
+               SizedBox(width: 12),
+               Text(
                 'Submit Exam',
                 style: TextStyle(fontSize: 18),
               ),
@@ -511,9 +511,9 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                 style: const TextStyle(fontSize: 14),
               ),
               const SizedBox(height: 12),
-              Text(
+              const Text(
                 'Are you sure you want to submit your test?',
-                style: const TextStyle(
+                style:  TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -759,7 +759,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
               : null,
         ),
         body: Container(
-          decoration: BoxDecoration(
+          decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -768,7 +768,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                 AppColors.backgroundLight,
                 Colors.white,
               ],
-              stops: const [0.0, 0.3, 1.0],
+              stops:  [0.0, 0.3, 1.0],
             ),
           ),
           child: _isLoading
@@ -796,7 +796,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           _isLoadingResult 
             ? 'Gathering your result...'
             : message,
-          style: TextStyle(
+          style: const TextStyle(
             fontSize: 16,
             color: AppColors.primaryBlue,
             fontWeight: FontWeight.w500,
@@ -953,7 +953,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    side: BorderSide(
+                    side: const BorderSide(
                       color: AppColors.primaryBlue,
                       width: 2,
                     ),
@@ -1002,7 +1002,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
+                  const Text(
                     'Progress',
                     style: TextStyle(
                       fontSize: 12,
@@ -1012,7 +1012,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                   ),
                   Text(
                     '${_selectedAnswers.length}/$_totalQuestions answered',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12,
                       color: AppColors.primaryBlue,
                       fontWeight: FontWeight.w600,
@@ -1024,7 +1024,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
               LinearProgressIndicator(
                 value: (_currentQuestionIndex + 1) / _totalQuestions,
                 backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
+                valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                 minHeight: 6,
                 borderRadius: BorderRadius.circular(3),
               ),
@@ -1081,7 +1081,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                       const SizedBox(height: 12),
                       Text(
                         questionText,
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: AppColors.primaryBlue,
@@ -1172,7 +1172,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                               ),
                             ),
                             if (isSelected)
-                              Icon(
+                              const Icon(
                                 Icons.check_circle,
                                 color: AppColors.primaryYellow,
                                 size: 20,
@@ -1272,9 +1272,9 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                             color: AppColors.warningOrange,
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: Text(
+                          child: const Text(
                             'Hold to skip',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 10,
                               fontWeight: FontWeight.bold,

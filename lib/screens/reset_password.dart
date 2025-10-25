@@ -598,7 +598,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
               // New Password input field
               Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
+                  gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [

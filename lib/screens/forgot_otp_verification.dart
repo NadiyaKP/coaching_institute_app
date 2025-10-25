@@ -86,6 +86,8 @@ class _ForgotOtpVerificationScreenState extends State<ForgotOtpVerificationScree
         setState(() {
           _canResend = true;
         });
+
+        
         timer.cancel();
       }
     });

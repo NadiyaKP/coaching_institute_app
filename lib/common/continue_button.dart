@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:coaching_institute_app/common/theme_color.dart';
 
 class ContinueButton extends StatelessWidget {
   final bool isEnabled;
@@ -66,7 +65,7 @@ class ContinueButton extends StatelessWidget {
             ? Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  SizedBox(
+                  const SizedBox(
                     height: 20,
                     width: 20,
                     child: CircularProgressIndicator(

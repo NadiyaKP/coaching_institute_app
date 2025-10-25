@@ -14,17 +14,16 @@ import 'screens/login_screen.dart';
 import 'screens/otp_verification_screen.dart';
 import 'screens/account_creation_screen.dart';
 import 'screens/login_otp_verification.dart';
-import 'screens/email_login.dart';
 import 'screens/profile_completion_page.dart';
-import 'screens/email_login_otp.dart';
-import 'screens/study_materials/study_materials.dart';
 import 'screens/study_materials/notes/notes.dart';
 import 'screens/study_materials/previous_question_papers/question_papers.dart';
-import 'screens/study_materials/video_classes/video_classes.dart';
+import 'screens/study_materials/reference_classes/reference_classes.dart';
 import 'screens/forgot_password.dart';
 import 'screens/forgot_otp_verification.dart';
 import 'screens/reset_password.dart';
 import 'screens/mock_test/mock_test.dart';
+import './screens/performance.dart';
+import './screens/exam_schedule/exam_schedule.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,12 +54,13 @@ class CoachingInstituteApp extends StatefulWidget {
 class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+  // Remove the _isOnlineStudent flag - we'll check dynamically each time
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // _storeStartTime() removed from here - now called in HomeScreen
+    // Removed _checkStudentType() - we'll check dynamically
   }
 
   @override
@@ -73,6 +73,13 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     debugPrint('📱 App lifecycle changed: $state');
 
+    // Check student type dynamically each time
+    final bool isOnlineStudent = await _isOnlineStudent();
+    if (!isOnlineStudent) {
+      debugPrint('🎯 Skipping attendance tracking for non-online student');
+      return;
+    }
+
     if (state == AppLifecycleState.paused) {
       debugPrint('🟡 App minimized or locked, storing end time...');
       await _storeEndTimeAndLastActive();
@@ -82,6 +89,16 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       debugPrint('🟢 App resumed, checking last active time...');
       _checkLastActiveTimeOnResume();
     }
+  }
+
+  // Check if student is online dynamically
+  Future<bool> _isOnlineStudent() async {
+    final prefs = await SharedPreferences.getInstance();
+    final studentType = prefs.getString('profile_student_type') ?? 
+                       prefs.getString('student_type') ?? '';
+    final bool isOnline = studentType.toUpperCase() == 'ONLINE';
+    debugPrint('🎯 Dynamic student type check: $studentType -> Online: $isOnline');
+    return isOnline;
   }
 
   // Store end timestamp and last_active_time
@@ -150,7 +167,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
                     await prefs.remove('end_time');
                     await prefs.remove('last_active_time');
                     debugPrint('✅ End timestamp and last_active_time removed');
-                    Navigator.of(context).pop();
+                    Navigator.of (context).pop();
                   } else {
                     // More than 2 minutes - logout
                     debugPrint('🔴 Time elapsed: $minutes min $seconds sec (> 2 minutes), logging out');
@@ -171,59 +188,67 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     );
   }
 
-  // Logout and send timestamps to backend
+  // Logout and send timestamps to backend (only for online students)
   Future<void> _logoutUser() async {
     debugPrint('🚪 Logging out user...');
     final prefs = await SharedPreferences.getInstance();
-    String? start = prefs.getString('start_time');
-    String? end = prefs.getString('end_time');
+    
+    // Check student type dynamically before proceeding with attendance tracking
+    final bool isOnlineStudent = await _isOnlineStudent();
+    
+    if (isOnlineStudent) {
+      String? start = prefs.getString('start_time');
+      String? end = prefs.getString('end_time');
 
-    if (start != null && end != null) {
-      debugPrint('📤 Preparing API request with timestamps:');
-      debugPrint('Start: $start, End: $end');
+      if (start != null && end != null) {
+        debugPrint('📤 Preparing API request with timestamps:');
+        debugPrint('Start: $start, End: $end');
 
-      final authService = AuthService();
-      final accessToken = await authService.getAccessToken();
+        final authService = AuthService();
+        final accessToken = await authService.getAccessToken();
 
-      // Remove milliseconds from timestamps
-      String cleanStart = start.split('.')[0].replaceFirst('T', ' ');
-      String cleanEnd = end.split('.')[0].replaceFirst('T', ' ');
+        // Remove milliseconds from timestamps
+        String cleanStart = start.split('.')[0].replaceFirst('T', ' ');
+        String cleanEnd = end.split('.')[0].replaceFirst('T', ' ');
 
-      final body = {
-        "records": [
-          {"time_stamp": cleanStart, "is_checkin": 1},
-          {"time_stamp": cleanEnd, "is_checkin": 0}
-        ]
-      };
+        final body = {
+          "records": [
+            {"time_stamp": cleanStart, "is_checkin": 1},
+            {"time_stamp": cleanEnd, "is_checkin": 0}
+          ]
+        };
 
-      debugPrint('📦 API request payload: ${jsonEncode(body)}');
+        debugPrint('📦 API request payload: ${jsonEncode(body)}');
 
-      try {
-        final response = await http.post(
-          Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
-          },
-          body: jsonEncode(body),
-        );
+        try {
+          final response = await http.post(
+            Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
+            headers: {
+              ...ApiConfig.commonHeaders,
+              'Authorization': 'Bearer $accessToken',
+            },
+            body: jsonEncode(body),
+          );
 
-        debugPrint('🌐 API response status: ${response.statusCode}');
-        debugPrint('🌐 API response body: ${response.body}');
+          debugPrint('🌐 API response status: ${response.statusCode}');
+          debugPrint('🌐 API response body: ${response.body}');
 
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          debugPrint('✅ Attendance sent successfully');
-        } else {
-          debugPrint('❌ Error sending attendance');
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            debugPrint('✅ Attendance sent successfully');
+          } else {
+            debugPrint('❌ Error sending attendance');
+          }
+        } catch (e) {
+          debugPrint('❌ Exception while sending attendance: $e');
         }
-      } catch (e) {
-        debugPrint('❌ Exception while sending attendance: $e');
-      }
 
-      await prefs.remove('start_time');
-      await prefs.remove('end_time');
-      await prefs.remove('last_active_time');
-      debugPrint('🗑️ SharedPreferences timestamps cleared');
+        await prefs.remove('start_time');
+        await prefs.remove('end_time');
+        await prefs.remove('last_active_time');
+        debugPrint('🗑️ SharedPreferences timestamps cleared');
+      }
+    } else {
+      debugPrint('🎯 Skipping attendance tracking for non-online student during logout');
     }
 
     await AuthService().logout();
@@ -251,10 +276,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/account_creation': (context) => const AccountCreationScreen(),
         '/home': (context) => const HomeScreen(),
         '/login_otp_verification': (context) => const LoginOtpVerificationScreen(),
-        '/email_login': (context) => const EmailLoginScreen(),
-        '/email_login_otp': (context) => const EmailLoginOtpScreen(),
         '/profile_completion_page': (context) => const ProfileCompletionPage(),
-        '/study_materials': (context) => const StudyMaterialsScreen(),
         '/notes': (context) => const NotesScreen(),
         '/question_papers': (context) => const QuestionPapersScreen(),
         '/video_classes': (context) => const VideoClassesScreen(),
@@ -262,6 +284,8 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/forgot_otp_verification': (context) => const ForgotOtpVerificationScreen(),
         '/reset_password': (context) => const ResetPasswordScreen(),
         '/mock_test': (context) => const MockTestScreen(),
+        '/performance': (context) => const PerformanceScreen(),
+        '/exam_schedule': (context) => const ExamScheduleScreen(),
       },
       onGenerateRoute: (settings) {
         switch (settings.name) {

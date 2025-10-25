@@ -2,7 +2,7 @@ import 'dart:io';
 
 class ApiConfig {
   // Base URL configuration
-  static const String _baseUrl = 'http://192.168.20.8:8000/';
+  static const String _baseUrl = 'http://192.168.20.5:8000/';
   
   // API endpoints
   static const String _studentsPath = '/api/students';
