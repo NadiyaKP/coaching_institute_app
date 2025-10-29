@@ -8,6 +8,7 @@ import '../../../../common/theme_color.dart';
 import '../video_stream/video_stream.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import '../../screens/subscription/subscription.dart';
 
 class VideosScreen extends StatefulWidget {
   const VideosScreen({super.key});
@@ -44,6 +45,10 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   final AuthService _authService = AuthService();
   late Box _videoEventsBox;
   bool _hiveInitialized = false;
+
+  // Subscription message state
+  bool _showSubscriptionMessage = false;
+  bool _hasLockedVideos = false;
 
   @override
   void initState() {
@@ -245,7 +250,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     }
   }
 
-  // Load chapters for a unit from SharedPreferences (no API call)
+  // Load chapters for a unit from SharedPreferences 
   void _loadChapters(String unitId, String unitName) {
     try {
       // Find the unit in the current subject's units
@@ -306,15 +311,28 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       if (response.statusCode == 200) {
         final List<dynamic> videos = json.decode(response.body);
         
+        // Check if there are any locked videos (video_url is null or empty)
+        final hasLockedVideos = videos.any((video) {
+          final videoUrl = video['video_url']?.toString() ?? '';
+          return videoUrl.isEmpty || videoUrl == 'null';
+        });
+
         setState(() {
           _videos = videos;
           _selectedChapterId = chapterId;
           _selectedChapterName = chapterName;
           _currentPage = 'videos';
           _isLoading = false;
+          _hasLockedVideos = hasLockedVideos;
         });
         
         debugPrint('✅ Successfully loaded ${_videos.length} videos for chapter: $chapterName');
+        debugPrint('🔒 Locked videos present: $hasLockedVideos');
+        
+        // Show subscription message if there are locked videos
+        if (hasLockedVideos) {
+          _showAndHideSubscriptionMessage();
+        }
         
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -339,6 +357,13 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         _isLoading = false;
       });
     }
+  }
+
+  // Show and hide subscription message with animation
+  void _showAndHideSubscriptionMessage() {
+    setState(() {
+      _showSubscriptionMessage = true;
+    });
   }
 
   void _handleTokenExpiration() async {
@@ -673,13 +698,13 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
           break;
         case 'chapters':
           _currentPage = 'units';
-          // Don't clear chapters - they will be reloaded when needed
+         
           _selectedUnitId = null;
           _selectedUnitName = '';
           break;
         case 'videos':
           _currentPage = 'chapters';
-          _videos.clear(); // Only clear videos as they come from API
+          _videos.clear(); 
           _selectedChapterId = null;
           _selectedChapterName = '';
           break;
@@ -687,7 +712,6 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     });
   }
 
-  // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
     debugPrint('🎬 Back button pressed - current page: $_currentPage');
     
@@ -736,6 +760,85 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       default:
         return 'Videos';
     }
+  }
+
+  // Show subscription popup for locked videos
+  void _showSubscriptionPopup(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                color: AppColors.primaryYellow,
+                size: 24,
+              ),
+              SizedBox(width: 12),
+              Text(
+                'Premium Content',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Take any subscription plan to view this content and unlock all premium features.',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textGrey,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppColors.textGrey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SubscriptionScreen(),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryYellow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              child: const Text(
+                'Subscribe',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -790,7 +893,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                         ],
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -833,91 +936,195 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                             ),
                           ],
                         ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Course and Subcourse Info
-                        if (_courseName.isNotEmpty || _subcourseName.isNotEmpty)
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                child: const Icon(
-                                  Icons.school_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: RichText(
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  text: TextSpan(
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.white,
-                                      letterSpacing: -0.1,
-                                    ),
-                                    children: [
-                                      if (_courseName.isNotEmpty)
-                                        TextSpan(
-                                          text: _courseName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      if (_courseName.isNotEmpty && _subcourseName.isNotEmpty)
-                                        const TextSpan(
-                                          text: ' • ',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      if (_subcourseName.isNotEmpty)
-                                        TextSpan(
-                                          text: _subcourseName,
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.85),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
                       ],
                     ),
                   ),
                 ),
 
+                // Subscription Message (appears only when there are locked videos)
+                if (_showSubscriptionMessage && _hasLockedVideos)
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SubscriptionScreen(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.primaryYellow.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.lock_open_rounded,
+                            color: AppColors.primaryYellow,
+                            size: 20,
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Take subscription to unlock all premium features',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryYellowDark,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: AppColors.primaryYellow,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                 // Content Area
                 Expanded(
                   child: _isLoading
-                      ? const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
-                              ),
-                               SizedBox(height: 16),
-                              Text(
-                                'Loading...',
-                                style: TextStyle(
-                                  color: AppColors.textGrey,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
+                      ? _buildSkeletonLoading()
                       : _buildCurrentPage(),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Skeleton header
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 120,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Container(
+                    width: 200,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Skeleton cards
+            Column(
+              children: List.generate(5, (index) => _buildSkeletonCard()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 100,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              height: 32,
+              width: 32,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ],
         ),
@@ -944,7 +1151,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -956,7 +1163,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryYellow,
                         borderRadius: BorderRadius.circular(2),
@@ -966,7 +1173,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                     const Text(
                       'Subjects',
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.3,
@@ -983,7 +1190,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                       const Text(
                         'Choose a subject to view videos',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.1,
@@ -1004,32 +1211,32 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_subjects.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryYellow.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.subject_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryYellow.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No subjects available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1039,7 +1246,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                       const Text(
                         'Please load study materials first',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1073,7 +1280,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1085,7 +1292,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -1099,7 +1306,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                           const Text(
                             'Units',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -1109,7 +1316,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                           Text(
                             _selectedSubjectName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -1137,32 +1344,32 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_units.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryBlue.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.library_books_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No units available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1172,7 +1379,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                       const Text(
                         'Units for this subject will be added soon',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1206,7 +1413,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1218,7 +1425,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -1232,7 +1439,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                           const Text(
                             'Chapters',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -1242,7 +1449,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                           Text(
                             _selectedUnitName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -1270,32 +1477,32 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_chapters.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.warningOrange.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.menu_book_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No chapters available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1305,7 +1512,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                       const Text(
                         'Chapters for this unit will be added soon',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1339,7 +1546,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1351,7 +1558,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -1365,7 +1572,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                           const Text(
                             'Videos',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -1375,7 +1582,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                           Text(
                             _selectedChapterName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -1403,32 +1610,32 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_videos.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryBlue.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.videocam_off_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No videos available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1439,7 +1646,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                         'Videos for this chapter\nwill be added soon',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1451,11 +1658,16 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
             else
               Column(
                 children: _videos
-                    .map((video) => _buildVideoCard(
-                          videoId: video['id']?.toString() ?? '',
-                          title: video['title']?.toString() ?? 'Untitled Video',
-                          duration: video['duration_minutes']?.toString() ?? 'N/A',
-                        ))
+                    .map((video) {
+                      final videoUrl = video['video_url']?.toString() ?? '';
+                      final isLocked = videoUrl.isEmpty || videoUrl == 'null';
+                      
+                      return _buildVideoCard(
+                        videoId: video['id']?.toString() ?? '',
+                        title: video['title']?.toString() ?? 'Untitled Video',
+                        isLocked: isLocked,
+                      );
+                    })
                     .toList(),
               ),
           ],
@@ -1474,36 +1686,36 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
               Container(
-                height: 50,
-                width: 50,
+                height: 40,
+                width: 40,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   icon,
                   color: color,
-                  size: 24,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1511,7 +1723,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.1,
@@ -1523,7 +1735,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         color: AppColors.textGrey,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1533,16 +1745,16 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
               ),
               const SizedBox(width: 12),
               Container(
-                height: 40,
-                width: 40,
+                height: 32,
+                width: 32,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   Icons.arrow_forward_ios_rounded,
                   color: color,
-                  size: 16,
+                  size: 14,
                 ),
               ),
             ],
@@ -1555,10 +1767,15 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   Widget _buildVideoCard({
     required String videoId,
     required String title,
-    required String duration,
+    required bool isLocked,
   }) {
     return GestureDetector(
-      onTap: () async {
+      onTap: () {
+        if (isLocked) {
+          _showSubscriptionPopup(context);
+          return;
+        }
+
         if (videoId.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1572,7 +1789,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         // Send stored events for other videos before starting new video
         // Only for online students
         if (_studentType.toLowerCase() == 'online') {
-          await _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
+          _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
         } else {
           debugPrint('🎬 Student type is $_studentType - skipping video events collection');
         }
@@ -1584,87 +1801,110 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
             builder: (context) => VideoStreamScreen(
               videoId: videoId,
               videoTitle: title,
-              videoDuration: duration,
+              videoDuration: '', 
             ),
           ),
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primaryYellow.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              color: isLocked 
+                  ? Colors.grey.withOpacity(0.1)
+                  : AppColors.primaryYellow.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.play_circle_fill_rounded,
-                  size: 24,
-                  color: AppColors.primaryBlue,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.1,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    if (duration.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Duration: ${duration}min',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.grey400,
-                          fontWeight: FontWeight.w500,
+                    child: Icon(
+                      isLocked ? Icons.lock_outline_rounded : Icons.play_circle_fill_rounded,
+                      size: 20,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: isLocked ? Colors.grey : AppColors.textDark,
+                            letterSpacing: -0.1,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    height: 32,
+                    width: 32,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Blur effect for locked videos 
+            if (isLocked)
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: BackdropFilter(
+                    filter: ColorFilter.mode(
+                      Colors.grey.withOpacity(0.3),
+                      BlendMode.srcOver,
+                    ),
+                    child: Container(
+                      color: Colors.white.withOpacity(0.7),
+                      child: const Center(
+                        child: Icon(
+                          Icons.lock_rounded,
+                          color: AppColors.primaryBlue,
+                          size: 18,
                         ),
                       ),
-                    ],
-                  ],
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Container(
-                height: 40,
-                width: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: AppColors.primaryBlue,
-                  size: 18,
-                ),
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );

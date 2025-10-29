@@ -11,6 +11,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../common/theme_color.dart';
 import '../../study_materials/notes/pdf_viewer_screen.dart';
+import '../../subscription/subscription.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -47,6 +48,10 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   final AuthService _authService = AuthService();
   late Box<PdfReadingRecord> _pdfRecordsBox;
   bool _hiveInitialized = false;
+
+  // Subscription message state
+  bool _showSubscriptionMessage = false;
+  bool _hasLockedNotes = false;
 
   @override
   void initState() {
@@ -367,13 +372,27 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] ?? false) {
+          final notes = data['notes'] ?? [];
+          
+          // Check if there are any locked notes
+          final hasLockedNotes = notes.any((note) {
+            final fileUrl = note['file_url']?.toString() ?? '';
+            return fileUrl.isEmpty || fileUrl == 'null';
+          });
+
           setState(() {
-            _notes = data['notes'] ?? [];
+            _notes = notes;
             _selectedChapterId = chapterId;
             _selectedChapterName = chapterName;
             _currentPage = 'notes';
             _isLoading = false;
+            _hasLockedNotes = hasLockedNotes;
           });
+
+          // Show subscription message if there are locked notes
+          if (hasLockedNotes) {
+            _showAndHideSubscriptionMessage();
+          }
         } else {
           _showError(data['message'] ?? 'Failed to fetch notes');
         }
@@ -411,6 +430,13 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     } finally {
       client.close();
     }
+  }
+
+  // Show and hide subscription message with animation
+  void _showAndHideSubscriptionMessage() {
+    setState(() {
+      _showSubscriptionMessage = true;
+    });
   }
 
   void _showError(String message) {
@@ -630,6 +656,85 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
+  // Show subscription popup for locked notes
+  void _showSubscriptionPopup(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                color: AppColors.primaryYellow,
+                size: 24,
+              ),
+              SizedBox(width: 12),
+              Text(
+                'Premium Content',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Take any subscription plan to view this content and unlock all premium features.',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textGrey,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppColors.textGrey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SubscriptionScreen(),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryYellow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              child: const Text(
+                'Subscribe',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -682,7 +787,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                         ],
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -725,91 +830,195 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                             ),
                           ],
                         ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Course and Subcourse Info
-                        if (_courseName.isNotEmpty || _subcourseName.isNotEmpty)
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                child: const Icon(
-                                  Icons.school_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: RichText(
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  text: TextSpan(
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.white,
-                                      letterSpacing: -0.1,
-                                    ),
-                                    children: [
-                                      if (_courseName.isNotEmpty)
-                                        TextSpan(
-                                          text: _courseName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      if (_courseName.isNotEmpty && _subcourseName.isNotEmpty)
-                                        const TextSpan(
-                                          text: ' • ',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      if (_subcourseName.isNotEmpty)
-                                        TextSpan(
-                                          text: _subcourseName,
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.85),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
                       ],
                     ),
                   ),
                 ),
 
+                // Subscription Message (appears only when there are locked notes)
+                if (_showSubscriptionMessage && _hasLockedNotes)
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SubscriptionScreen(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.primaryYellow.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.lock_open_rounded,
+                            color: AppColors.primaryYellow,
+                            size: 20,
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Take subscription to unlock all premium features',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryYellowDark,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: AppColors.primaryYellow,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                 // Content Area
                 Expanded(
                   child: _isLoading
-                      ? const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
-                              ),
-                               SizedBox(height: 16),
-                              Text(
-                                'Loading...',
-                                style: TextStyle(
-                                  color: AppColors.textGrey,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
+                      ? _buildSkeletonLoading()
                       : _buildCurrentPage(),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Skeleton header
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 120,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Container(
+                    width: 200,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Skeleton cards
+            Column(
+              children: List.generate(5, (index) => _buildSkeletonCard()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 100,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              height: 32,
+              width: 32,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ],
         ),
@@ -836,7 +1045,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -848,7 +1057,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryYellow,
                         borderRadius: BorderRadius.circular(2),
@@ -858,7 +1067,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                     const Text(
                       'Subjects',
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.3,
@@ -875,7 +1084,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       const Text(
                         'Choose a subject to view notes',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.1,
@@ -896,32 +1105,32 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_subjects.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryYellow.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.subject_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryYellow.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No subjects available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -931,7 +1140,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       const Text(
                         'Please load study materials first',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -965,7 +1174,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -977,7 +1186,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -991,7 +1200,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           const Text(
                             'Units',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -1001,7 +1210,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           Text(
                             _selectedSubjectName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -1029,32 +1238,32 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_units.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryBlue.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.library_books_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No units available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1064,7 +1273,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       const Text(
                         'Units for this subject will be added soon',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1098,7 +1307,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1110,7 +1319,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -1124,7 +1333,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           const Text(
                             'Chapters',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -1134,7 +1343,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           Text(
                             _selectedUnitName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -1162,32 +1371,32 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_chapters.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.warningOrange.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.menu_book_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No chapters available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1197,7 +1406,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       const Text(
                         'Chapters for this unit will be added soon',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1231,7 +1440,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1243,7 +1452,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -1257,7 +1466,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           const Text(
                             'Notes',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -1267,7 +1476,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           Text(
                             _selectedChapterName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -1295,32 +1504,32 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_notes.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryBlue.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.note_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No notes available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -1331,7 +1540,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                         'Notes for this chapter\nwill be added soon',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -1343,12 +1552,18 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
             else
               Column(
                 children: _notes
-                    .map((note) => _buildNoteCard(
-                          noteId: note['id']?.toString() ?? '',
-                          title: note['title']?.toString() ?? 'Untitled Note',
-                          fileUrl: note['file_url']?.toString() ?? '',
-                          uploadedAt: note['uploaded_at']?.toString() ?? '',
-                        ))
+                    .map((note) {
+                      final fileUrl = note['file_url']?.toString() ?? '';
+                      final isLocked = fileUrl.isEmpty || fileUrl == 'null';
+                      
+                      return _buildNoteCard(
+                        noteId: note['id']?.toString() ?? '',
+                        title: note['title']?.toString() ?? 'Untitled Note',
+                        fileUrl: fileUrl,
+                        uploadedAt: note['uploaded_at']?.toString() ?? '',
+                        isLocked: isLocked,
+                      );
+                    })
                     .toList(),
               ),
           ],
@@ -1367,36 +1582,36 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
               Container(
-                height: 50,
-                width: 50,
+                height: 40,
+                width: 40,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   icon,
                   color: color,
-                  size: 24,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1404,7 +1619,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.1,
@@ -1416,7 +1631,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 12,
                         color: AppColors.textGrey,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1426,16 +1641,16 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(width: 12),
               Container(
-                height: 40,
-                width: 40,
+                height: 32,
+                width: 32,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   Icons.arrow_forward_ios_rounded,
                   color: color,
-                  size: 16,
+                  size: 14,
                 ),
               ),
             ],
@@ -1482,139 +1697,179 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  Widget _buildNoteCard({
-    required String noteId,
-    required String title,
-    required String fileUrl,
-    required String uploadedAt,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        debugPrint('=== NOTE CARD CLICKED ===');
-        debugPrint('Note ID: $noteId');
-        debugPrint('Title: $title');
-        debugPrint('Raw File URL from API: "$fileUrl"');
-        debugPrint('Student Type: $_studentType');
-        
-        if (fileUrl.isEmpty) {
-          debugPrint('❌ File URL is empty');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('PDF URL is empty'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-        
-        if (_accessToken == null || _accessToken!.isEmpty) {
-          debugPrint('❌ Access token is null or empty');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Access token not available. Please login again.'),
-              backgroundColor: Colors.red,
-            ),
-          );
-          return;
-        }
-        
-        debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
-        debugPrint('Reading data collection enabled for student type: $_studentType');
-        debugPrint('=== END NOTE CARD CLICK ===\n');
-        
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PDFViewerScreen(
-              pdfUrl: fileUrl,
-              title: title,
-              accessToken: _accessToken!,
-              noteId: noteId,
-              enableReadingData: _studentType.toLowerCase() == 'online', // Pass student type check
-            ),
+Widget _buildNoteCard({
+  required String noteId,
+  required String title,
+  required String fileUrl,
+  required String uploadedAt,
+  required bool isLocked,
+}) {
+  return GestureDetector(
+    onTap: () {
+      if (isLocked) {
+        _showSubscriptionPopup(context);
+        return;
+      }
+
+      debugPrint('=== NOTE CARD CLICKED ===');
+      debugPrint('Note ID: $noteId');
+      debugPrint('Title: $title');
+      debugPrint('Raw File URL from API: "$fileUrl"');
+      debugPrint('Student Type: $_studentType');
+      
+      if (fileUrl.isEmpty) {
+        debugPrint('❌ File URL is empty');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('PDF URL is empty'),
+            backgroundColor: Colors.red,
           ),
         );
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primaryYellow.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.picture_as_pdf_rounded,
-                  size: 24,
-                  color: AppColors.primaryBlue,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.1,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (uploadedAt.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDate(uploadedAt),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.grey400,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                height: 40,
-                width: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.open_in_new_rounded,
-                  color: AppColors.primaryBlue,
-                  size: 18,
-                ),
-              ),
-            ],
+        return;
+      }
+      
+      if (_accessToken == null || _accessToken!.isEmpty) {
+        debugPrint('❌ Access token is null or empty');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Access token not available. Please login again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+      
+      debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
+      debugPrint('Reading data collection enabled for student type: $_studentType');
+      debugPrint('=== END NOTE CARD CLICK ===\n');
+      
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PDFViewerScreen(
+            pdfUrl: fileUrl,
+            title: title,
+            accessToken: _accessToken!,
+            noteId: noteId,
+            enableReadingData: _studentType.toLowerCase() == 'online', 
           ),
         ),
+      );
+    },
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: isLocked 
+                ? Colors.grey.withOpacity(0.1)
+                : AppColors.primaryYellow.withOpacity(0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
-    );
-  }
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  height: 40,
+                  width: 40,
+                  decoration: BoxDecoration(
+                    color: isLocked 
+                        ? Colors.grey.withOpacity(0.1)
+                        : AppColors.primaryBlue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(
+                    isLocked ? Icons.lock_outline_rounded : Icons.picture_as_pdf_rounded,
+                    size: 20,
+                    color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isLocked ? Colors.grey : AppColors.textDark,
+                          letterSpacing: -0.1,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (uploadedAt.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatDate(uploadedAt),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: isLocked ? Colors.grey : AppColors.grey400,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  height: 32,
+                  width: 32,
+                  decoration: BoxDecoration(
+                    color: isLocked 
+                        ? Colors.grey.withOpacity(0.1)
+                        : AppColors.primaryBlue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    isLocked ? Icons.lock_rounded : Icons.open_in_new_rounded,
+                    color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                    size: 16,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Blur effect for locked notes - only on the content area
+          if (isLocked)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: BackdropFilter(
+                  filter: ColorFilter.mode(
+                    Colors.grey.withOpacity(0.3),
+                    BlendMode.srcOver,
+                  ),
+                  child: Container(
+                    color: Colors.white.withOpacity(0.7),
+                    child: const Center(
+                      child: Icon(
+                        Icons.lock_rounded,
+                        color: AppColors.primaryBlue,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+}
 }
 
 class CurvedHeaderClipper extends CustomClipper<Path> {

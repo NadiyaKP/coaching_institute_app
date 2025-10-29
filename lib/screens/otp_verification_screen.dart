@@ -57,17 +57,17 @@ void didChangeDependencies() {
     mobileNumber = args['mobile_number'] ?? '';
     email = args['email'] ?? '';
     name = args['name'] ?? '';
-    password = args['password'] ?? '';  // ADD THIS LINE
+    password = args['password'] ?? '';  
     isLoginFlow = args['is_login'] ?? false;
     
-    // Debug prints to verify data
+    // to verify data
     _debugLog('OTP VERIFICATION - ROUTE ARGUMENTS RECEIVED', {
       'phone_number': phoneNumber,
       'country_code': countryCode,
       'mobile_number': mobileNumber,
       'email': email,
       'name': name,
-      'password': password.isNotEmpty ? '***PASSWORD_RECEIVED***' : 'NOT_FOUND',  // ADD THIS LINE
+      'password': password.isNotEmpty ? '***PASSWORD_RECEIVED***' : 'NOT_FOUND',  
       'is_login': isLoginFlow,
       'display_email': email,
       'formatted_phone': getFormattedPhoneNumber(),
@@ -294,19 +294,19 @@ void didChangeDependencies() {
       });
 
       if (isSuccess) {
-        // Save authentication data to SharedPreferences - JUST LIKE LOGIN SCREEN
+        // Save authentication data to SharedPreferences 
         final prefs = await SharedPreferences.getInstance();
         
-        // Store access token (changed to camelCase) - SAME AS LOGIN SCREEN
+        // Store access token 
         await prefs.setString('accessToken', responseData['access'] ?? '');
         
-        // Store student type (changed to camelCase) - SAME AS LOGIN SCREEN
+        // Store student type 
         await prefs.setString('studentType', responseData['student_type'] ?? '');
         
-        // Store phone number (changed to camelCase) - SAME AS LOGIN SCREEN
+        // Store phone number 
         await prefs.setString('phoneNumber', responseData['phone_number'] ?? phoneNumber);
         
-        // Store profile completion status (changed to camelCase) - SAME AS LOGIN SCREEN
+        // Store profile completion status
         await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
         
         // Optional: Store username/email for future reference
@@ -343,7 +343,7 @@ void didChangeDependencies() {
 
           _debugLog('🧭 NAVIGATION ARGUMENTS', navigationArgs);
 
-          // Navigate based on profile completion status - JUST LIKE LOGIN SCREEN
+          // Navigate based on profile completion status
           Future.delayed(const Duration(milliseconds: 800), () {
   debugPrint('🧭 Navigating to: /profile_completion_page');
   Navigator.pushReplacementNamed(
@@ -715,7 +715,7 @@ void didChangeDependencies() {
               children: [
                 SizedBox(height: screenHeight * 0.03),
                 
-                // Header Section with Icon - Reduced size
+                // Header Section with Icon
                 Container(
                   width: screenWidth * 0.15,
                   height: screenWidth * 0.15,
@@ -739,7 +739,6 @@ void didChangeDependencies() {
                 
                 SizedBox(height: screenHeight * 0.025),
                 
-                // Title - Changed to Email Verification
                 Text(
                   isLoginFlow ? 'Login Verification' : 'Email Verification',
                   style: TextStyle(
@@ -752,7 +751,6 @@ void didChangeDependencies() {
                 
                 SizedBox(height: screenHeight * 0.012),
                 
-                // Description - Updated text
                 Text(
                   email.isNotEmpty 
                     ? 'Enter the 6-digit code sent to'
@@ -766,8 +764,7 @@ void didChangeDependencies() {
                 ),
                 
                 SizedBox(height: screenHeight * 0.006),
-                
-                // Email Display - Changed from phone number
+  
                 if (email.isNotEmpty)
                   Text(
                     email,
@@ -781,7 +778,7 @@ void didChangeDependencies() {
                 
                 SizedBox(height: screenHeight * 0.035),
                 
-                // Timer Display with Progress Indicator - Reduced font size
+                // Timer Display with Progress Indicator
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   decoration: BoxDecoration(
@@ -811,7 +808,7 @@ void didChangeDependencies() {
                 
                 SizedBox(height: screenHeight * 0.04),
                 
-                // OTP Input Fields with Reduced Size - SINGLE INSTANCE
+                // OTP Input Fields with Reduced Size
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
                   child: Row(
@@ -884,7 +881,7 @@ void didChangeDependencies() {
                 
                 SizedBox(height: screenHeight * 0.025),
                 
-                // Resend OTP Section - Reduced font sizes
+                // Resend OTP Section 
                 Column(
                   children: [
                     Text(

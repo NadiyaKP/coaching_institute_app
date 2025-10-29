@@ -11,6 +11,7 @@ import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../common/theme_color.dart';
+import '../../subscription/subscription.dart';
 
 class QuestionPapersScreen extends StatefulWidget {
   const QuestionPapersScreen({super.key});
@@ -41,6 +42,10 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
   final AuthService _authService = AuthService();
   late Box<PdfReadingRecord> _pdfRecordsBox;
   bool _hiveInitialized = false;
+
+  // Subscription message state
+  bool _showSubscriptionMessage = false;
+  bool _hasLockedPapers = false;
 
   @override
   void initState() {
@@ -249,21 +254,73 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
 
     try {
       String encodedId = Uri.encodeComponent(subjectId);
+      final apiUrl = '${ApiConfig.currentBaseUrl}/api/notes/list_question_papers/?subject_id=$encodedId';
+      
+      debugPrint('=== FETCHING QUESTION PAPERS API CALL ===');
+      debugPrint('URL: $apiUrl');
+      debugPrint('Method: GET');
+      debugPrint('Headers: ${_getAuthHeaders()}');
+      
       final response = await client.get(
-        Uri.parse('${ApiConfig.currentBaseUrl}/api/notes/list_question_papers/?subject_id=$encodedId'),
+        Uri.parse(apiUrl),
         headers: _getAuthHeaders(),
       ).timeout(ApiConfig.requestTimeout);
+
+      debugPrint('\n=== QUESTION PAPERS API RESPONSE ===');
+      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('Response Headers: ${response.headers}');
+      
+      // Use print() instead of debugPrint() to avoid masking
+      print('Response Body (Raw):');
+      print(response.body);
+      
+      // Pretty print JSON if possible
+      try {
+        final responseJson = jsonDecode(response.body);
+        print('\nResponse Body (Formatted):');
+        print(const JsonEncoder.withIndent('  ').convert(responseJson));
+        
+        // Print file URLs explicitly using print()
+        if (responseJson['question_papers'] != null && responseJson['question_papers'] is List) {
+          print('\n=== EXTRACTED FILE URLS ===');
+          for (var i = 0; i < responseJson['question_papers'].length; i++) {
+            final paper = responseJson['question_papers'][i];
+            print('Paper ${i + 1}:');
+            print('  ID: ${paper['id']}');
+            print('  Title: ${paper['title']}');
+            print('  File URL: ${paper['file_url']}');
+          }
+          print('=== END FILE URLS ===\n');
+        }
+      } catch (e) {
+        debugPrint('Unable to format JSON: $e');
+      }
+      debugPrint('=== END QUESTION PAPERS API RESPONSE ===\n');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] ?? false) {
+          final papers = data['question_papers'] ?? [];
+          
+          // Check if there are any locked papers
+          final hasLockedPapers = papers.any((paper) {
+            final fileUrl = paper['file_url']?.toString() ?? '';
+            return fileUrl.isEmpty || fileUrl == 'null';
+          });
+
           setState(() {
-            _questionPapers = data['question_papers'] ?? [];
+            _questionPapers = papers;
             _selectedSubjectId = subjectId;
             _selectedSubjectName = subjectName;
             _currentPage = 'question_papers';
             _isLoading = false;
+            _hasLockedPapers = hasLockedPapers;
           });
+
+          // Show subscription message if there are locked papers
+          if (hasLockedPapers) {
+            _showAndHideSubscriptionMessage();
+          }
         } else {
           _showError(data['message'] ?? 'Failed to fetch question papers');
         }
@@ -295,11 +352,19 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
         );
       }
     } catch (e) {
+      debugPrint('Error fetching question papers: $e');
       _showError('Error fetching question papers: $e');
       setState(() => _isLoading = false);
     } finally {
       client.close();
     }
+  }
+
+  // Show and hide subscription message with animation
+  void _showAndHideSubscriptionMessage() {
+    setState(() {
+      _showSubscriptionMessage = true;
+    });
   }
 
   void _showError(String message) {
@@ -337,7 +402,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
           break;
         case 'question_papers':
           _currentPage = 'subjects';
-          _questionPapers.clear(); // Only clear question papers as they come from API
+          _questionPapers.clear();
           _selectedSubjectId = null;
           _selectedSubjectName = '';
           break;
@@ -503,6 +568,85 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     }
   }
 
+  // Show subscription popup for locked papers
+  void _showSubscriptionPopup(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                color: AppColors.primaryYellow,
+                size: 24,
+              ),
+              SizedBox(width: 12),
+              Text(
+                'Premium Content',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Take any subscription plan to view this content and unlock all premium features.',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textGrey,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppColors.textGrey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SubscriptionScreen(),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryYellow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              child: const Text(
+                'Subscribe',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -555,7 +699,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                         ],
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
+                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -598,91 +742,195 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                             ),
                           ],
                         ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Course and Subcourse Info
-                        if (_courseName.isNotEmpty || _subcourseName.isNotEmpty)
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                child: const Icon(
-                                  Icons.school_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: RichText(
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  text: TextSpan(
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.white,
-                                      letterSpacing: -0.1,
-                                    ),
-                                    children: [
-                                      if (_courseName.isNotEmpty)
-                                        TextSpan(
-                                          text: _courseName,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      if (_courseName.isNotEmpty && _subcourseName.isNotEmpty)
-                                        const TextSpan(
-                                          text: ' • ',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      if (_subcourseName.isNotEmpty)
-                                        TextSpan(
-                                          text: _subcourseName,
-                                          style: TextStyle(
-                                            color: Colors.white.withOpacity(0.85),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
                       ],
                     ),
                   ),
                 ),
 
+                // Subscription Message 
+                if (_showSubscriptionMessage && _hasLockedPapers)
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SubscriptionScreen(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.primaryYellow.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.lock_open_rounded,
+                            color: AppColors.primaryYellow,
+                            size: 20,
+                          ),
+                           SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Take subscription to unlock all premium features',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primaryYellowDark,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            color: AppColors.primaryYellow,
+                            size: 16,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
                 // Content Area
                 Expanded(
                   child: _isLoading
-                      ? const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
-                              ),
-                               SizedBox(height: 16),
-                              Text(
-                                'Loading...',
-                                style: TextStyle(
-                                  color: AppColors.textGrey,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
+                      ? _buildSkeletonLoading()
                       : _buildCurrentPage(),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Skeleton header
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 120,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Container(
+                    width: 200,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // Skeleton cards
+            Column(
+              children: List.generate(5, (index) => _buildSkeletonCard()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 100,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              height: 32,
+              width: 32,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
           ],
         ),
@@ -705,7 +953,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -717,7 +965,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryYellow,
                         borderRadius: BorderRadius.circular(2),
@@ -727,7 +975,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                     const Text(
                       'Subjects',
                       style: TextStyle(
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.3,
@@ -744,7 +992,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                       const Text(
                         'Choose a subject to view question papers',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.1,
@@ -765,32 +1013,32 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_subjects.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.primaryYellow.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.subject_rounded,
-                          size: 60,
+                          size: 50,
                           color: AppColors.primaryYellow.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No subjects available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -800,7 +1048,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                       const Text(
                         'Please load study materials first',
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -814,6 +1062,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                 children: _subjects
                     .map((subject) => _buildSubjectCard(
                           title: subject['title']?.toString() ?? 'Unknown Subject',
+                          subtitle: 'Tap to view papers',
                           icon: Icons.quiz_rounded,
                           color: AppColors.primaryBlue,
                           onTap: () => _fetchQuestionPapers(
@@ -833,7 +1082,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -845,7 +1094,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                   children: [
                     Container(
                       width: 4,
-                      height: 28,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
@@ -859,7 +1108,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                           const Text(
                             'Question Papers',
                             style: TextStyle(
-                              fontSize: 22,
+                              fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
                               letterSpacing: -0.3,
@@ -869,7 +1118,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                           Text(
                             _selectedSubjectName,
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: AppColors.primaryBlue,
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
@@ -897,32 +1146,32 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
               ],
             ),
 
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
             if (_questionPapers.isEmpty)
               Center(
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 60),
+                  padding: const EdgeInsets.symmetric(vertical: 40),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Container(
-                        padding: const EdgeInsets.all(20),
+                        padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           color: AppColors.warningOrange.withOpacity(0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
                           Icons.quiz_rounded,
-                          size: 60,
-                          color: AppColors.warningOrange.withOpacity(0.5),
+                          size: 50,
+                          color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
                       const Text(
                         'No papers available',
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.textDark,
                           letterSpacing: -0.2,
@@ -933,7 +1182,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                         'Question papers for this subject\nwill be added soon',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: AppColors.textGrey,
                           fontWeight: FontWeight.w500,
                         ),
@@ -945,12 +1194,18 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
             else
               Column(
                 children: _questionPapers
-                    .map((paper) => _buildQuestionPaperCard(
-                          paperId: paper['id']?.toString() ?? '',
-                          title: paper['title']?.toString() ?? 'Untitled Paper',
-                          fileUrl: paper['file_url']?.toString() ?? '',
-                          uploadedAt: paper['uploaded_at']?.toString() ?? '',
-                        ))
+                    .map((paper) {
+                      final fileUrl = paper['file_url']?.toString() ?? '';
+                      final isLocked = fileUrl.isEmpty || fileUrl == 'null';
+                      
+                      return _buildQuestionPaperCard(
+                        paperId: paper['id']?.toString() ?? '',
+                        title: paper['title']?.toString() ?? 'Untitled Paper',
+                        fileUrl: fileUrl,
+                        uploadedAt: paper['uploaded_at']?.toString() ?? '',
+                        isLocked: isLocked,
+                      );
+                    })
                     .toList(),
               ),
           ],
@@ -961,6 +1216,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
 
   Widget _buildSubjectCard({
     required String title,
+    required String subtitle,
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
@@ -968,57 +1224,22 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.1,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                   
-                  
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
               Container(
                 height: 40,
                 width: 40,
@@ -1027,9 +1248,51 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
+                  icon,
+                  color: color,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.1,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                height: 32,
+                width: 32,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
                   Icons.arrow_forward_ios_rounded,
                   color: color,
-                  size: 16,
+                  size: 14,
                 ),
               ),
             ],
@@ -1081,9 +1344,15 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     required String title,
     required String fileUrl,
     required String uploadedAt,
+    required bool isLocked,
   }) {
     return GestureDetector(
       onTap: () {
+        if (isLocked) {
+          _showSubscriptionPopup(context);
+          return;
+        }
+
         debugPrint('=== QUESTION PAPER CARD CLICKED ===');
         debugPrint('Question Paper ID: $paperId');
         debugPrint('Title: $title');
@@ -1124,87 +1393,121 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
               title: title,
               accessToken: _accessToken!,
               questionPaperId: paperId,
-              enableReadingData: _studentType.toLowerCase() == 'online', // Pass student type check
+              enableReadingData: _studentType.toLowerCase() == 'online',
             ),
           ),
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
+        margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: AppColors.primaryBlue.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              color: isLocked 
+                  ? Colors.grey.withOpacity(0.1)
+                  : AppColors.primaryYellow.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                height: 50,
-                width: 50,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.picture_as_pdf_rounded,
-                  size: 24,
-                  color: AppColors.primaryBlue,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.1,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    if (uploadedAt.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDate(uploadedAt),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.grey400,
-                          fontWeight: FontWeight.w500,
+                    child: Icon(
+                      isLocked ? Icons.lock_outline_rounded : Icons.picture_as_pdf_rounded,
+                      size: 20,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: isLocked ? Colors.grey : AppColors.textDark,
+                            letterSpacing: -0.1,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (uploadedAt.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDate(uploadedAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isLocked ? Colors.grey : AppColors.grey400,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    height: 32,
+                    width: 32,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      isLocked ? Icons.lock_rounded : Icons.open_in_new_rounded,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Blur effect for locked papers
+            if (isLocked)
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: BackdropFilter(
+                    filter: ColorFilter.mode(
+                      Colors.grey.withOpacity(0.3),
+                      BlendMode.srcOver,
+                    ),
+                    child: Container(
+                      color: Colors.white.withOpacity(0.7),
+                      child: const Center(
+                        child: Icon(
+                          Icons.lock_rounded,
+                          color: AppColors.primaryBlue,
+                          size: 18,
                         ),
                       ),
-                    ],
-                  ],
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(width: 12),
-              Container(
-                height: 40,
-                width: 40,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.open_in_new_rounded,
-                  color: AppColors.primaryBlue,
-                  size: 18,
-                ),
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     );

@@ -8,6 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../service/auth_service.dart';
 import '../service/api_config.dart';
 import '../common/theme_color.dart';
+import '../common/bottom_navbar.dart';
+import '../screens/view_profile.dart';
+import '../screens/settings.dart';
 
 class PerformanceScreen extends StatefulWidget {
   const PerformanceScreen({super.key});
@@ -26,9 +29,24 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
   late AnimationController _barAnimationController;
   late Animation<double> _barAnimation;
 
+  // Bottom Navigation Bar
+  int _currentIndex = 1; 
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  String _studentType = '';
+  
+  // Profile data for drawer
+  String _userName = '';
+  String _userEmail = '';
+  bool _profileCompleted = false;
+  String _courseName = '';
+  String _subcourseName = '';
+
   @override
   void initState() {
     super.initState();
+    _loadStudentType();
+    _loadProfileData();
+    
     _scoreAnimationController = AnimationController(
       duration: const Duration(milliseconds: 2000),
       vsync: this,
@@ -46,6 +64,28 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
     );
     
     _fetchPerformanceData();
+  }
+
+  Future<void> _loadProfileData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _userName = prefs.getString('profile_name') ?? 'User Name';
+        _userEmail = prefs.getString('profile_email') ?? '';
+        _profileCompleted = prefs.getBool('profile_completed') ?? false;
+        _courseName = prefs.getString('profile_course') ?? 'Course';
+        _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
+      });
+    } catch (e) {
+      debugPrint('Error loading profile data for drawer: $e');
+    }
+  }
+
+  Future<void> _loadStudentType() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _studentType = prefs.getString('profile_student_type') ?? '';
+    });
   }
 
   @override
@@ -159,43 +199,223 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
     return formatted;
   }
 
+  void _navigateToViewProfile() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ViewProfileScreen(
+          onProfileUpdated: (Map<String, String> updatedData) {
+            // Refresh profile data when returning from view profile
+            _loadProfileData();
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Profile updated successfully!'),
+                backgroundColor: Color(0xFFF4B400),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // Navigate to Settings
+  void _navigateToSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SettingsScreen(),
+      ),
+    );
+  }
+
+  // Handle device back button press
+  Future<bool> _handleDeviceBackButton() async {
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/home',
+      (Route<dynamic> route) => false,
+    );
+    return false; 
+  }
+
+  // Bottom Navigation Bar methods
+  void _onTabTapped(int index) {
+    if (index == 3) {
+      // Profile tab - open drawer
+      _scaffoldKey.currentState?.openEndDrawer();
+      return;
+    }
+    
+    setState(() {
+      _currentIndex = index;
+    });
+
+    // Use the common helper for navigation logic
+    BottomNavBarHelper.handleTabSelection(
+      index, 
+      context, 
+      _studentType,
+      _scaffoldKey,
+    );
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _performLogout();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4B400),
+              ),
+              child: const Text(
+                'Logout',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performLogout() async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Logging out...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      await _authService.logout();
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint('Logout error: $e');
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout completed (Error: ${e.toString()})'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.backgroundGrey,
-      body: Stack(
-        children: [
-          // Modern Header
-          Container(
-            width: double.infinity,
-            height: 200,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  AppColors.primaryYellow,
-                  AppColors.primaryYellowDark,
+      endDrawer: CommonProfileDrawer(
+        name: _userName,
+        email: _userEmail,
+        course: _courseName,
+        subcourse: _subcourseName,
+        profileCompleted: _profileCompleted,
+        onViewProfile: () {
+          Navigator.of(context).pop(); 
+          _navigateToViewProfile();
+        },
+        onSettings: () {
+          Navigator.of(context).pop(); 
+          _navigateToSettings();
+        },
+        onLogout: () {
+          Navigator.of(context).pop(); 
+          _showLogoutDialog();
+        },
+        onClose: () {
+          Navigator.of(context).pop(); 
+        },
+      ),
+      body: PopScope(
+        canPop: false,
+        onPopInvoked: (bool didPop) async {
+          if (didPop) {
+            return;
+          }
+          
+          await _handleDeviceBackButton();
+        },
+        child: Stack(
+          children: [
+            Container(
+              width: double.infinity,
+              height: 200,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.primaryYellow,
+                    AppColors.primaryYellowDark,
+                  ],
+                ),
+              ),
+            ),
+
+            SafeArea(
+              child: Column(
+                children: [
+                  _buildAppBar(),
+                  Expanded(
+                    child: isLoading
+                        ? _buildLoadingState()
+                        : errorMessage.isNotEmpty
+                            ? _buildErrorState()
+                            : _buildPerformanceContent(),
+                  ),
                 ],
               ),
             ),
-          ),
-
-          SafeArea(
-            child: Column(
-              children: [
-                _buildAppBar(),
-                Expanded(
-                  child: isLoading
-                      ? _buildLoadingState()
-                      : errorMessage.isNotEmpty
-                          ? _buildErrorState()
-                          : _buildPerformanceContent(),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
+      ),
+      bottomNavigationBar: CommonBottomNavBar(
+        currentIndex: _currentIndex,
+        onTabSelected: _onTabTapped,
+        studentType: _studentType,
+        scaffoldKey: _scaffoldKey,
       ),
     );
   }
@@ -211,7 +431,9 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
               borderRadius: BorderRadius.circular(12),
             ),
             child: IconButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () async {
+                await _handleDeviceBackButton();
+              },
               icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
               padding: const EdgeInsets.all(8),
             ),
@@ -443,7 +665,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          // Last Week Summary Header
+          
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -477,7 +699,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
           ),
           const SizedBox(height: 18),
           
-          // Doughnut Chart - Reduced Size
+          // Doughnut Chart 
           AnimatedBuilder(
             animation: _scoreAnimation,
             builder: (context, child) {
@@ -636,47 +858,61 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
       child: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          // Score text
           Text(
             _formatNumber(score),
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10, 
               fontWeight: FontWeight.bold,
               color: barColor,
             ),
           ),
-          const SizedBox(height: 5),
-          AnimatedBuilder(
-            animation: _barAnimation,
-            builder: (context, child) {
-              return Container(
-                width: double.infinity,
-                height: (score / 100 * 120 * _barAnimation.value).clamp(15, 120),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [barColor, barColor.withOpacity(0.6)],
-                  ),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: barColor.withOpacity(0.3),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
+          const SizedBox(height: 3),
+          // Animated bar
+          Expanded(
+            child: AnimatedBuilder(
+              animation: _barAnimation,
+              builder: (context, child) {
+                return Container(
+                  width: double.infinity,
+                  height: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 15), 
+                  child: FractionallySizedBox(
+                    alignment: Alignment.bottomCenter,
+                    heightFactor: (score / 100 * _barAnimation.value).clamp(0.15, 1.0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [barColor, barColor.withOpacity(0.6)],
+                        ),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: barColor.withOpacity(0.3),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
-                ),
-              );
-            },
+                  ),
+                );
+              },
+            ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4), 
+          // Label text
           Text(
             label,
             style: const TextStyle(
-              fontSize: 10,
+              fontSize: 9, 
               color: AppColors.textGrey,
               fontWeight: FontWeight.w600,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),

@@ -417,7 +417,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         child: SingleChildScrollView(
           child: Container(
             width: screenWidth * 0.85,
-            padding: const EdgeInsets.all(28),
+            padding: const  EdgeInsets.all(28),
             decoration: BoxDecoration(
               color: AppColors.white,
               borderRadius: BorderRadius.circular(20),
@@ -678,17 +678,17 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                   width: 60,
                   height: 60,
                   decoration: BoxDecoration(
-                    color: Color(0xFFFFD54F).withOpacity(0.15),
+                    color: const Color(0xFFFFD54F).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(15),
                   ),
-                  child: Icon(
+                  child: const Icon(
                     Icons.school_rounded,
                     size: 32,
                     color: AppColors.primaryYellow,
                   ),
                 ),
                 
-                SizedBox(height: 20),
+                const SizedBox(height: 20),
                 
                 Text(
                   'What course are you pursuing?',
@@ -700,7 +700,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                   ),
                 ),
                 
-                SizedBox(height: 8),
+                const SizedBox(height: 8),
                 
                 Text(
                   'Select your main course and level',
@@ -711,7 +711,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                   ),
                 ),
                 
-                SizedBox(height: 24),
+                const SizedBox(height: 24),
                 
                 // Course Dropdown
                 Container(
@@ -725,7 +725,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                   child: DropdownButtonHideUnderline(
                     child: isLoadingData
                         ? Padding(
-                            padding: EdgeInsets.all(16.0),
+                            padding: const EdgeInsets.all(16.0),
                             child: Row(
                               children: [
                                 const SizedBox(
@@ -738,7 +738,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                                     ),
                                   ),
                                 ),
-                                SizedBox(width: 12),
+                                const SizedBox(width: 12),
                                 Text(
                                   'Loading courses...',
                                   style: TextStyle(
@@ -767,22 +767,22 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                             isExpanded: true,
                             icon: availableCourses.isEmpty && dataLoadError != null
                                 ? IconButton(
-                                    icon: Icon(Icons.refresh, color: AppColors.primaryBlue, size: 20),
+                                    icon: const Icon(Icons.refresh, color: AppColors.primaryBlue, size: 20),
                                     onPressed: _fetchCoursesAndSubcourses,
                                   )
-                                : Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
+                                : const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
                             style: TextStyle(
                               fontSize: screenWidth * 0.038,
                               color: AppColors.textDark,
                               fontWeight: FontWeight.w500,
                             ),
                             dropdownColor: AppColors.white,
-                            menuMaxHeight: 300, // Increased height for better scrolling
+                            menuMaxHeight: 300, 
                             items: availableCourses.map((CourseModel course) {
                               return DropdownMenuItem<String>(
                                 value: course.title,
                                 child: Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 12), // Increased padding for better touch
+                                  padding: const EdgeInsets.symmetric(vertical: 12), 
                                   child: Text(
                                     course.title,
                                     style: TextStyle(
@@ -805,7 +805,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                 ),
                 
                 if (dataLoadError != null && availableCourses.isEmpty) ...[
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
@@ -815,7 +815,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error_outline, color: AppColors.errorRed, size: 18),
+                        const Icon(Icons.error_outline, color: AppColors.errorRed, size: 18),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
@@ -831,8 +831,8 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                         TextButton(
                           onPressed: _fetchCoursesAndSubcourses,
                           style: TextButton.styleFrom(
-                            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            minimumSize: Size(0, 0),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            minimumSize: const Size(0, 0),
                             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                           child: Text(
@@ -850,7 +850,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                 ],
                 
                 if (selectedCourse != null) ...[
-                  SizedBox(height: 16),
+                  const SizedBox(height: 16),
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
@@ -871,21 +871,21 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                           ),
                         ),
                         isExpanded: true,
-                        icon: Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
+                        icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
                         style: TextStyle(
                           fontSize: screenWidth * 0.038,
                           color: AppColors.textDark,
                           fontWeight: FontWeight.w500,
                         ),
                         dropdownColor: AppColors.white,
-                        menuMaxHeight: 300, // Increased height for better scrolling
+                        menuMaxHeight: 300, 
                         items: availableSubcourses
                             .where((subcourse) => subcourse.course == selectedCourse)
                             .map((SubcourseModel subcourse) {
                           return DropdownMenuItem<String>(
                             value: subcourse.title,
                             child: Padding(
-                              padding: EdgeInsets.symmetric(vertical: 12), // Increased padding for better touch
+                              padding: const EdgeInsets.symmetric(vertical: 12), 
                               child: Text(
                                 subcourse.title,
                                 style: TextStyle(
@@ -928,21 +928,21 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
           if (currentPageIndex < 2) ...[
             Expanded(
               child: Container(
-                height: 44, // Reduced height
+                height: 44, 
                 margin: const EdgeInsets.only(right: 8),
                 child: OutlinedButton(
                   onPressed: _skipPage,
                   style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: AppColors.primaryYellow, width: 1.5),
+                    side: const BorderSide(color: AppColors.primaryYellow, width: 1.5),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12), // Slightly smaller radius
+                      borderRadius: BorderRadius.circular(12), 
                     ),
                     backgroundColor: AppColors.white,
                   ),
                   child: Text(
                     'Skip',
                     style: TextStyle(
-                      fontSize: screenWidth * 0.036, // Slightly smaller font
+                      fontSize: screenWidth * 0.036, 
                       fontWeight: FontWeight.w600,
                       color: AppColors.primaryYellow,
                     ),
@@ -958,20 +958,19 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
               margin: EdgeInsets.only(left: currentPageIndex < 2 ? 8 : 0),
               child: currentPageIndex == 2
                   ? ContinueButton(
-                      // Modified validation: Both course and level must be selected
                       isEnabled: selectedCourse != null && selectedSubCourse != null,
                       isLoading: isSubmitting,
                       onPressed: _completeProfile,
                       screenWidth: screenWidth,
                     )
                   : Container(
-                      height: 44, // Reduced height
+                      height: 44, 
                       child: ElevatedButton(
                         onPressed: _nextPage,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.primaryYellow,
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12), // Slightly smaller radius
+                            borderRadius: BorderRadius.circular(12), 
                           ),
                           elevation: 3,
                           shadowColor: AppColors.shadowYellow,
@@ -979,7 +978,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                         child: Text(
                           'Next',
                           style: TextStyle(
-                            fontSize: screenWidth * 0.036, // Slightly smaller font
+                            fontSize: screenWidth * 0.036, 
                             fontWeight: FontWeight.w600,
                             color: AppColors.white,
                           ),
@@ -1004,11 +1003,11 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         backgroundColor: AppColors.white,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: AppColors.textDark, size: 20),
+          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textDark, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         centerTitle: true,
-        title: Text(
+        title: const Text(
           'Complete Your Profile',
           style: TextStyle(
             color: AppColors.textDark,
@@ -1020,19 +1019,16 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
       body: SafeArea(
         child: Column(
           children: [
-            // Spacer to push content to center
-            Expanded(
+            const Expanded(
               flex: 1,
               child: SizedBox(),
             ),
             
-            // Main content area with fixed height
             Container(
-              height: screenHeight * 0.7, // Fixed height for better centering
+              height: screenHeight * 0.7, 
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // PageView with fixed height
                   Expanded(
                     flex: 4,
                     child: PageView(
@@ -1050,7 +1046,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                     ),
                   ),
                   
-                  // Dot indicators placed just below the card
+                  // Dot indicators 
                   _buildDotIndicator(),
                 ],
               ),
@@ -1060,7 +1056,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
             _buildActionButtons(),
             
             // Bottom spacer
-            Expanded(
+            const Expanded(
               flex: 1,
               child: SizedBox(),
             ),

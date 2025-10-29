@@ -4,12 +4,12 @@ import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../service/auth_service.dart';
-import '../../service/api_config.dart';
-import '../../common/theme_color.dart';
+import '../../../service/auth_service.dart';
+import '../../../service/api_config.dart';
+import '../../../common/theme_color.dart';
 import 'package:intl/intl.dart';
 import '../exam_schedule/start_exam.dart';
-import '../mock_test/mock_test.dart';
+import '../../mock_test/mock_test.dart';
 import 'dart:ui' show FontFeature;
 import 'dart:async';
 

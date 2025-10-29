@@ -22,7 +22,7 @@ class PDFViewerScreen extends StatefulWidget {
     required this.title,
     required this.accessToken,
     required this.noteId,
-    this.enableReadingData = false, // Default to false
+    this.enableReadingData = false,
   });
 
   @override

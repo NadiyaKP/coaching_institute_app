@@ -10,6 +10,7 @@ import '../mock_test/mock_test_result.dart';
 import 'dart:async';
 import '../../common/loading_animations.dart';
 import '../../screens/mock_test/mock_test_detail.dart';
+import '../../screens/subscription/subscription.dart';
 
 class MockTestViewScreen extends StatefulWidget {
   final String unitId;
@@ -37,14 +38,14 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
   
   int _studentId = 0;
   String _unit = '';
-  int _totalQuestions = 10; // Fixed to 10 questions
+  int _totalQuestions = 10; 
   List<dynamic> _questions = [];
   
   int _currentQuestionIndex = 0;
-  Map<String, int> _selectedAnswers = {}; // question_id -> option_id
-  Map<String, int> _questionStartTimes = {}; // question_id -> start timestamp
-  Map<String, int> _questionTimeTaken = {}; // question_id -> time taken in seconds
-  Map<String, bool> _questionSkipped = {}; // question_id -> skipped status
+  Map<String, int> _selectedAnswers = {}; 
+  Map<String, int> _questionStartTimes = {}; 
+  Map<String, int> _questionTimeTaken = {}; 
+  Map<String, bool> _questionSkipped = {}; 
   
   late Box _mockTestBox;
   bool _hiveInitialized = false;
@@ -77,7 +78,6 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
         _hiveInitialized = true;
       });
       
-      // Check if there's a previous result
       await _checkPreviousResult();
       
     } catch (e) {
@@ -135,6 +135,21 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);
         
+        // Check if this is a FREE_USER_LIMIT error
+        if (responseData['success'] == false && 
+            responseData['error_code'] == 'FREE_USER_LIMIT') {
+          setState(() {
+            _isLoading = false;
+          });
+          
+          // Show premium message with navigation option
+          _showPremiumUpgradeDialog(
+            responseData['message'] ?? 
+            'Free users can attempt only one mock test. Upgrade to premium for unlimited attempts.'
+          );
+          return;
+        }
+        
         setState(() {
           _studentId = responseData['student_id'] ?? 0;
           _unit = responseData['unit'] ?? widget.unitName;
@@ -153,6 +168,24 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
         _handleError('Session expired. Please login again.');
         _navigateBack();
       } else {
+        // Try to parse error response
+        try {
+          final Map<String, dynamic> errorData = json.decode(response.body);
+          if (errorData['error_code'] == 'FREE_USER_LIMIT') {
+            setState(() {
+              _isLoading = false;
+            });
+            
+            _showPremiumUpgradeDialog(
+              errorData['message'] ?? 
+              'Free users can attempt only one mock test. Upgrade to premium for unlimited attempts.'
+            );
+            return;
+          }
+        } catch (e) {
+          debugPrint('Error parsing error response: $e');
+        }
+        
         _handleError('Failed to load mock test: ${response.statusCode}');
       }
     } catch (e) {
@@ -161,13 +194,142 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     }
   }
 
+  void _showPremiumUpgradeDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.workspace_premium, color: AppColors.primaryYellow, size: 24),
+               SizedBox(width: 12),
+               Expanded(
+                child: Text(
+                  'Premium Feature',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                message,
+                style: const TextStyle(fontSize: 14, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryYellow.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.primaryYellow.withOpacity(0.3),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Premium Benefits:',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primaryBlue,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    _buildBenefitItem('Unlimited mock test attempts'),
+                    _buildBenefitItem('Detailed performance analytics'),
+                    _buildBenefitItem('Access to all features'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).pop(); 
+              },
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey[700], fontSize: 14),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop(); 
+                Navigator.of(context).pop(); 
+                // Navigate to subscription page
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SubscriptionScreen(),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryYellow,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Upgrade to Premium',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildBenefitItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.check_circle,
+            size: 14,
+            color: AppColors.primaryYellow,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _storeTestData() async {
     if (!_hiveInitialized) return;
     
     try {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
       await _mockTestBox.put('${widget.unitId}_test_data', {
-        'last_attempt_date': today, // Always store last attempt date
+        'last_attempt_date': today,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
         'student_id': _studentId,
         'unit': _unit,
@@ -193,6 +355,21 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           content: Text(message),
           backgroundColor: AppColors.errorRed,
           duration: const Duration(seconds: 4),
+          action: message.toLowerCase().contains('upgrade') || 
+                  message.toLowerCase().contains('premium')
+              ? SnackBarAction(
+                  label: 'Upgrade',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const SubscriptionScreen(),
+                      ),
+                    );
+                  },
+                )
+              : null,
         ),
       );
     }
@@ -280,7 +457,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
 
     _skipTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
       setState(() {
-        _skipProgress += 0.05; // Complete in 1 second (1000ms / 50ms * 0.05 = 1.0)
+        _skipProgress += 0.05;
         
         if (_skipProgress >= 1.0) {
           timer.cancel();
@@ -335,10 +512,10 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       // Remove any selected answer for this question and mark as skipped
       _selectedAnswers.remove(currentQuestionId);
       _questionSkipped[currentQuestionId] = true;
-      _questionTimeTaken[currentQuestionId] = 0; // Set time taken to 0 for skipped questions
+      _questionTimeTaken[currentQuestionId] = 0; 
       _isSkipHolding = false;
       _skipProgress = 0.0;
-      _skipClickCount = 0; // Reset counter on successful skip
+      _skipClickCount = 0;
     });
 
     if (_currentQuestionIndex < _questions.length - 1) {
@@ -495,8 +672,8 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           title: const Row(
             children: [
               Icon(Icons.assignment_turned_in, color: AppColors.primaryYellow, size: 20),
-               SizedBox(width: 12),
-               Text(
+              SizedBox(width: 12),
+              Text(
                 'Submit Exam',
                 style: TextStyle(fontSize: 18),
               ),
@@ -513,7 +690,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
               const SizedBox(height: 12),
               const Text(
                 'Are you sure you want to submit your test?',
-                style:  TextStyle(
+                style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w600,
                 ),
@@ -535,7 +712,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryYellow,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced padding
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -587,7 +764,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
             answeredQuestions: _selectedAnswers.length,
             questions: hiveData['questions'] ?? [],
             selectedAnswers: hiveData['selected_answers'] ?? {},
-            onBackPressed: _clearHiveData, // Clear Hive data when leaving result screen
+            onBackPressed: _clearHiveData,
           ),
         ),
       );
@@ -605,7 +782,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       final lastAttemptDate = existingData['last_attempt_date'];
       
       await _mockTestBox.put('${widget.unitId}_test_data', {
-        'last_attempt_date': lastAttemptDate, // Keep only the date
+        'last_attempt_date': lastAttemptDate,
       });
       
       debugPrint('✅ Hive data cleared except last attempt date');
@@ -626,7 +803,10 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       
       if (lastAttemptDate == null) {
         _handleError('No previous attempt found.');
-        setState(() { _isLoading = false; });
+        setState(() { 
+          _isLoading = false;
+          _isLoadingResult = false;
+        });
         return;
       }
 
@@ -650,7 +830,27 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);
         
+        // Check if this is a FREE_USER_LIMIT error
+        if (responseData['success'] == false && 
+            responseData['error_code'] == 'FREE_USER_LIMIT') {
+          setState(() {
+            _isLoading = false;
+            _isLoadingResult = false;
+          });
+          
+          _showPremiumUpgradeDialog(
+            responseData['message'] ?? 
+            'Free users can attempt only one mock test. Upgrade to premium for unlimited attempts.'
+          );
+          return;
+        }
+        
         if (responseData['success'] == true && mounted) {
+          setState(() {
+            _isLoading = false;
+            _isLoadingResult = false;
+          });
+          
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -663,20 +863,44 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           );
         } else {
           _handleError('Failed to load detailed results.');
+          setState(() { 
+            _isLoading = false;
+            _isLoadingResult = false;
+          });
         }
       } else {
+        // Try to parse error response
+        try {
+          final Map<String, dynamic> errorData = json.decode(response.body);
+          if (errorData['error_code'] == 'FREE_USER_LIMIT') {
+            setState(() {
+              _isLoading = false;
+              _isLoadingResult = false;
+            });
+            
+            _showPremiumUpgradeDialog(
+              errorData['message'] ?? 
+              'Free users can attempt only one mock test. Upgrade to premium for unlimited attempts.'
+            );
+            return;
+          }
+        } catch (e) {
+          debugPrint('Error parsing error response: $e');
+        }
+        
         _handleError('Failed to load detailed results: ${response.statusCode}');
-      }
-    } catch (e) {
-      debugPrint('Error fetching detailed results: $e');
-      _handleError('Error loading detailed results. Please check your connection.');
-    } finally {
-      if (mounted) {
-        setState(() {
+        setState(() { 
           _isLoading = false;
           _isLoadingResult = false;
         });
       }
+    } catch (e) {
+      debugPrint('Error fetching detailed results: $e');
+      _handleError('Error loading detailed results. Please check your connection.');
+      setState(() { 
+        _isLoading = false;
+        _isLoadingResult = false;
+      });
     }
   }
 
@@ -768,7 +992,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                 AppColors.backgroundLight,
                 Colors.white,
               ],
-              stops:  [0.0, 0.3, 1.0],
+              stops: [0.0, 0.3, 1.0],
             ),
           ),
           child: _isLoading
@@ -786,26 +1010,26 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
   }
 
   Widget _buildLoadingScreen(String message) {
-  return Center(
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const StaggeredDotsWave(size: Size(80, 60)),
-        const SizedBox(height: 20),
-        Text(
-          _isLoadingResult 
-            ? 'Gathering your result...'
-            : message,
-          style: const TextStyle(
-            fontSize: 16,
-            color: AppColors.primaryBlue,
-            fontWeight: FontWeight.w500,
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const StaggeredDotsWave(size: Size(80, 60)),
+          const SizedBox(height: 20),
+          Text(
+            _isLoadingResult 
+              ? 'Gathering your result...'
+              : message,
+            style: const TextStyle(
+              fontSize: 16,
+              color: AppColors.primaryBlue,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildStartScreen() {
     return SafeArea(
@@ -919,7 +1143,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
             // Start/Re-attempt Test Button
             SizedBox(
               width: double.infinity,
-              height: 44, // Reduced height
+              height: 44, 
               child: ElevatedButton(
                 onPressed: _startTest,
                 style: ElevatedButton.styleFrom(
@@ -943,10 +1167,10 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
             
             // View Result Button (only show if there's a previous result)
             if (_hasPreviousResult) ...[
-              const SizedBox(height: 12), // Reduced spacing
+              const SizedBox(height: 12), 
               SizedBox(
                 width: double.infinity,
-                height: 44, // Reduced height
+                height: 44, 
                 child: OutlinedButton(
                   onPressed: _viewPreviousResult,
                   style: OutlinedButton.styleFrom(

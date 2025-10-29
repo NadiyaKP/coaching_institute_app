@@ -3,7 +3,7 @@ import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import '../../common/theme_color.dart';
+import '../../../common/theme_color.dart';
 
 class StartExamScreen extends StatefulWidget {
   final String examId;
@@ -86,11 +86,11 @@ class _StartExamScreenState extends State<StartExamScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
-          title: Row(
+          title: const Row(
             children: [
               Icon(Icons.warning_rounded, color: AppColors.errorRed),
-              const SizedBox(width: 12),
-              const Text(
+               SizedBox(width: 12),
+               Text(
                 'Exit Exam?',
                 style: TextStyle(
                   fontSize: 20,
@@ -106,7 +106,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(
+              child: const Text(
                 'Cancel',
                 style: TextStyle(
                   color: AppColors.textGrey,
@@ -116,8 +116,8 @@ class _StartExamScreenState extends State<StartExamScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(context); // Close dialog
-                Navigator.pop(context); // Exit exam screen
+                Navigator.pop(context); 
+                Navigator.pop(context); 
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.errorRed,
@@ -203,7 +203,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
           ],
         ),
         body: _isLoading
-            ? Center(
+            ? const Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -211,7 +211,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
                       color: AppColors.primaryYellow,
                       strokeWidth: 3,
                     ),
-                    const SizedBox(height: 24),
+                     SizedBox(height: 24),
                     Text(
                       'Loading exam...',
                       style: TextStyle(
@@ -220,7 +220,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                     SizedBox(height: 8),
                     Text(
                       'Please wait while we prepare your exam',
                       style: TextStyle(
@@ -238,13 +238,13 @@ class _StartExamScreenState extends State<StartExamScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(
+                          const Icon(
                             Icons.error_outline_rounded,
                             size: 80,
                             color: AppColors.errorRed,
                           ),
                           const SizedBox(height: 24),
-                          Text(
+                          const Text(
                             'Oops!',
                             style: TextStyle(
                               fontSize: 24,
@@ -256,7 +256,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
                           Text(
                             _errorMessage,
                             textAlign: TextAlign.center,
-                            style: TextStyle(
+                            style: const TextStyle(
                               fontSize: 15,
                               color: AppColors.textGrey,
                             ),
@@ -271,7 +271,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
                                 label: const Text('Go Back'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: AppColors.primaryYellow,
-                                  side: BorderSide(color: AppColors.primaryYellow, width: 2),
+                                  side: const BorderSide(color: AppColors.primaryYellow, width: 2),
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 24,
                                     vertical: 12,
@@ -392,7 +392,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
                                   ),
                                   child: Text(
                                     'Page ${_currentPage + 1} of $_totalPages',
-                                    style: TextStyle(
+                                    style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.bold,
                                       color: AppColors.primaryYellow,
@@ -415,7 +415,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
                           ),
                         ],
                       )
-                    : Center(
+                    : const Center(
                         child: Text(
                           'No exam file available',
                           style: TextStyle(

@@ -26,7 +26,6 @@ class _SplashScreenState extends State<SplashScreen> {
       // Add a small delay for the splash screen to be visible
       await Future.delayed(const Duration(seconds: 3));
 
-      // Print SharedPreferences data for debugging
       print('=== SPLASH SCREEN: Printing SharedPreferences data ===');
       await _authService.debugPrintAllData();
 
@@ -99,7 +98,6 @@ class _SplashScreenState extends State<SplashScreen> {
         ),
         child: Stack(
           children: [
-            // Decorative circles - same as login screen
             Positioned(
               top: -30,
               right: -20,
@@ -149,18 +147,16 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
             ),
             
-            // Main content - Centered with slight downward offset
             Align(
-              alignment: const Alignment(0, 0.15), // Moved slightly down
+              alignment: const Alignment(0, 0.15),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Logo - Increased size
                   Image.asset(
                     'assets/images/signature_logo.png',
-                    width: screenWidth * 0.7,  // Increased from 60% to 70% of screen width
-                    height: screenWidth * 0.7, // Keeping it square
+                    width: screenWidth * 0.7,  
+                    height: screenWidth * 0.7, 
                     fit: BoxFit.contain,
                     errorBuilder: (context, error, stackTrace) {
                       return Container(

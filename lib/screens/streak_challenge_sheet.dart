@@ -74,16 +74,16 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
 
     return Container(
       height: screenHeight * 0.72,
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
             Colors.white,
-            const Color(0xFFFAFAFA),
+            Color(0xFFFAFAFA),
           ],
         ),
-        borderRadius: const BorderRadius.only(
+        borderRadius: BorderRadius.only(
           topLeft: Radius.circular(32),
           topRight: Radius.circular(32),
         ),
@@ -292,7 +292,7 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
             ),
           ),
 
-          // Realistic Flame with number - only show if hasStreak
+          // Flame with number - only show if hasStreak
           if (hasStreak)
             Positioned(
               bottom: 58,
@@ -342,7 +342,6 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
               ),
             ),
 
-          // Students around campfire - always visible
           Positioned(
             bottom: 50,
             left: 50,
@@ -381,7 +380,6 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                // Sitting position body
                 Positioned(
                   bottom: 0,
                   child: Column(
@@ -488,7 +486,6 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
                         ),
                       ),
                       const SizedBox(height: 3),
-                      // Body (sitting)
                       Container(
                         width: 32,
                         height: 24,
@@ -510,7 +507,6 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
                           ),
                         ),
                       ),
-                      // Legs
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
@@ -546,7 +542,7 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
                     ],
                   ),
                 ),
-                // Book in hands
+      
                 Positioned(
                   bottom: 20,
                   left: 8,
@@ -591,10 +587,7 @@ class _StreakChallengeSheetState extends State<StreakChallengeSheet>
   }
 
   Widget _buildMessageCard(bool hasStreak) {
-    // Determine the state: 
-    // 1. hasStreak = true: Active streak
-    // 2. currentStreak = 0 and longestStreak != 0: Missed streak
-    // 3. currentStreak = 0 and longestStreak = 0: New user
+
     final bool isMissedStreak = widget.currentStreak == 0 && widget.longestStreak != 0;
     final bool isNewUser = widget.currentStreak == 0 && widget.longestStreak == 0;
 
@@ -839,7 +832,6 @@ class RealisticFlamePainter extends CustomPainter {
     final flicker = math.sin(animationValue * math.pi * 2) * 4;
     final flicker2 = math.cos(animationValue * math.pi * 2) * 3;
 
-    // Draw outer glow
     if (hasStreak) {
       final glowPaint = Paint()
         ..shader = RadialGradient(
@@ -859,7 +851,6 @@ class RealisticFlamePainter extends CustomPainter {
       canvas.drawCircle(Offset(centerX, centerY + 10), 90, glowPaint);
     }
 
-    // Draw flame layers - back to front
     _drawFlameLayer(
       canvas,
       centerX,
@@ -917,7 +908,6 @@ class RealisticFlamePainter extends CustomPainter {
             ],
     );
 
-    // Bright center/tip
     if (hasStreak) {
       final tipPaint = Paint()
         ..shader = RadialGradient(
@@ -966,10 +956,9 @@ class RealisticFlamePainter extends CustomPainter {
 
     final path = Path();
 
-    // Create organic flame shape
+    // flame shape
     path.moveTo(centerX, centerY - 60 * scale + flicker);
 
-    // Right side of flame
     path.quadraticBezierTo(
       centerX + 15 * scale + flicker * 0.3,
       centerY - 50 * scale,
@@ -995,7 +984,6 @@ class RealisticFlamePainter extends CustomPainter {
       centerY + 38 * scale,
     );
 
-    // Left side of flame
     path.quadraticBezierTo(
       centerX - 5 * scale,
       centerY + 35 * scale,
@@ -1025,7 +1013,6 @@ class RealisticFlamePainter extends CustomPainter {
 
     canvas.drawPath(path, paint);
 
-    // Add inner highlights
     if (scale > 0.6) {
       final highlightPaint = Paint()
         ..shader = LinearGradient(

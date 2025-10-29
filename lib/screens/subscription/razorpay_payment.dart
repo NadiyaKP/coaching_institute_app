@@ -495,14 +495,14 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
                           color: AppColors.successGreen.withOpacity(0.3),
                         ),
                       ),
-                      child: Row(
+                      child: const Row(
                         children: [
-                          const Icon(
+                           Icon(
                             Icons.security_rounded,
                             size: 18,
                             color: AppColors.successGreen,
                           ),
-                          const SizedBox(width: 12),
+                          SizedBox(width: 12),
                           Expanded(
                             child: Text(
                               'Your payment is secured with Razorpay. All transactions are encrypted and secure.',
@@ -526,7 +526,7 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 color: Colors.white,
-                border: Border(
+                border: const Border(
                   top: BorderSide(
                     color: AppColors.grey200,
                     width: 1,
@@ -546,7 +546,7 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Total Amount',
                           style: TextStyle(
                             fontSize: 12,
@@ -636,7 +636,7 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
         children: [
           Text(
             title,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 14,
               color: AppColors.textGrey,
             ),
@@ -682,9 +682,9 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
         color: AppColors.primaryYellow.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Row(
+      child: const Row(
         children: [
-          const SizedBox(
+           SizedBox(
             width: 20,
             height: 20,
             child: CircularProgressIndicator(
@@ -692,7 +692,7 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
               color: AppColors.primaryYellow,
             ),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: 12),
           Expanded(
             child: Text(
               'Verifying payment...',

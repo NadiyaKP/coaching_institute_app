@@ -8,6 +8,9 @@ import '../../service/auth_service.dart';
 import '../../service/api_config.dart';
 import '../../common/theme_color.dart';
 import '../subscription/subscription_detail.dart';
+import '../../common/bottom_navbar.dart';
+import '../view_profile.dart';
+import '../settings.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
@@ -20,31 +23,59 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final AuthService _authService = AuthService();
   bool isLoading = true;
   List<SubscriptionPlan> plans = [];
+  List<StudentSubscription> activeSubscriptions = [];
   String? errorMessage;
   int? selectedPlanIndex;
+  
+  // Bottom Navigation Bar
   int _currentIndex = 1; // Subscription tab is selected
-  String studentType = '';
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  String _studentType = '';
+  
+  // Profile data for drawer
+  String _userName = '';
+  String _userEmail = '';
+  bool _profileCompleted = false;
+  String _courseName = '';
+  String _subcourseName = '';
+  
   String? courseId;
 
   @override
   void initState() {
     super.initState();
     _loadStudentType();
+    _loadProfileData();
     _loadCourseId();
-    _fetchSubscriptionPlans();
+    _fetchStudentSubscriptions();
+  }
+
+  Future<void> _loadProfileData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _userName = prefs.getString('profile_name') ?? 'User Name';
+        _userEmail = prefs.getString('profile_email') ?? '';
+        _profileCompleted = prefs.getBool('profile_completed') ?? false;
+        _courseName = prefs.getString('profile_course') ?? 'Course';
+        _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
+      });
+    } catch (e) {
+      debugPrint('Error loading profile data for drawer: $e');
+    }
   }
 
   Future<void> _loadStudentType() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      studentType = prefs.getString('profile_student_type') ?? '';
+      _studentType = prefs.getString('profile_student_type') ?? '';
     });
   }
 
   Future<void> _loadCourseId() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      courseId = prefs.getString('course_id') ?? 'aNYuWH6tZ2ShfSZZ0-4-zg'; // Fallback to default
+      courseId = prefs.getString('course_id') ?? 'aNYuWH6tZ2ShfSZZ0-4-zg'; 
     });
   }
 
@@ -53,13 +84,136 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     return IOClient(client);
   }
 
-  Future<void> _fetchSubscriptionPlans() async {
+  Future<void> _fetchStudentSubscriptions() async {
     try {
       setState(() {
         isLoading = true;
         errorMessage = null;
       });
 
+      String accessToken = await _authService.getAccessToken();
+
+      if (accessToken.isEmpty) {
+        debugPrint('No access token found');
+        _navigateToLogin();
+        return;
+      }
+
+      final client = _createHttpClientWithCustomCert();
+
+      try {
+        Future<http.Response> makeRequest(String token) {
+          return client.get(
+            Uri.parse('${ApiConfig.currentBaseUrl}/api/subscriptions/list_student_subscriptions/'),
+            headers: {
+              ...ApiConfig.commonHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ).timeout(ApiConfig.requestTimeout);
+        }
+
+        var response = await makeRequest(accessToken);
+
+        debugPrint('Student Subscriptions response status: ${response.statusCode}');
+        debugPrint('Student Subscriptions response body: ${response.body}');
+
+        if (response.statusCode == 401) {
+          debugPrint('⚠️ Access token expired, trying refresh...');
+
+          final newAccessToken = await _authService.refreshAccessToken();
+
+          if (newAccessToken != null && newAccessToken.isNotEmpty) {
+            response = await makeRequest(newAccessToken);
+            debugPrint('🔄 Retried with refreshed token: ${response.statusCode}');
+          } else {
+            debugPrint('❌ Token refresh failed');
+            await _authService.logout();
+            _navigateToLogin();
+            return;
+          }
+        }
+
+        if (response.statusCode == 200) {
+          final List<dynamic> responseData = json.decode(response.body);
+          
+          setState(() {
+            activeSubscriptions = responseData
+                .map((sub) => StudentSubscription.fromJson(sub))
+                .toList();
+          });
+
+          debugPrint('✅ Successfully loaded ${activeSubscriptions.length} active subscriptions');
+          
+          // After loading subscriptions, fetch the plans
+          _fetchSubscriptionPlans();
+        } else {
+          setState(() {
+            errorMessage = 'Failed to load subscriptions';
+            isLoading = false;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to load subscriptions: ${response.statusCode}'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } finally {
+        client.close();
+      }
+    } on HandshakeException catch (e) {
+      debugPrint('SSL Handshake error: $e');
+      setState(() {
+        errorMessage = 'SSL certificate issue';
+        isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SSL certificate issue - this is normal in development'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      setState(() {
+        errorMessage = 'No network connection';
+        isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No network connection'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fetching subscriptions: $e');
+      setState(() {
+        errorMessage = 'Error loading subscriptions: ${e.toString()}';
+        isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _fetchSubscriptionPlans() async {
+    try {
       String accessToken = await _authService.getAccessToken();
 
       if (accessToken.isEmpty) {
@@ -188,11 +342,53 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
+  // Navigate to View Profile
+  void _navigateToViewProfile() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ViewProfileScreen(
+          onProfileUpdated: (Map<String, String> updatedData) {
+            // Refresh profile data when returning from view profile
+            _loadProfileData();
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Profile updated successfully!'),
+                backgroundColor: Color(0xFFF4B400),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // Navigate to Settings
+  void _navigateToSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const SettingsScreen(),
+      ),
+    );
+  }
+
   void _handleSubscribe(SubscriptionPlan plan) async {
     if (courseId == null || courseId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Course information not found'),
+        const SnackBar(
+          content: Text('Course information not found'),
+          backgroundColor: AppColors.errorRed,
+        ),
+      );
+      return;
+    }
+
+    // Check if user already has an active subscription for this course
+    if (activeSubscriptions.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You already have an active subscription for this course.'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -209,7 +405,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       ),
     );
 
-    // Handle result if needed (e.g., payment success)
     if (result == true) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -217,111 +412,173 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           backgroundColor: AppColors.successGreen,
         ),
       );
+      
+      // Refresh the subscriptions list
+      _fetchStudentSubscriptions();
     }
   }
 
-  // Bottom Navigation methods
+  // Bottom Navigation Bar methods
   void _onTabTapped(int index) {
-    if (index == _currentIndex) return;
+    if (index == 3) {
+      // Profile tab - open drawer
+      _scaffoldKey.currentState?.openEndDrawer();
+      return;
+    }
+    
+    setState(() {
+      _currentIndex = index;
+    });
 
-    switch (index) {
-      case 0: // Home
+    // Use the common helper for navigation logic
+    BottomNavBarHelper.handleTabSelection(
+      index, 
+      context, 
+      _studentType,
+      _scaffoldKey,
+    );
+  }
+
+  // Handle device back button press
+  Future<bool> _handleDeviceBackButton() async {
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/home',
+      (Route<dynamic> route) => false,
+    );
+    return false; 
+  }
+
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _performLogout();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4B400),
+              ),
+              child: const Text(
+                'Logout',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performLogout() async {
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Logging out...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      await _authService.logout();
+      
+      if (mounted) {
         Navigator.of(context).pop();
-        break;
-      case 1: // Already on Subscription
-        break;
-      case 2: // Mock Test
-        Navigator.pushNamed(context, '/mock_test');
-        break;
-      case 3: // Profile
-        Navigator.pushNamed(context, '/view_profile');
-        break;
-    }
-  }
-
-  IconData _getSecondTabIcon() {
-    final String studentTypeUpper = studentType.toUpperCase();
-    if (studentTypeUpper == 'ONLINE') {
-      return Icons.analytics_rounded;
-    } else if (studentTypeUpper == 'PUBLIC') {
-      return Icons.card_membership_rounded;
-    } else {
-      return Icons.calendar_today_rounded;
-    }
-  }
-
-  String _getSecondTabLabel() {
-    final String studentTypeUpper = studentType.toUpperCase();
-    if (studentTypeUpper == 'ONLINE') {
-      return 'Performance';
-    } else if (studentTypeUpper == 'PUBLIC') {
-      return 'Subscription';
-    } else {
-      return 'Exam Schedule';
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint('Logout error: $e');
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout completed (Error: ${e.toString()})'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.backgroundLight,
-      body: errorMessage != null
-          ? _buildErrorState()
-          : isLoading
-              ? _buildSkeletonLoading()
-              : plans.isEmpty
-                  ? _buildEmptyState()
-                  : _buildPlansContent(),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-          ),
-          child: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: _onTabTapped,
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: Colors.white,
-            selectedItemColor: AppColors.primaryYellow,
-            unselectedItemColor: AppColors.grey400,
-            selectedLabelStyle: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-            unselectedLabelStyle: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-            items: [
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.home_rounded),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(_getSecondTabIcon()),
-                label: _getSecondTabLabel(),
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.assignment_turned_in_rounded),
-                label: 'Mock Test',
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.person_rounded),
-                label: 'Profile',
-              ),
-            ],
-          ),
-        ),
+      endDrawer: CommonProfileDrawer(
+        name: _userName,
+        email: _userEmail,
+        course: _courseName,
+        subcourse: _subcourseName,
+        profileCompleted: _profileCompleted,
+        onViewProfile: () {
+          Navigator.of(context).pop(); 
+          _navigateToViewProfile();
+        },
+        onSettings: () {
+          Navigator.of(context).pop(); 
+          _navigateToSettings();
+        },
+        onLogout: () {
+          Navigator.of(context).pop(); 
+          _showLogoutDialog();
+        },
+        onClose: () {
+          Navigator.of(context).pop();
+        },
+      ),
+      body: PopScope(
+        canPop: false,
+        onPopInvoked: (bool didPop) async {
+          if (didPop) {
+            return;
+          }
+          
+          await _handleDeviceBackButton();
+        },
+        child: errorMessage != null
+            ? _buildErrorState()
+            : isLoading
+                ? _buildSkeletonLoading()
+                : plans.isEmpty
+                    ? _buildEmptyState()
+                    : _buildPlansContent(),
+      ),
+      bottomNavigationBar: CommonBottomNavBar(
+        currentIndex: _currentIndex,
+        onTabSelected: _onTabTapped,
+        studentType: _studentType,
+        scaffoldKey: _scaffoldKey,
       ),
     );
   }
@@ -352,7 +609,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 Row(
                   children: [
                     GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
+                      onTap: () async {
+                        await _handleDeviceBackButton();
+                      },
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -407,6 +666,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
             child: Column(
               children: [
+                // Skeleton Active Plan Section
+                _buildSkeletonActivePlanSection(),
+                const SizedBox(height: 16),
+                
                 // Skeleton Plan Cards
                 _buildSkeletonPlanCard(),
                 const SizedBox(height: 12),
@@ -422,6 +685,68 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSkeletonActivePlanSection() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _buildShimmerBox(width: 3, height: 20, radius: 2),
+                const SizedBox(width: 10),
+                _buildShimmerBox(width: 140, height: 20, radius: 4),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _buildSkeletonActivePlanItem(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonActivePlanItem() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.grey100,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          _buildShimmerBox(width: 40, height: 40, radius: 8),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildShimmerBox(width: 120, height: 16, radius: 4),
+                const SizedBox(height: 6),
+                _buildShimmerBox(width: 180, height: 12, radius: 4),
+                const SizedBox(height: 4),
+                _buildShimmerBox(width: 150, height: 12, radius: 4),
+              ],
+            ),
+          ),
+          _buildShimmerBox(width: 60, height: 24, radius: 6),
+        ],
+      ),
     );
   }
 
@@ -587,7 +912,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 Row(
                   children: [
                     GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
+                      onTap: () async {
+                        await _handleDeviceBackButton();
+                      },
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -666,7 +993,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   ),
                   const SizedBox(height: 20),
                   ElevatedButton.icon(
-                    onPressed: _fetchSubscriptionPlans,
+                    onPressed: _fetchStudentSubscriptions,
                     icon: const Icon(Icons.refresh_rounded, size: 18),
                     label: const Text(
                       'Retry',
@@ -715,7 +1042,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 Row(
                   children: [
                     GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
+                      onTap: () async {
+                        await _handleDeviceBackButton();
+                      },
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -762,10 +1091,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             ),
           ),
         ),
-        Expanded(
+        const Expanded(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.all(20.0),
+              padding: EdgeInsets.all(20.0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -774,8 +1103,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     size: 64,
                     color: AppColors.grey400,
                   ),
-                  const SizedBox(height: 12),
-                  const Text(
+                   SizedBox(height: 12),
+                   Text(
                     'No Plans Available',
                     style: TextStyle(
                       fontSize: 17,
@@ -783,8 +1112,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                       color: AppColors.textDark,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
+                   SizedBox(height: 6),
+                   Text(
                     'There are no subscription plans available at the moment.',
                     textAlign: TextAlign.center,
                     style: TextStyle(
@@ -803,7 +1132,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
   Widget _buildPlansContent() {
     return RefreshIndicator(
-      onRefresh: _fetchSubscriptionPlans,
+      onRefresh: _fetchStudentSubscriptions,
       color: AppColors.primaryYellow,
       child: Column(
         children: [
@@ -829,7 +1158,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   Row(
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
+                        onTap: () async {
+                          await _handleDeviceBackButton();
+                        },
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
@@ -885,6 +1216,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Active Subscriptions Section
+                  if (activeSubscriptions.isNotEmpty) ...[
+                    _buildActiveSubscriptionsSection(),
+                    const SizedBox(height: 20),
+                  ],
+
                   // Plans List
                   ListView.builder(
                     shrinkWrap: true,
@@ -914,6 +1251,143 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildActiveSubscriptionsSection() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 3,
+                height: 20,
+                decoration: BoxDecoration(
+                  color: AppColors.successGreen,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'My Active Plan',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ...activeSubscriptions.map((subscription) => 
+            _buildActiveSubscriptionCard(subscription)
+          ).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveSubscriptionCard(StudentSubscription subscription) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.successGreen.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.successGreen.withOpacity(0.2),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.successGreen.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.check_circle_rounded,
+              color: AppColors.successGreen,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  subscription.course,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textDark,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${subscription.plan} • ₹${subscription.planAmount.toStringAsFixed(0)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textGrey,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Valid until: ${_formatDate(subscription.endDate)}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.textGrey,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.successGreen.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: const Text(
+              'Active',
+              style: TextStyle(
+                fontSize: 10,
+                color: AppColors.successGreen,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return dateString;
+    }
   }
 
   Widget _buildPlanCard(SubscriptionPlan plan, int index, bool isSelected) {
@@ -1312,6 +1786,43 @@ class SubscriptionPlan {
       'duration_in_months': durationInMonths,
       'amount': amount,
       'razorpay_plan_id': razorpayPlanId,
+    };
+  }
+}
+
+// Model class for Student Subscription
+class StudentSubscription {
+  final String course;
+  final String plan;
+  final String startDate;
+  final String endDate;
+  final double planAmount;
+
+  StudentSubscription({
+    required this.course,
+    required this.plan,
+    required this.startDate,
+    required this.endDate,
+    required this.planAmount,
+  });
+
+  factory StudentSubscription.fromJson(Map<String, dynamic> json) {
+    return StudentSubscription(
+      course: json['course'] ?? '',
+      plan: json['plan'] ?? '',
+      startDate: json['start_date'] ?? '',
+      endDate: json['end_date'] ?? '',
+      planAmount: (json['plan_amount'] ?? 0).toDouble(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'course': course,
+      'plan': plan,
+      'start_date': startDate,
+      'end_date': endDate,
+      'plan_amount': planAmount,
     };
   }
 }

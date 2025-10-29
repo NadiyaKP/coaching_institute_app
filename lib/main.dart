@@ -13,7 +13,6 @@ import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/otp_verification_screen.dart';
 import 'screens/account_creation_screen.dart';
-import 'screens/login_otp_verification.dart';
 import 'screens/profile_completion_page.dart';
 import 'screens/study_materials/notes/notes.dart';
 import 'screens/study_materials/previous_question_papers/question_papers.dart';
@@ -23,7 +22,8 @@ import 'screens/forgot_otp_verification.dart';
 import 'screens/reset_password.dart';
 import 'screens/mock_test/mock_test.dart';
 import './screens/performance.dart';
-import './screens/exam_schedule/exam_schedule.dart';
+import 'screens/Academics/exam_schedule/exam_schedule.dart';
+import './screens/subscription/subscription.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -275,7 +275,6 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/otp_verification': (context) => const OtpVerificationScreen(),
         '/account_creation': (context) => const AccountCreationScreen(),
         '/home': (context) => const HomeScreen(),
-        '/login_otp_verification': (context) => const LoginOtpVerificationScreen(),
         '/profile_completion_page': (context) => const ProfileCompletionPage(),
         '/notes': (context) => const NotesScreen(),
         '/question_papers': (context) => const QuestionPapersScreen(),
@@ -286,6 +285,8 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/mock_test': (context) => const MockTestScreen(),
         '/performance': (context) => const PerformanceScreen(),
         '/exam_schedule': (context) => const ExamScheduleScreen(),
+        '/subscription': (context) => const SubscriptionScreen(),
+        
       },
       onGenerateRoute: (settings) {
         switch (settings.name) {

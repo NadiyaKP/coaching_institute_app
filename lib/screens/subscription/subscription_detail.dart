@@ -47,7 +47,6 @@ class _SubscriptionDetailPageState extends State<SubscriptionDetailPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Get course and subcourse using the same keys as home.dart
       String? course = prefs.getString(_keyCourse);
       String? subcourse = prefs.getString(_keySubcourse);
       
@@ -414,7 +413,7 @@ class _SubscriptionDetailPageState extends State<SubscriptionDetailPage> {
               if (subscriptionResponse != null && !isLoading)
                 Container(
                   padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     border: Border(
                       top: BorderSide(
                         color: AppColors.grey200,

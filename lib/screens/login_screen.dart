@@ -247,7 +247,7 @@ class LoginProvider extends ChangeNotifier {
       'message': errorMessage,
     };
   } finally {
-    httpClient?.close(); // Close the client
+    httpClient?.close();
     _isLoading = false;
     notifyListeners();
   }
@@ -420,7 +420,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _fadeController?.dispose();
     _slideController?.dispose();
     _removeOverlay();
-    _loginProvider.dispose(); // Don't forget to dispose the provider
+    _loginProvider.dispose(); 
     super.dispose();
   }
 

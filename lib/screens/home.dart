@@ -13,7 +13,7 @@ import '../common/theme_color.dart';
 import 'dart:async';
 import '../screens/subscription/subscription.dart';
 import 'streak_challenge_sheet.dart'; 
-
+import '../common/bottom_navbar.dart'; 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -35,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String enrollmentStatus = '';
   String subscriptionType = '';
   String subscriptionEndDate = '';
-  String studentType = ''; // Added student type
+  String studentType = ''; 
   bool isSubscriptionActive = false;
   bool profileCompleted = false;
   bool isLoading = true;
@@ -86,7 +86,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _storeStartTime() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // Use the studentType that was loaded from cache or wait for API
     final String currentStudentType = studentType.isNotEmpty 
         ? studentType 
         : (prefs.getString('profile_student_type') ?? '');
@@ -143,11 +142,10 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('HomeScreen - Received email: $email');
     }
     
-    // First load cached data, then fetch fresh data
     _loadCachedProfileData().then((_) {
-      // Now that we have cached data, try to store start time
+     
       _storeStartTime();
-      // Then fetch fresh data from API
+    
       _fetchProfileData();
     });
   }
@@ -186,8 +184,8 @@ class _HomeScreenState extends State<HomeScreen> {
     debugPrint('Subscription End Date: ${prefs.getString(_keySubscriptionEndDate) ?? "N/A"}');
     debugPrint('Is Subscription Active: ${prefs.getBool(_keyIsSubscriptionActive) ?? false}');
     debugPrint('Student Type: ${prefs.getString(_keyStudentType) ?? "N/A"}');
-    debugPrint('Current Streak: ${prefs.getInt(_keyCurrentStreak) ?? 0}');  // Add this
-    debugPrint('Longest Streak: ${prefs.getInt(_keyLongestStreak) ?? 0}');  // Add this
+    debugPrint('Current Streak: ${prefs.getInt(_keyCurrentStreak) ?? 0}');  
+    debugPrint('Longest Streak: ${prefs.getInt(_keyLongestStreak) ?? 0}');  
     debugPrint('=========================================');
   } catch (e) {
     debugPrint('Error loading cached profile data: $e');
@@ -797,37 +795,24 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.pushNamed(context, '/performance');
   }
 
-  // Bottom Navigation Bar methods
- void _onTabTapped(int index) {
-  setState(() {
-    _currentIndex = index;
-  });
+  // Bottom Navigation Bar methods 
+  void _onTabTapped(int index) {
+    setState(() {
+      _currentIndex = index;
+    });
 
-  switch (index) {
-    case 0: // Home - already on home
-      break;
-    case 1: // Performance/Exam Schedule/Subscription based on student type
-      final String studentTypeUpper = studentType.toUpperCase();
-      if (studentTypeUpper == 'ONLINE') {
-        _navigateToPerformance();
-      } else if (studentTypeUpper == 'PUBLIC') {
-        _navigateToSubscription();
-      } else {
-        // For offline students and any other type
-        _navigateToExamSchedule();
-      }
-      break;
-    case 2: // Mock Test (replaced Result)
-      _navigateToMockTest();
-      break;
-    case 3: // Profile
-      _openProfileDrawer();
-      break;
+    // Use the common helper for navigation logic
+    BottomNavBarHelper.handleTabSelection(
+      index, 
+      context, 
+      studentType,
+      _scaffoldKey, // Pass scaffold key instead of function
+    );
   }
-}
-void _navigateToExamSchedule() {
-  Navigator.pushNamed(context, '/exam_schedule');
-}
+
+  void _navigateToExamSchedule() {
+    Navigator.pushNamed(context, '/exam_schedule');
+  }
 
   void _navigateToStudent() {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -836,33 +821,6 @@ void _navigateToExamSchedule() {
         backgroundColor: Color(0xFF43E97B),
       ),
     );
-  }
-
-  IconData _getSecondTabIcon() {
-  final String studentTypeUpper = studentType.toUpperCase();
-  if (studentTypeUpper == 'ONLINE') {
-    return Icons.analytics_rounded;
-  } else if (studentTypeUpper == 'PUBLIC') {
-    return Icons.card_membership_rounded;
-  } else {
-    return Icons.calendar_today_rounded;
-  }
-}
-
-String _getSecondTabLabel() {
-  final String studentTypeUpper = studentType.toUpperCase();
-  if (studentTypeUpper == 'ONLINE') {
-    return 'Performance';
-  } else if (studentTypeUpper == 'PUBLIC') {
-    return 'Subscription';
-  } else {
-    return 'Exam Schedule';
-  }
-}
-
-  void _openProfileDrawer() {
-    final scaffoldKey = _scaffoldKey;
-    scaffoldKey.currentState?.openEndDrawer();
   }
 
   void _navigateToViewProfile() async {
@@ -886,13 +844,33 @@ String _getSecondTabLabel() {
 
   @override
   Widget build(BuildContext context) {
-    // Check if student is online to show Performance button
-    final bool isOnlineStudent = studentType.toLowerCase() == 'online';
-
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.backgroundLight,
-      endDrawer: _buildProfileDrawer(context),
+      endDrawer: CommonProfileDrawer(
+        name: name,
+        email: email,
+        course: course,
+        subcourse: subcourse,
+        profileCompleted: profileCompleted,
+        onViewProfile: _navigateToViewProfile,
+        onSettings: () {
+          Navigator.of(context).pop(); 
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const SettingsScreen(),
+            ),
+          );
+        },
+        onLogout: () {
+          Navigator.of(context).pop();
+          _showLogoutDialog();
+        },
+        onClose: () {
+          Navigator.of(context).pop(); 
+        },
+      ),
       body: Stack(
         children: [
           // Main scrollable content
@@ -959,7 +937,7 @@ String _getSecondTabLabel() {
                             ),
                           ),
                           const SizedBox(width: 16),
-                          // Streak Display - Number on right side of symbol
+                          // Streak Display 
                           GestureDetector(
                             onTap: () {
                               showModalBottomSheet(
@@ -1004,7 +982,7 @@ String _getSecondTabLabel() {
 
                       const SizedBox(height: 18),
 
-                      // Course and Subcourse Info - Single Line
+                      // Course and Subcourse Info 
                       if (course.isNotEmpty || subcourse.isNotEmpty)
                         Row(
                           children: [
@@ -1175,7 +1153,7 @@ String _getSecondTabLabel() {
                         ),
                       ),
 
-                      // Main Action Buttons Section (Mock Test removed from here)
+                      // Main Action Buttons Section )
                       Padding(
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
                         child: Column(
@@ -1291,7 +1269,7 @@ String _getSecondTabLabel() {
                                             color: AppColors.warningOrange,
                                           ),
                                         ),
-                                        const SizedBox(height: 4),
+                                         SizedBox(height: 4),
                                         Text(
                                           'Unlock all features by completing your profile information',
                                           style: TextStyle(
@@ -1318,58 +1296,11 @@ String _getSecondTabLabel() {
           ),
         ],
       ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(16),
-            topRight: Radius.circular(16),
-          ),
-          child: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: _onTabTapped,
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: Colors.white,
-            selectedItemColor: AppColors.primaryYellow,
-            unselectedItemColor: AppColors.grey400,
-            selectedLabelStyle: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-            unselectedLabelStyle: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w500,
-            ),
-            items: [
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.home_rounded),
-                label: 'Home',
-              ),
-              // Dynamic tab based on student type
-              BottomNavigationBarItem(
-                icon: Icon(_getSecondTabIcon()),
-                label: _getSecondTabLabel(),
-              ),
-              // Mock Test 
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.assignment_turned_in_rounded),
-                label: 'Mock Test',
-              ),
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.person_rounded),
-                label: 'Profile',
-              ),
-            ],
-          ),
-        ),
+      bottomNavigationBar: CommonBottomNavBar(
+        currentIndex: _currentIndex,
+        onTabSelected: _onTabTapped,
+        studentType: studentType,
+        scaffoldKey: _scaffoldKey, 
       ),
     );
   }
@@ -1533,284 +1464,6 @@ String _getSecondTabLabel() {
           ],
         ),
       ),
-    );
-  }
-
-  // Profile Drawer Widget with updated design
-  Widget _buildProfileDrawer(BuildContext context) {
-    return Drawer(
-      width: MediaQuery.of(context).size.width * 0.75,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.warningOrange, 
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // Profile Header with smaller icon
-              Container(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                child: Column(
-                  children: [
-                    // Smaller profile icon
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const CircleAvatar(
-                        radius: 35, // Reduced from 45
-                        backgroundColor: Colors.white,
-                        child: Icon(
-                          Icons.person,
-                          size: 40, 
-                          color: Color(0xFFF4B400),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Full Name
-                    Text(
-                      name.isNotEmpty ? name : 'User Name',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: -0.3,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    // Email
-                    if (email.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        email,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.white.withOpacity(0.88),
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // My Course Card - showing course and subcourse
-              if (course.isNotEmpty || subcourse.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(5),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: const Icon(
-                                Icons.school_rounded,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'My Course',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                letterSpacing: 0.1,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Course information
-                        if (course.isNotEmpty) 
-                          _buildDrawerCourseInfo('Course', course),
-                        if (subcourse.isNotEmpty) 
-                          Column(
-                            children: [
-                              const SizedBox(height: 8),
-                              _buildDrawerCourseInfo('Subcourse', subcourse),
-                            ],
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-
-              const SizedBox(height: 16),
-
-              // Menu Items
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _buildDrawerItem(
-                      icon: Icons.person_outline_rounded,
-                      label: 'View Profile',
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        _navigateToViewProfile();
-                      },
-                    ),
-                    const Divider(height: 1, color: AppColors.grey200),
-                    _buildDrawerItem(
-                      icon: Icons.settings_outlined,
-                      label: 'Settings',
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const SettingsScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-
-              const Spacer(),
-
-              // Logout Button
-              Container(
-                margin: const EdgeInsets.all(16),
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    _showLogoutDialog();
-                  },
-                  icon: const Icon(Icons.logout_rounded, size: 20),
-                  label: const Text(
-                    'Logout',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: AppColors.errorRed,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Helper widget for course info in drawer
-  Widget _buildDrawerCourseInfo(String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.25),
-            borderRadius: BorderRadius.circular(5),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withOpacity(0.85),
-              letterSpacing: 0.1,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-              letterSpacing: -0.1,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Drawer Item Widget
-  Widget _buildDrawerItem({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-  }) {
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: AppColors.primaryYellow,
-        size: 22,
-      ),
-      title: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-          color: AppColors.textDark,
-          letterSpacing: -0.1,
-        ),
-      ),
-      trailing: const Icon(
-        Icons.arrow_forward_ios_rounded,
-        size: 14,
-        color: AppColors.grey400,
-      ),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
     );
   }
 }

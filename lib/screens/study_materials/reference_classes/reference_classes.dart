@@ -457,7 +457,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
             videoId: videoId, 
             title: title,
             encryptedReferencelinkId: encryptedReferencelinkId,
-            enableWatchingData: _studentType.toLowerCase() == 'online', // Pass student type check
+            enableWatchingData: _studentType.toLowerCase() == 'online', 
           ),
         ),
       );
@@ -866,12 +866,12 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              // Thumbnail - Left side (reduced size)
+              // Thumbnail 
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: SizedBox(
-                  width: 80, // Reduced from 120
-                  height: 60, // Reduced from 90
+                  width: 80, 
+                  height: 60, 
                   child: thumbnailUrl != null
                       ? Stack(
                           fit: StackFit.expand,
@@ -904,8 +904,8 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                             ),
                             Center(
                               child: Container(
-                                height: 32, // Reduced size
-                                width: 32, // Reduced size
+                                height: 32,
+                                width: 32, 
                                 decoration: BoxDecoration(
                                   color: const Color.fromARGB(255, 255, 106, 0).withOpacity(0.2),
                                   shape: BoxShape.circle,
@@ -913,7 +913,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                                 child: const Icon(
                                   Icons.play_arrow,
                                   color: Colors.white,
-                                  size: 20, // Reduced size
+                                  size: 20,
                                 ),
                               ),
                             ),
@@ -926,7 +926,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                             children: [
                               Icon(
                                 Icons.videocam_off,
-                                size: 24, // Reduced size
+                                size: 24,
                                 color: Colors.grey,
                               ),
                             ],
@@ -937,7 +937,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
 
               const SizedBox(width: 16),
 
-              // Video details - Right side
+              // Video details 
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1008,7 +1008,7 @@ class VideoPlayerPage extends StatefulWidget {
   final String videoId;
   final String title;
   final String encryptedReferencelinkId;
-  final bool enableWatchingData; // New parameter to control data collection
+  final bool enableWatchingData; 
 
   const VideoPlayerPage({
     Key? key,
@@ -1268,7 +1268,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
               ),
             ),
 
-            // Video Info Section (simplified - only title)
+            // Video Info Section 
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),

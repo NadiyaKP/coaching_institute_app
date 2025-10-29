@@ -221,7 +221,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
     final skipped = answer['skipped'] ?? false;
 
     return Container(
-      padding: const EdgeInsets.all(12), // Reduced padding
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.grey[50],
         borderRadius: BorderRadius.circular(12),
@@ -245,7 +245,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                   'Q$questionNumber',
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 10, // Reduced font size
+                    fontSize: 10,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -305,7 +305,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
           Text(
             question,
             style: const TextStyle(
-              fontSize: 12, // Reduced font size
+              fontSize: 12, 
               fontWeight: FontWeight.w600,
               color: AppColors.primaryBlue,
               height: 1.3,
@@ -346,7 +346,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.all(8), // Reduced padding
+      padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(8),
@@ -358,7 +358,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
       child: Row(
         children: [
           Container(
-            width: 20, // Reduced size
+            width: 20, 
             height: 20,
             decoration: BoxDecoration(
               color: isSelected ? borderColor : Colors.transparent,
@@ -372,7 +372,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
                 ? Icon(
                     isCorrect ? Icons.check : Icons.close,
                     color: Colors.white,
-                    size: 12, // Reduced icon size
+                    size: 12, 
                   )
                 : null,
           ),
@@ -381,7 +381,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
             child: Text(
               option,
               style: TextStyle(
-                fontSize: 11, // Reduced font size
+                fontSize: 11, 
                 color: textColor,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),

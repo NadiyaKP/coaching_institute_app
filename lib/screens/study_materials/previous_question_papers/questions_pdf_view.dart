@@ -22,7 +22,7 @@ class QuestionsPDFViewScreen extends StatefulWidget {
     required this.title,
     required this.accessToken,
     required this.questionPaperId,
-    this.enableReadingData = true, // Default to true for backward compatibility
+    this.enableReadingData = true, 
   });
 
   @override
@@ -55,7 +55,7 @@ class _QuestionsPDFViewScreenState extends State<QuestionsPDFViewScreen> with Wi
 
   Future<void> _initializeHive() async {
     try {
-      // Box should already be open from main.dart
+     
       if (Hive.isBoxOpen('pdf_records_box')) {
         _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
         debugPrint('✅ Using existing Hive box in QuestionsPDFViewScreen');
@@ -190,7 +190,7 @@ class _QuestionsPDFViewScreenState extends State<QuestionsPDFViewScreen> with Wi
         await existingRecord.delete();
       }
       
-      // Convert seconds to minutes with 2 decimal precision (e.g., 70 seconds = 1.17 minutes)
+      // Convert seconds to minutes with 2 decimal precision (
       final readedTimeMinutes = totalSeconds > 0 
           ? double.parse((totalSeconds / 60.0).toStringAsFixed(2))
           : 0.0;

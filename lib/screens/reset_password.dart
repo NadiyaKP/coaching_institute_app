@@ -753,7 +753,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
               // Confirm Password input field
               Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
+                  gradient: const LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
@@ -893,7 +893,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
       decoration: BoxDecoration(
         gradient: isEnabled
             ? AppGradients.primaryYellow
-            : LinearGradient(
+            : const LinearGradient(
                 colors: [
                   AppColors.grey300,
                   AppColors.grey400,
@@ -922,7 +922,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
           padding: EdgeInsets.zero,
         ),
         child: isLoading
-            ? SizedBox(
+            ? const SizedBox(
                 height: 24,
                 width: 24,
                 child: CircularProgressIndicator(
