@@ -7,13 +7,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../service/auth_service.dart';
 import '../service/api_config.dart';
 import 'view_profile.dart';
-import 'settings.dart';
+import 'settings/settings.dart';
 import '../screens/video_stream/videos.dart';
 import '../common/theme_color.dart';
 import 'dart:async';
 import '../screens/subscription/subscription.dart';
 import 'streak_challenge_sheet.dart'; 
 import '../common/bottom_navbar.dart'; 
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -377,6 +378,9 @@ class _HomeScreenState extends State<HomeScreen> {
             await _fetchAndStoreSubjects();
           }
 
+          // After fetching profile and subjects, register device token
+          _registerDeviceToken();
+
         } else {
           debugPrint('Profile data not found in response');
           setState(() => isLoading = false);
@@ -517,6 +521,133 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } catch (e) {
       print('Exception occurred while fetching subjects: $e');
+    }
+  }
+
+  // Register device token for notifications
+  Future<void> _registerDeviceToken() async {
+    try {
+      debugPrint('🚀 Starting device token registration...');
+      
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Get the device token from SharedPreferences (stored in main.dart)
+      final String? deviceToken = prefs.getString('fcm_token');
+      
+      if (deviceToken == null || deviceToken.isEmpty) {
+        debugPrint('❌ Device token not found in SharedPreferences');
+        debugPrint('Available SharedPreferences keys: ${prefs.getKeys()}');
+        return;
+      }
+
+      debugPrint('📱 Found device token in SharedPreferences: $deviceToken');
+
+      // Get access token for authorization
+      String accessToken = await _authService.getAccessToken();
+      if (accessToken.isEmpty) {
+        debugPrint('❌ Access token not available for device registration');
+        return;
+      }
+
+      debugPrint('✅ Access token available for device registration');
+
+      // Prepare request body
+      final Map<String, dynamic> requestBody = {
+        "token": deviceToken
+      };
+
+      debugPrint('📦 Request body: ${json.encode(requestBody)}');
+
+      final client = _createHttpClientWithCustomCert();
+
+      try {
+        final url = Uri.parse('${ApiConfig.currentBaseUrl}/api/notifications/register_device/');
+        debugPrint('🌐 Making POST request to: $url');
+
+        // Make POST request to register device
+        final response = await client.post(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $accessToken',
+          },
+          body: json.encode(requestBody),
+        ).timeout(const Duration(seconds: 15));
+
+        debugPrint('📱 Device registration response status: ${response.statusCode}');
+        debugPrint('📱 Device registration response body: ${response.body}');
+        debugPrint('📱 Device registration response headers: ${response.headers}');
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          final responseData = json.decode(response.body);
+          if (responseData['success'] == true) {
+            debugPrint('✅ Device token registered successfully');
+          } else {
+            debugPrint('⚠️ Device registration API returned success: false');
+            debugPrint('Response data: $responseData');
+          }
+        } else if (response.statusCode == 401) {
+          debugPrint('🔐 Unauthorized - token might be expired');
+          // Try to refresh token and retry
+          final newAccessToken = await _authService.refreshAccessToken();
+          if (newAccessToken != null && newAccessToken.isNotEmpty) {
+            debugPrint('🔄 Retrying with refreshed token...');
+            await _retryDeviceRegistration(deviceToken, newAccessToken);
+          }
+        } else {
+          debugPrint('❌ Failed to register device token: ${response.statusCode}');
+          debugPrint('Response body: ${response.body}');
+        }
+      } on TimeoutException {
+        debugPrint('⏰ Device registration request timed out');
+      } on SocketException catch (e) {
+        debugPrint('🌐 Network error during device registration: $e');
+      } on HandshakeException catch (e) {
+        debugPrint('🔒 SSL Handshake error during device registration: $e');
+      } catch (e) {
+        debugPrint('❌ Unexpected error during device registration: $e');
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      debugPrint('💥 Error in _registerDeviceToken method: $e');
+    }
+  }
+
+  // Retry device registration with new access token
+  Future<void> _retryDeviceRegistration(String deviceToken, String newAccessToken) async {
+    try {
+      debugPrint('🔄 Retrying device registration with new token...');
+      
+      final Map<String, dynamic> requestBody = {
+        "token": deviceToken
+      };
+
+      final client = _createHttpClientWithCustomCert();
+
+      try {
+        final response = await client.post(
+          Uri.parse('${ApiConfig.currentBaseUrl}/api/notifications/register_device/'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $newAccessToken',
+          },
+          body: json.encode(requestBody),
+        ).timeout(const Duration(seconds: 10));
+
+        debugPrint('🔄 Retry response status: ${response.statusCode}');
+        debugPrint('🔄 Retry response body: ${response.body}');
+
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          debugPrint('✅ Device token registered successfully on retry');
+        } else {
+          debugPrint('❌ Device registration failed on retry: ${response.statusCode}');
+        }
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      debugPrint('❌ Error in retry device registration: $e');
     }
   }
 

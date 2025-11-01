@@ -411,8 +411,6 @@ class _RazorpayPaymentScreenState extends State<RazorpayPaymentScreen> {
                           
                           _buildDetailRow('Plan', widget.planName),
                           _buildDetailRow('Course', widget.courseName),
-                          _buildDetailRow('Subscription ID', 
-                              '${widget.razorpaySubscriptionId.substring(0, 10)}...'),
                           
                           const Divider(height: 30),
                           

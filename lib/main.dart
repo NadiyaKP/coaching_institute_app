@@ -6,9 +6,12 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:coaching_institute_app/hive_model.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../service/api_config.dart';
 import '../service/auth_service.dart';
+import '../service/notification_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/otp_verification_screen.dart';
@@ -24,22 +27,119 @@ import 'screens/mock_test/mock_test.dart';
 import './screens/performance.dart';
 import 'screens/Academics/exam_schedule/exam_schedule.dart';
 import './screens/subscription/subscription.dart';
+import './screens/Academics/academics.dart';
+import './screens/settings/about_us.dart';
+import 'hive_model.dart';
 
-void main() async {
+// 🔹 Global Navigator Key
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+// 🔹 Local notification instance
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+// ✅ Handle notification taps (navigating to target page)
+void handleNotificationTap(Map<String, dynamic> data) {
+  try {
+    debugPrint('🔔 Notification tapped with data: $data');
+    final type = data['type']?.toString().toLowerCase();
+    final id = data['assignment_id'] ?? data['exam_id'] ?? '';
+
+    if (type == 'assignment') {
+      navigatorKey.currentState?.pushNamed('/academics', arguments: id);
+    } else if (type == 'exam') {
+      navigatorKey.currentState?.pushNamed('/exam_schedule', arguments: id);
+    } else if (type == 'subscription') {
+      navigatorKey.currentState?.pushNamed('/subscription');
+    } else {
+      navigatorKey.currentState?.pushNamed('/home');
+    }
+  } catch (e) {
+    debugPrint('⚠️ Error during notification tap handling: $e');
+  }
+}
+
+// 🔹 Background message handler (required) - CORRECTED VERSION
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  debugPrint('📩 Background FCM Data: ${message.data}');
+  
+  // 🔥 CRITICAL: Directly handle the background message here
+  final type = message.data['type']?.toString().toLowerCase();
+  if (type == 'assignment') {
+    debugPrint('🆕 Background assignment notification detected');
+    
+    // Save badge state directly to SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('has_unread_assignments', true);
+      debugPrint('💾 Badge state saved to SharedPreferences from background');
+    } catch (e) {
+      debugPrint('❌ Error saving badge state from background: $e');
+    }
+  }
+  
+  // Show local notification
+  final data = message.data;
+  final title = data['title'] ?? 'New Notification';
+  final body = data['body'] ?? 'You have a new notification';
+
+  const AndroidNotificationDetails androidDetails =
+      AndroidNotificationDetails(
+    'default_channel',
+    'General Notifications',
+    importance: Importance.high,
+    priority: Priority.high,
+    playSound: true,
+  );
+
+  const NotificationDetails details =
+      NotificationDetails(android: androidDetails);
+
+  await flutterLocalNotificationsPlugin.show(
+    DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    title,
+    body,
+    details,
+    payload: jsonEncode(data),
+  );
+}
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Hive
+  // ✅ Initialize Firebase
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // ✅ Initialize Hive
   await Hive.initFlutter();
   if (!Hive.isAdapterRegistered(0)) {
     Hive.registerAdapter(PdfReadingRecordAdapter());
   }
-
   try {
     await Hive.openBox<PdfReadingRecord>('pdf_records_box');
-    debugPrint('✅ Hive initialized and box opened successfully in main.dart');
+    debugPrint('✅ Hive initialized successfully');
   } catch (e) {
-    debugPrint('❌ Error opening Hive box in main.dart: $e');
+    debugPrint('❌ Error opening Hive box: $e');
   }
+
+  // ✅ Initialize Local Notifications
+  const AndroidInitializationSettings androidInitSettings =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  const InitializationSettings initSettings =
+      InitializationSettings(android: androidInitSettings);
+
+  await flutterLocalNotificationsPlugin.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: (NotificationResponse response) {
+      if (response.payload != null) {
+        final data = jsonDecode(response.payload!);
+        handleNotificationTap(Map<String, dynamic>.from(data));
+      }
+    },
+  );
 
   runApp(const CoachingInstituteApp());
 }
@@ -53,14 +153,11 @@ class CoachingInstituteApp extends StatefulWidget {
 
 class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     with WidgetsBindingObserver {
-  final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-  // Remove the _isOnlineStudent flag - we'll check dynamically each time
-
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Removed _checkStudentType() - we'll check dynamically
+    _initNotificationService();
   }
 
   @override
@@ -69,68 +166,93 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     super.dispose();
   }
 
+  // ====== App Lifecycle Management ======
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     debugPrint('📱 App lifecycle changed: $state');
-
-    // Check student type dynamically each time
+    
+    // Handle attendance tracking (your existing code)
     final bool isOnlineStudent = await _isOnlineStudent();
-    if (!isOnlineStudent) {
-      debugPrint('🎯 Skipping attendance tracking for non-online student');
-      return;
-    }
+    if (!isOnlineStudent) return;
 
     if (state == AppLifecycleState.paused) {
-      debugPrint('🟡 App minimized or locked, storing end time...');
       await _storeEndTimeAndLastActive();
     }
 
     if (state == AppLifecycleState.resumed) {
-      debugPrint('🟢 App resumed, checking last active time...');
       _checkLastActiveTimeOnResume();
+      
+      // 🔄 RELOAD BADGE STATE WHEN APP COMES TO FOREGROUND
+      await NotificationService.checkBadgeStateOnResume();
+      debugPrint('🔄 Badge state reloaded on app resume');
     }
   }
 
-  // Check if student is online dynamically
-  Future<bool> _isOnlineStudent() async {
-    final prefs = await SharedPreferences.getInstance();
-    final studentType = prefs.getString('profile_student_type') ?? 
-                       prefs.getString('student_type') ?? '';
-    final bool isOnline = studentType.toUpperCase() == 'ONLINE';
-    debugPrint('🎯 Dynamic student type check: $studentType -> Online: $isOnline');
-    return isOnline;
+  // ✅ Initialize Notification Service
+  Future<void> _initNotificationService() async {
+    // Pass global navigator key for handling background taps
+    await NotificationService.init(navigatorKey);
+
+    // 🔹 Foreground notifications
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      debugPrint('📩 Foreground message: ${message.data}');
+      final data = message.data;
+
+      await flutterLocalNotificationsPlugin.show(
+        0,
+        data['title'] ?? message.notification?.title ?? 'New Notification',
+        data['body'] ?? message.notification?.body ?? '',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'high_importance_channel',
+            'High Importance Notifications',
+            importance: Importance.max,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+        ),
+        payload: jsonEncode(data),
+      );
+    });
+
+    // 🔹 Notification tap (background)
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      debugPrint('🚀 App opened via notification tap (background)');
+      handleNotificationTap(message.data);
+    });
+
+    // 🔹 Notification tap (terminated)
+    RemoteMessage? initialMessage =
+        await FirebaseMessaging.instance.getInitialMessage();
+    if (initialMessage != null) {
+      debugPrint('🧊 App launched via notification (terminated)');
+      handleNotificationTap(initialMessage.data);
+    }
   }
 
-  // Store end timestamp and last_active_time
+  Future<bool> _isOnlineStudent() async {
+    final prefs = await SharedPreferences.getInstance();
+    final studentType = prefs.getString('profile_student_type') ??
+        prefs.getString('student_type') ??
+        '';
+    return studentType.toUpperCase() == 'ONLINE';
+  }
+
   Future<void> _storeEndTimeAndLastActive() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // Only store if not already stored (prevent duplicates)
-    String? existingEndTime = prefs.getString('end_time');
-    if (existingEndTime == null) {
+    if (prefs.getString('end_time') == null) {
       String nowStr = DateTime.now().toIso8601String();
       await prefs.setString('end_time', nowStr);
       await prefs.setString('last_active_time', nowStr);
-      debugPrint('✅ End timestamp stored: $nowStr');
-      debugPrint('✅ Last active timestamp stored: $nowStr');
-    } else {
-      debugPrint('ℹ️ End time already exists, skipping duplicate storage');
     }
   }
 
-  // Check last_active_time on resume
   Future<void> _checkLastActiveTimeOnResume() async {
     final prefs = await SharedPreferences.getInstance();
     String? endTimeStr = prefs.getString('end_time');
-
-    if (endTimeStr != null) {
-      debugPrint('⏱️ End time found: $endTimeStr');
-      debugPrint('🟢 Showing continue dialog');
-      _showContinueDialog();
-    }
+    if (endTimeStr != null) _showContinueDialog();
   }
 
-  // Continue dialog with time check on OK button press
   void _showContinueDialog() {
     showDialog(
       context: navigatorKey.currentContext!,
@@ -142,41 +264,21 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
           actions: [
             TextButton(
               onPressed: () async {
-                // Get the current time when OK is clicked
-                DateTime okClickTime = DateTime.now();
-                debugPrint('⏰ OK button clicked at: ${okClickTime.toIso8601String()}');
-
                 final prefs = await SharedPreferences.getInstance();
+                DateTime okClickTime = DateTime.now();
                 String? endTimeStr = prefs.getString('end_time');
-
                 if (endTimeStr != null) {
                   DateTime endTime = DateTime.parse(endTimeStr);
-                  
-                  // Calculate the difference between OK click time and end time
                   Duration elapsed = okClickTime.difference(endTime);
-                  int totalSeconds = elapsed.inSeconds;
-                  int minutes = elapsed.inMinutes;
-                  int seconds = totalSeconds % 60;
-                  
-                  debugPrint('⏱️ Time elapsed since app was minimized: $totalSeconds seconds ($minutes minutes and $seconds seconds)');
-
-                  // Check if total seconds is less than or equal to 120 seconds (2 minutes)
-                  if (totalSeconds <= 120) {
-                    // Less than or equal to 2 minutes - continue using the app
-                    debugPrint('🟢 Time elapsed: $minutes min $seconds sec (≤ 2 minutes), continuing app');
+                  if (elapsed.inSeconds <= 120) {
                     await prefs.remove('end_time');
                     await prefs.remove('last_active_time');
-                    debugPrint('✅ End timestamp and last_active_time removed');
-                    Navigator.of (context).pop();
+                    Navigator.of(context).pop();
                   } else {
-                    // More than 2 minutes - logout
-                    debugPrint('🔴 Time elapsed: $minutes min $seconds sec (> 2 minutes), logging out');
                     Navigator.of(context).pop();
                     await _logoutUser();
                   }
                 } else {
-                  // If no end_time found, just continue
-                  debugPrint('⚠️ No end_time found, continuing app');
                   Navigator.of(context).pop();
                 }
               },
@@ -188,72 +290,45 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     );
   }
 
-  // Logout and send timestamps to backend (only for online students)
   Future<void> _logoutUser() async {
-    debugPrint('🚪 Logging out user...');
     final prefs = await SharedPreferences.getInstance();
-    
-    // Check student type dynamically before proceeding with attendance tracking
     final bool isOnlineStudent = await _isOnlineStudent();
-    
     if (isOnlineStudent) {
       String? start = prefs.getString('start_time');
       String? end = prefs.getString('end_time');
-
       if (start != null && end != null) {
-        debugPrint('📤 Preparing API request with timestamps:');
-        debugPrint('Start: $start, End: $end');
-
         final authService = AuthService();
         final accessToken = await authService.getAccessToken();
-
-        // Remove milliseconds from timestamps
         String cleanStart = start.split('.')[0].replaceFirst('T', ' ');
         String cleanEnd = end.split('.')[0].replaceFirst('T', ' ');
-
         final body = {
           "records": [
             {"time_stamp": cleanStart, "is_checkin": 1},
             {"time_stamp": cleanEnd, "is_checkin": 0}
           ]
         };
-
-        debugPrint('📦 API request payload: ${jsonEncode(body)}');
-
         try {
           final response = await http.post(
-            Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
+            Uri.parse(ApiConfig.buildUrl(
+                '/api/performance/add_onlineattendance/')),
             headers: {
               ...ApiConfig.commonHeaders,
               'Authorization': 'Bearer $accessToken',
             },
             body: jsonEncode(body),
           );
-
-          debugPrint('🌐 API response status: ${response.statusCode}');
-          debugPrint('🌐 API response body: ${response.body}');
-
           if (response.statusCode == 200 || response.statusCode == 201) {
             debugPrint('✅ Attendance sent successfully');
-          } else {
-            debugPrint('❌ Error sending attendance');
           }
         } catch (e) {
           debugPrint('❌ Exception while sending attendance: $e');
         }
-
         await prefs.remove('start_time');
         await prefs.remove('end_time');
         await prefs.remove('last_active_time');
-        debugPrint('🗑️ SharedPreferences timestamps cleared');
       }
-    } else {
-      debugPrint('🎯 Skipping attendance tracking for non-online student during logout');
     }
-
     await AuthService().logout();
-    debugPrint('✅ User auth data cleared');
-
     navigatorKey.currentState?.pushReplacementNamed('/signup');
   }
 
@@ -275,65 +350,21 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/otp_verification': (context) => const OtpVerificationScreen(),
         '/account_creation': (context) => const AccountCreationScreen(),
         '/home': (context) => const HomeScreen(),
-        '/profile_completion_page': (context) => const ProfileCompletionPage(),
+        '/profile_completion_page': (context) =>
+            const ProfileCompletionPage(),
         '/notes': (context) => const NotesScreen(),
         '/question_papers': (context) => const QuestionPapersScreen(),
         '/video_classes': (context) => const VideoClassesScreen(),
         '/forgot_password': (context) => const ForgotPasswordScreen(),
-        '/forgot_otp_verification': (context) => const ForgotOtpVerificationScreen(),
+        '/forgot_otp_verification': (context) =>
+            const ForgotOtpVerificationScreen(),
         '/reset_password': (context) => const ResetPasswordScreen(),
         '/mock_test': (context) => const MockTestScreen(),
         '/performance': (context) => const PerformanceScreen(),
         '/exam_schedule': (context) => const ExamScheduleScreen(),
         '/subscription': (context) => const SubscriptionScreen(),
-        
-      },
-      onGenerateRoute: (settings) {
-        switch (settings.name) {
-          case '/otp_verification':
-            return MaterialPageRoute(
-              builder: (context) => const OtpVerificationScreen(),
-              settings: settings,
-            );
-          case '/account_creation':
-            return MaterialPageRoute(
-              builder: (context) => const AccountCreationScreen(),
-              settings: settings,
-            );
-          default:
-            return null;
-        }
-      },
-      onUnknownRoute: (settings) {
-        return MaterialPageRoute(
-          builder: (context) => Scaffold(
-            appBar: AppBar(
-              title: const Text('Page Not Found'),
-            ),
-            body: const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red,
-                  ),
-                  SizedBox(height: 16),
-                  Text(
-                    'Page Not Found',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text('The requested page could not be found.'),
-                ],
-              ),
-            ),
-          ),
-        );
+        '/academics': (context) => const AcademicsScreen(),
+        '/about_us': (context) => const AboutUsScreen(),
       },
     );
   }

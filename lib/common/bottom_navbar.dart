@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:coaching_institute_app/service/notification_service.dart';
 import '../../screens/Academics/academics.dart';
 import '../screens/mock_test/mock_test.dart';
 import '../screens/subscription/subscription.dart';
@@ -51,6 +52,13 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
     }
   }
 
+  // Handle tab selection WITHOUT clearing badge for Academics
+  void _handleTabSelection(int index) {
+    // DON'T clear badge when Academics tab is selected
+    // The badge should only clear when Assignments screen is opened
+    widget.onTabSelected(index);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -68,55 +76,91 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
           topLeft: Radius.circular(16),
           topRight: Radius.circular(16),
         ),
-        child: BottomNavigationBar(
-          currentIndex: widget.currentIndex,
-          onTap: (index) {
-            if (index == 3) {
-              // Profile tab - open drawer
-              _openProfileDrawer();
-              // Don't change the current index for profile drawer
-            } else {
-              // Other tabs - normal navigation
-              widget.onTabSelected(index);
-            }
+        child: ValueListenableBuilder<bool>(
+          valueListenable: NotificationService.hasUnreadAssignments,
+          builder: (context, hasUnread, child) {
+            return BottomNavigationBar(
+              currentIndex: widget.currentIndex,
+              onTap: (index) {
+                if (index == 3) {
+                  // Profile tab - open drawer
+                  _openProfileDrawer();
+                } else {
+                  // Other tabs - normal navigation without badge clearing
+                  _handleTabSelection(index);
+                }
+              },
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.white,
+              selectedItemColor: const Color(0xFFF4B400),
+              unselectedItemColor: const Color(0xFF9E9E9E),
+              selectedLabelStyle: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+              ),
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.home_rounded),
+                  label: 'Home',
+                ),
+                BottomNavigationBarItem(
+                  icon: _buildIconWithBadge(
+                    icon: Icon(_getSecondTabIcon()),
+                    showBadge: hasUnread && _getSecondTabLabel() == 'Academics',
+                  ),
+                  label: _getSecondTabLabel(),
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.assignment_turned_in_rounded),
+                  label: 'Mock Test',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.person_rounded),
+                  label: 'Profile',
+                ),
+              ],
+            );
           },
-          type: BottomNavigationBarType.fixed,
-          backgroundColor: Colors.white,
-          selectedItemColor: const Color(0xFFF4B400),
-          unselectedItemColor: const Color(0xFF9E9E9E),
-          selectedLabelStyle: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-          unselectedLabelStyle: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
-          ),
-          items: [
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.home_rounded),
-              label: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(_getSecondTabIcon()),
-              label: _getSecondTabLabel(),
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.assignment_turned_in_rounded),
-              label: 'Mock Test',
-            ),
-            const BottomNavigationBarItem(
-              icon: Icon(Icons.person_rounded),
-              label: 'Profile',
-            ),
-          ],
         ),
       ),
     );
   }
+
+  // Widget to show badge on icon
+  Widget _buildIconWithBadge({
+    required Widget icon,
+    required bool showBadge,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        icon,
+        if (showBadge)
+          Positioned(
+            top: -2,
+            right: -4,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Colors.red,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 12,
+                minHeight: 12,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-// Helper class to manage bottom navigation logic
+// Update the BottomNavBarHelper to NOT clear badge when navigating to Academics
 class BottomNavBarHelper {
   static void handleTabSelection(
     int index, 
@@ -148,6 +192,7 @@ class BottomNavBarHelper {
       _navigateToSubscription(context);
     } else {
       // For 'ONLINE' and all other student types, navigate to Academics
+      // DON'T clear badge here - only clear when Assignments screen is opened
       _navigateToAcademics(context);
     }
   }
@@ -156,7 +201,7 @@ class BottomNavBarHelper {
     Navigator.pushNamedAndRemoveUntil(
       context,
       '/home',
-      (route) => false,
+      (Route<dynamic> route) => false,
     );
   }
 

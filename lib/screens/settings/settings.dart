@@ -4,9 +4,11 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../service/auth_service.dart';
-import '../service/api_config.dart';
-import '../common/theme_color.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:simple_icons/simple_icons.dart';
+import '../../service/auth_service.dart';
+import '../../service/api_config.dart';
+import '../../common/theme_color.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -93,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     color: AppColors.textDark,
                                   ),
                                 ),
-                                 SizedBox(height: 4),
+                                SizedBox(height: 4),
                                 Text(
                                   'Update your account password',
                                   style: TextStyle(
@@ -163,7 +165,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   color: AppColors.textDark,
                                 ),
                               ),
-                               SizedBox(height: 4),
+                              SizedBox(height: 4),
                               Text(
                                 'Manage notification preferences',
                                 style: TextStyle(
@@ -183,6 +185,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 24),
+                
+                // Information Section
+                const Text(
+                  'Information',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textGrey,
+                  ),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // About Us Card
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.pushNamed(context, '/about_us');
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryYellow.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.info_outline,
+                              color: AppColors.primaryYellow,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'About Us',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textDark,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Learn more about us',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textGrey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: AppColors.textGrey,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Contact Us Card
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: InkWell(
+                    onTap: _showContactUsBottomSheet,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryYellow.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(
+                              Icons.mail_outline,
+                              color: AppColors.primaryYellow,
+                              size: 24,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Contact Us',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textDark,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Get in touch with our team',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppColors.textGrey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right,
+                            color: AppColors.textGrey,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -225,8 +363,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     color: AppColors.primaryYellow,
                     size: 24,
                   ),
-                   SizedBox(width: 8),
-                   Text(
+                  SizedBox(width: 8),
+                  Text(
                     'Change Password',
                     style: TextStyle(
                       fontSize: 18,
@@ -245,7 +383,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       focusNode: currentPasswordFocus,
                       obscureText: !currentPasswordVisible,
                       onEditingComplete: () {
-                        // Validate when moving to next field
                         if (currentPasswordController.text.isNotEmpty && 
                             currentPasswordController.text.length < 4) {
                           _showErrorSnackBar('Current password must be at least 4 characters');
@@ -292,7 +429,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       focusNode: newPasswordFocus,
                       obscureText: !newPasswordVisible,
                       onEditingComplete: () {
-                        // Validate when moving to next field
                         if (newPasswordController.text.isNotEmpty && 
                             newPasswordController.text.length < 4) {
                           _showErrorSnackBar('New password must be at least 4 characters');
@@ -339,7 +475,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       focusNode: confirmPasswordFocus,
                       obscureText: !confirmPasswordVisible,
                       onEditingComplete: () {
-                        // Validate when moving away from field
                         if (confirmPasswordController.text.isNotEmpty && 
                             confirmPasswordController.text.length < 4) {
                           _showErrorSnackBar('Confirm password must be at least 4 characters');
@@ -427,24 +562,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             return;
                           }
                           
-                          // Check if current password and new password are the same
                           if (currentPasswordController.text == newPasswordController.text) {
                             _showErrorSnackBar('New password must be different from current password');
                             return;
                           }
                           
-                          // Check if new password and confirm password match
                           if (newPasswordController.text != confirmPasswordController.text) {
                             _showErrorSnackBar('New password and confirm password do not match');
                             return;
                           }
                           
-                          // Show loading
                           setState(() {
                             isLoading = true;
                           });
                           
-                          // Call change password API
                           final result = await _changePassword(
                             currentPasswordController.text,
                             newPasswordController.text,
@@ -454,14 +585,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             isLoading = false;
                           });
                           
-                          // Close dialog if successful
                           if (result['success'] == true) {
-                            // Close dialog first
                             if (Navigator.of(dialogContext).canPop()) {
                               Navigator.of(dialogContext).pop();
                             }
                             
-                            // Show success message on main screen after a short delay
                             SchedulerBinding.instance.addPostFrameCallback((_) {
                               if (mounted) {
                                 ScaffoldMessenger.of(this.context).showSnackBar(
@@ -474,7 +602,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               }
                             });
                           } else {
-                            // Show error message
                             _showErrorSnackBar(result['message'] ?? 'Failed to change password');
                           }
                         },
@@ -504,7 +631,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       },
     ).then((_) {
-      // Defer disposal to avoid "used after being disposed" errors
       SchedulerBinding.instance.addPostFrameCallback((_) {
         currentPasswordController.dispose();
         newPasswordController.dispose();
@@ -516,13 +642,312 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  // Change Password API call - Returns result map
+  // Show Contact Us Bottom Sheet
+  void _showContactUsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle bar
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Title
+              const Text(
+                'Contact Us',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
+              
+              const SizedBox(height: 8),
+              
+              const Text(
+                'Choose how you want to reach us',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textGrey,
+                ),
+              ),
+              
+              const SizedBox(height: 28),
+              
+              // Contact Options Grid
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildContactOption(
+                    icon: Icons.phone,
+                    label: 'Call',
+                    color: const Color(0xFF34C759),
+                    onTap: _showPhoneNumberSelection,
+                    useSimpleIcon: false,
+                  ),
+                  _buildContactOption(
+                    icon: SimpleIcons.instagram,
+                    label: 'Instagram',
+                    color: const Color(0xFFE4405F),
+                    onTap: () => _launchUrl('https://www.instagram.com/signature.institute/'),
+                    useSimpleIcon: true,
+                  ),
+                  _buildContactOption(
+                    icon: SimpleIcons.facebook,
+                    label: 'Facebook',
+                    color: const Color(0xFF1877F2),
+                    onTap: () => _launchUrl('https://www.facebook.com/people/Signature-Institute/61574634887436/'),
+                    useSimpleIcon: true,
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _buildContactOption(
+                    icon: SimpleIcons.linkedin,
+                    label: 'LinkedIn',
+                    color: const Color(0xFF0A66C2),
+                    onTap: () => _launchUrl('https://www.linkedin.com/company/signature-institute/'),
+                    useSimpleIcon: true,
+                  ),
+                  _buildContactOption(
+                    icon: Icons.language,
+                    label: 'Website',
+                    color: const Color(0xFF4285F4),
+                    onTap: () => _launchUrl('https://www.signaturecampus.com/'),
+                    useSimpleIcon: false,
+                  ),
+                  // Empty space for alignment
+                  const SizedBox(width: 70),
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Build Contact Option Widget
+  Widget _buildContactOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+    bool useSimpleIcon = false,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Icon(
+            icon,
+            color: color,
+            size: useSimpleIcon ? 40 : 44,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textDark,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Show Phone Number Selection Dialog
+  void _showPhoneNumberSelection() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.phone,
+                color: Color(0xFF34C759),
+                size: 24,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Select Number',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildPhoneNumberOption(
+                phoneNumber: '+91 90745 70207',
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _makePhoneCall('+919074570207');
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildPhoneNumberOption(
+                phoneNumber: '+91 85920 00085',
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _makePhoneCall('+918592000085');
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: AppColors.textGrey),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Build Phone Number Option Widget
+  Widget _buildPhoneNumberOption({
+    required String phoneNumber,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF34C759).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF34C759).withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF34C759).withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.phone,
+                color: Color(0xFF34C759),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              phoneNumber,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textDark,
+              ),
+            ),
+            const Spacer(),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 16,
+              color: AppColors.textGrey,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Make Phone Call
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri phoneUri = Uri(scheme: 'tel', path: phoneNumber);
+    try {
+      if (await canLaunchUrl(phoneUri)) {
+        await launchUrl(phoneUri);
+      } else {
+        if (mounted) {
+          _showErrorSnackBar('Could not launch phone dialer');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error making phone call: $e');
+      if (mounted) {
+        _showErrorSnackBar('Error making phone call');
+      }
+    }
+  }
+
+  // Launch URL
+  Future<void> _launchUrl(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(
+          url,
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        if (mounted) {
+          _showErrorSnackBar('Could not launch $urlString');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error launching URL: $e');
+      if (mounted) {
+        _showErrorSnackBar('Error opening link');
+      }
+    }
+  }
+
+  // Change Password API call
   Future<Map<String, dynamic>> _changePassword(
     String currentPassword,
     String newPassword,
   ) async {
     try {
-      // Get access token from SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       final accessToken = prefs.getString('accessToken');
       
@@ -533,11 +958,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         };
       }
 
-      // Create HTTP client
       final client = ApiConfig.createHttpClient();
       
       try {
-        // Prepare request body
         final body = jsonEncode({
           'current_password': currentPassword,
           'new_password': newPassword,
@@ -545,7 +968,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         debugPrint('Change Password Request Body: $body');
 
-        // Make API call with PUT method
         final response = await http.put(
           Uri.parse('${ApiConfig.currentBaseUrl}/api/students/password_change/'),
           headers: {
@@ -579,7 +1001,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'message': responseData['message'] ?? 'Invalid current password'
           };
         } else if (response.statusCode == 401) {
-          // Logout and navigate to login
           await _authService.logout();
           if (mounted) {
             Navigator.of(context).pushNamedAndRemoveUntil(

@@ -2,6 +2,7 @@ plugins {
     id "com.android.application"
     id "kotlin-android"
     id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
 }
 
 import java.util.Properties
@@ -19,14 +20,14 @@ android {
     namespace "com.example.coaching_institute_app" // mandatory in AGP 8+
     compileSdk = 35   // required by modern plugins
 
-     packagingOptions {
+    packagingOptions {
         pickFirst 'lib/arm64-v8a/libc++_shared.so'
         pickFirst 'lib/armeabi-v7a/libc++_shared.so'
     }
 
     defaultConfig {
         applicationId "com.example.coaching_institute_app"
-        minSdk = 21
+        minSdk = 23
         targetSdk = 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
@@ -49,6 +50,7 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
     }
 
     kotlinOptions {
@@ -70,5 +72,8 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.10.0'
 
-    // Flutter dependencies remain in pubspec.yaml, no changes here
+    implementation platform('com.google.firebase:firebase-bom:34.4.0')
+    implementation 'com.google.firebase:firebase-analytics'
+    implementation 'com.google.firebase:firebase-messaging'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }

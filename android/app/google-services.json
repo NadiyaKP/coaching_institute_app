@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "607756191663",
+    "project_id": "signature-c9500",
+    "storage_bucket": "signature-c9500.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:607756191663:android:c20f282b9d38fd6885d15a",
+        "android_client_info": {
+          "package_name": "com.example.coaching_institute_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDABVl534VFUKqmZyKamRiBhnAcFwhg4KQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -8,7 +8,7 @@ import '../../common/theme_color.dart';
 import 'mock_test_view.dart';
 import '../../common/bottom_navbar.dart';
 import '../view_profile.dart';
-import '../settings.dart';
+import '../settings/settings.dart';
 
 class MockTestScreen extends StatefulWidget {
   const MockTestScreen({super.key});

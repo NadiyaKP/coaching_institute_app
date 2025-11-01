@@ -9,6 +9,7 @@ import 'package:file_selector/file_selector.dart';
 import '../../../common/theme_color.dart';
 import '../../../service/api_config.dart';
 import '../../../service/auth_service.dart';
+import 'upload_assignment_view.dart';
 
 class AssignmentsScreen extends StatefulWidget {
   const AssignmentsScreen({Key? key}) : super(key: key);
@@ -19,6 +20,9 @@ class AssignmentsScreen extends StatefulWidget {
 
 class _AssignmentsScreenState extends State<AssignmentsScreen> {
   List<Assignment> _assignments = [];
+  List<Assignment> _newAssignments = [];
+  List<Assignment> _previousAssignments = [];
+  Set<String> _viewedAssignments = {};
   bool _isLoading = true;
   String _errorMessage = '';
   String? _accessToken;
@@ -34,6 +38,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   Future<void> _initializeData() async {
     await _getAccessToken();
     await _loadStudentType();
+    await _loadViewedAssignments();
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _fetchAssignments();
     } else {
@@ -60,6 +65,60 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     } catch (e) {
       debugPrint('Error loading student type: $e');
     }
+  }
+
+  // Load viewed assignments from shared preferences
+  Future<void> _loadViewedAssignments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final viewed = prefs.getStringList('viewed_assignments') ?? [];
+      setState(() {
+        _viewedAssignments = viewed.toSet();
+      });
+      debugPrint('Loaded viewed assignments: ${_viewedAssignments.length}');
+    } catch (e) {
+      debugPrint('Error loading viewed assignments: $e');
+    }
+  }
+
+  // Save viewed assignments to shared preferences
+  Future<void> _saveViewedAssignments() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('viewed_assignments', _viewedAssignments.toList());
+    } catch (e) {
+      debugPrint('Error saving viewed assignments: $e');
+    }
+  }
+
+  // Mark assignment as viewed
+  void _markAssignmentAsViewed(String assignmentId) {
+    if (!_viewedAssignments.contains(assignmentId)) {
+      setState(() {
+        _viewedAssignments.add(assignmentId);
+      });
+      _saveViewedAssignments();
+      _categorizeAssignments();
+    }
+  }
+
+  // Categorize assignments into new and previous
+  void _categorizeAssignments() {
+    final List<Assignment> newAssignments = [];
+    final List<Assignment> previousAssignments = [];
+
+    for (final assignment in _assignments) {
+      if (_viewedAssignments.contains(assignment.id)) {
+        previousAssignments.add(assignment);
+      } else {
+        newAssignments.add(assignment);
+      }
+    }
+
+    setState(() {
+      _newAssignments = newAssignments;
+      _previousAssignments = previousAssignments;
+    });
   }
 
   // Helper method to check if student is online
@@ -151,6 +210,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                 .toList();
             _isLoading = false;
           });
+
+          // Categorize assignments after fetching
+          _categorizeAssignments();
         } else {
           throw Exception(data['message'] ?? 'Failed to fetch assignments');
         }
@@ -192,23 +254,28 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     }
   }
 
-  // PDF Upload functionality using file_selector
-  Future<void> _pickAndUploadPDF(Assignment assignment) async {
+  // File Upload functionality using file_selector - PDF ONLY
+  Future<void> _pickAndUploadFile(Assignment assignment) async {
     try {
-      // Define PDF file type
-      const XTypeGroup pdfTypeGroup = XTypeGroup(
-        label: 'PDFs',
+      // Define PDF file type only
+      const XTypeGroup fileTypeGroup = XTypeGroup(
+        label: 'PDF Documents',
         extensions: ['pdf'],
-        mimeTypes: ['application/pdf'],
       );
 
-      // Pick PDF file
+      // Pick file
       final XFile? file = await openFile(
-        acceptedTypeGroups: [pdfTypeGroup],
+        acceptedTypeGroups: [fileTypeGroup],
       );
 
       if (file != null) {
         String fileName = file.name;
+        
+        // Validate file extension
+        if (!fileName.toLowerCase().endsWith('.pdf')) {
+          _showError('Only PDF files are allowed');
+          return;
+        }
         
         // Validate file size (e.g., max 10MB)
         int fileSizeInBytes = await file.length();
@@ -222,30 +289,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
         // Show loading dialog
         _showUploadingDialog(fileName);
 
-        // TODO: Replace with your actual API endpoint
-        // await _uploadAssignmentPDF(assignment.id, file, fileName);
-        
-        // Simulate upload delay (remove this when implementing actual API)
-        await Future.delayed(const Duration(seconds: 2));
-        
-        // Close loading dialog
-        if (mounted) {
-          Navigator.of(context).pop();
-        }
-
-        // Show success message
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('$fileName uploaded successfully!'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-
-        // Refresh assignments list
-        await _fetchAssignments();
+        // Upload the file
+        await _uploadAssignmentFile(assignment.id, file, fileName);
         
       } else {
         // User canceled the picker
@@ -284,42 +329,109 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
-  // TODO: Implement this method with your actual API endpoint
-  // Future<void> _uploadAssignmentPDF(String assignmentId, XFile file, String fileName) async {
-  //   final client = _createHttpClientWithCustomCert();
-  //   
-  //   try {
-  //     final apiUrl = '${ApiConfig.currentBaseUrl}/api/attendance/assignments/upload/';
-  //     
-  //     var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
-  //     request.headers.addAll(_getAuthHeaders());
-  //     request.fields['assignment_id'] = assignmentId;
-  //     
-  //     // Read file bytes and add to request
-  //     final bytes = await file.readAsBytes();
-  //     request.files.add(http.MultipartFile.fromBytes(
-  //       'file',
-  //       bytes,
-  //       filename: fileName,
-  //     ));
-  //     
-  //     var streamedResponse = await request.send();
-  //     var response = await http.Response.fromStream(streamedResponse);
-  //     
-  //     if (response.statusCode == 200) {
-  //       final data = json.decode(response.body);
-  //       if (data['success'] != true) {
-  //         throw Exception(data['message'] ?? 'Upload failed');
-  //       }
-  //     } else if (response.statusCode == 401) {
-  //       _handleTokenExpiration();
-  //     } else {
-  //       throw Exception('Server error: ${response.statusCode}');
-  //     }
-  //   } finally {
-  //     client.close();
-  //   }
-  // }
+  // Upload assignment file to API
+  Future<void> _uploadAssignmentFile(String assignmentId, XFile file, String fileName) async {
+    final client = _createHttpClientWithCustomCert();
+    
+    try {
+      // Encode the assignment ID
+      String encodedId = Uri.encodeComponent(assignmentId);
+      
+      final apiUrl = '${ApiConfig.currentBaseUrl}/api/attendance/assignments/$encodedId/submit/';
+      
+      debugPrint('=== UPLOADING ASSIGNMENT FILE ===');
+      debugPrint('URL: $apiUrl');
+      debugPrint('Assignment ID (Original): $assignmentId');
+      debugPrint('Assignment ID (Encoded): $encodedId');
+      debugPrint('File Name: $fileName');
+      
+      var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
+      request.headers.addAll(_getAuthHeaders());
+      
+      // Read file bytes and add to request
+      final bytes = await file.readAsBytes();
+      request.files.add(http.MultipartFile.fromBytes(
+        'submission_file',
+        bytes,
+        filename: fileName,
+      ));
+      
+      debugPrint('Sending request...');
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+      
+      debugPrint('\n=== UPLOAD RESPONSE ===');
+      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('Response Body: ${response.body}');
+      debugPrint('=== END UPLOAD RESPONSE ===\n');
+      
+      // Close loading dialog FIRST before any other UI operation
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = json.decode(response.body);
+        if (data['success'] == true) {
+          // Show success message
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(data['message'] ?? '$fileName uploaded successfully!'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+          
+          // Refresh assignments list to get updated data
+          await _fetchAssignments();
+        } else {
+          throw Exception(data['message'] ?? 'Upload failed');
+        }
+      } else if (response.statusCode == 401) {
+        _handleTokenExpiration();
+      } else {
+        final data = json.decode(response.body);
+        throw Exception(data['message'] ?? 'Server error: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error uploading file: $e');
+      
+      // Make sure loading dialog is closed
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      
+      _showError('Failed to upload file: ${e.toString().replaceAll("Exception: ", "")}');
+    } finally {
+      client.close();
+    }
+  }
+
+  // Open PDF in-app
+  void _openPdfInApp(String fileUrl, String fileName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => UploadAssignmentView(
+          fileUrl: fileUrl,
+          fileName: fileName,
+        ),
+      ),
+    );
+  }
+
+  // Extract filename from URL
+  String _getFileNameFromUrl(String url) {
+    try {
+      Uri uri = Uri.parse(url);
+      String path = uri.path;
+      return path.split('/').last;
+    } catch (e) {
+      return 'Submitted File';
+    }
+  }
 
   void _showError(String message) {
     setState(() => _isLoading = false);
@@ -369,6 +481,9 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   }
 
   void _showAssignmentDetails(Assignment assignment) {
+    // Mark assignment as viewed when details are shown
+    _markAssignmentAsViewed(assignment.id);
+    
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -589,19 +704,26 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
 
                     const SizedBox(height: 20),
 
-                    // Upload Button (Only for Online Students and Not Submitted)
-                    if (isOnlineStudent && !assignment.hasSubmitted) ...[
+                    // Upload Button (Only for Online Students)
+                    if (isOnlineStudent) ...[
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
                           onPressed: () {
                             Navigator.of(context).pop(); // Close bottom sheet
-                            _pickAndUploadPDF(assignment);
+                            _pickAndUploadFile(assignment);
                           },
-                          icon: const Icon(Icons.upload_file_rounded, size: 20),
-                          label: const Text(
-                            'Upload Assignment (PDF)',
-                            style: TextStyle(
+                          icon: Icon(
+                            assignment.hasSubmitted 
+                                ? Icons.refresh_rounded 
+                                : Icons.upload_file_rounded, 
+                            size: 20
+                          ),
+                          label: Text(
+                            assignment.hasSubmitted 
+                                ? 'Re-upload Assignment' 
+                                : 'Upload Assignment',
+                            style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
@@ -615,6 +737,99 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                             ),
                             elevation: 2,
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Text(
+                          '(Upload in PDF format)',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey[600],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // Display uploaded file link if available
+                    if (assignment.hasSubmitted && assignment.fileUrl != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.blue.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(
+                                  Icons.attach_file,
+                                  color: Colors.blue,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Submitted File',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textDark,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            InkWell(
+                              onTap: () => _openPdfInApp(
+                                assignment.fileUrl!,
+                                _getFileNameFromUrl(assignment.fileUrl!),
+                              ),
+                              child: Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.blue.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.picture_as_pdf,
+                                      color: Colors.red,
+                                      size: 24,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        _getFileNameFromUrl(assignment.fileUrl!),
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.blue,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.open_in_new,
+                                      color: Colors.blue,
+                                      size: 18,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -802,6 +1017,192 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
     );
   }
 
+  // Build assignment item widget with New badge in top right corner
+  Widget _buildAssignmentItem(Assignment assignment, {bool isNew = false}) {
+    final isOverdue = _isOverdue(assignment.lastDate) && !assignment.hasSubmitted;
+
+    return GestureDetector(
+      onTap: () => _showAssignmentDetails(assignment),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: isOverdue
+              ? Border.all(color: Colors.red.withOpacity(0.3))
+              : null,
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryYellow.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  // Icon Container
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryYellow.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      assignment.hasSubmitted
+                          ? Icons.check_circle
+                          : Icons.assignment_rounded,
+                      color: assignment.hasSubmitted
+                          ? Colors.green
+                          : AppColors.primaryYellow,
+                      size: 26,
+                    ),
+                  ),
+
+                  const SizedBox(width: 14),
+
+                  // Text Content
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                assignment.topic,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textDark,
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: assignment.hasSubmitted
+                                    ? Colors.green.withOpacity(0.1)
+                                    : Colors.orange.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                assignment.hasSubmitted
+                                    ? 'Submitted'
+                                    : 'Pending',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: assignment.hasSubmitted
+                                      ? Colors.green
+                                      : Colors.orange,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          assignment.chapter,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textGrey,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today_outlined,
+                              size: 12,
+                              color: isOverdue ? Colors.red : AppColors.textGrey,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Due: ${_formatDate(assignment.lastDate)}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isOverdue ? Colors.red : AppColors.textGrey,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Display marks for submitted assignments
+                        if (assignment.hasSubmitted && 
+                            assignment.obtainedMark != null) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.star,
+                                size: 12,
+                                color: Colors.green,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Marks: ${assignment.obtainedMark}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(width: 6),
+
+                  // Arrow Icon
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    color: AppColors.primaryYellow.withOpacity(0.6),
+                    size: 16,
+                  ),
+                ],
+              ),
+            ),
+            
+            // New Badge in top right corner
+            if (isNew)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'NEW',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -852,16 +1253,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'View and track your assignments',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white.withOpacity(0.9),
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.1,
-                    ),
-                  ),
+                  const SizedBox(height: 6),              
                 ],
               ),
             ),
@@ -936,169 +1328,19 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
                         : RefreshIndicator(
                             onRefresh: _fetchAssignments,
                             color: AppColors.primaryYellow,
-                            child: ListView.builder(
+                            child: ListView(
                               padding: const EdgeInsets.all(16),
-                              itemCount: _assignments.length,
-                              itemBuilder: (context, index) {
-                                final assignment = _assignments[index];
-                                final isOverdue = _isOverdue(assignment.lastDate) &&
-                                    !assignment.hasSubmitted;
-
-                                return GestureDetector(
-                                  onTap: () => _showAssignmentDetails(assignment),
-                                  child: Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: isOverdue
-                                          ? Border.all(color: Colors.red.withOpacity(0.3))
-                                          : null,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: AppColors.primaryYellow.withOpacity(0.1),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(16),
-                                      child: Row(
-                                        children: [
-                                          // Icon Container
-                                          Container(
-                                            padding: const EdgeInsets.all(12),
-                                            decoration: BoxDecoration(
-                                              color: AppColors.primaryYellow.withOpacity(0.1),
-                                              borderRadius: BorderRadius.circular(10),
-                                            ),
-                                            child: Icon(
-                                              assignment.hasSubmitted
-                                                  ? Icons.check_circle
-                                                  : Icons.assignment_rounded,
-                                              color: assignment.hasSubmitted
-                                                  ? Colors.green
-                                                  : AppColors.primaryYellow,
-                                              size: 26,
-                                            ),
-                                          ),
-
-                                          const SizedBox(width: 14),
-
-                                          // Text Content
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    Expanded(
-                                                      child: Text(
-                                                        assignment.topic,
-                                                        style: const TextStyle(
-                                                          fontSize: 15,
-                                                          fontWeight: FontWeight.bold,
-                                                          color: AppColors.textDark,
-                                                          letterSpacing: -0.2,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(
-                                                        horizontal: 8,
-                                                        vertical: 4,
-                                                      ),
-                                                      decoration: BoxDecoration(
-                                                        color: assignment.hasSubmitted
-                                                            ? Colors.green.withOpacity(0.1)
-                                                            : Colors.orange.withOpacity(0.1),
-                                                        borderRadius: BorderRadius.circular(6),
-                                                      ),
-                                                      child: Text(
-                                                        assignment.hasSubmitted
-                                                            ? 'Submitted'
-                                                            : 'Pending',
-                                                        style: TextStyle(
-                                                          fontSize: 10,
-                                                          fontWeight: FontWeight.bold,
-                                                          color: assignment.hasSubmitted
-                                                              ? Colors.green
-                                                              : Colors.orange,
-                                                        ),
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  assignment.chapter,
-                                                  style: const TextStyle(
-                                                    fontSize: 12,
-                                                    color: AppColors.textGrey,
-                                                    fontWeight: FontWeight.w500,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 6),
-                                                Row(
-                                                  children: [
-                                                    Icon(
-                                                      Icons.calendar_today_outlined,
-                                                      size: 12,
-                                                      color: isOverdue ? Colors.red : AppColors.textGrey,
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    Text(
-                                                      'Due: ${_formatDate(assignment.lastDate)}',
-                                                      style: TextStyle(
-                                                        fontSize: 11,
-                                                        color: isOverdue ? Colors.red : AppColors.textGrey,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                // Display marks for submitted assignments
-                                                if (assignment.hasSubmitted && 
-                                                    assignment.obtainedMark != null) ...[
-                                                  const SizedBox(height: 6),
-                                                  Row(
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.star,
-                                                        size: 12,
-                                                        color: Colors.green,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Text(
-                                                        'Marks: ${assignment.obtainedMark}',
-                                                        style: const TextStyle(
-                                                          fontSize: 11,
-                                                          color: Colors.green,
-                                                          fontWeight: FontWeight.w600,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                          ),
-
-                                          const SizedBox(width: 6),
-
-                                          // Arrow Icon
-                                          Icon(
-                                            Icons.arrow_forward_ios_rounded,
-                                            color: AppColors.primaryYellow.withOpacity(0.6),
-                                            size: 16,
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              },
+                              children: [
+                                // New assignments appear first with NEW badge
+                                ..._newAssignments.map((assignment) => 
+                                  _buildAssignmentItem(assignment, isNew: true)
+                                ).toList(),
+                                
+                                // Previous assignments appear below without NEW badge
+                                ..._previousAssignments.map((assignment) => 
+                                  _buildAssignmentItem(assignment, isNew: false)
+                                ).toList(),
+                              ],
                             ),
                           ),
           ),
@@ -1121,6 +1363,7 @@ class Assignment {
   final String? submittedAt;
   final double? obtainedMark;
   final String? remarks;
+  final String? fileUrl;
 
   Assignment({
     required this.id,
@@ -1134,6 +1377,7 @@ class Assignment {
     this.submittedAt,
     this.obtainedMark,
     this.remarks,
+    this.fileUrl,
   });
 
   factory Assignment.fromJson(Map<String, dynamic> json) {
@@ -1149,6 +1393,7 @@ class Assignment {
       submittedAt: json['submitted_at'],
       obtainedMark: json['obtained_mark']?.toDouble(),
       remarks: json['remarks'],
+      fileUrl: json['file_url'],
     );
   }
 }

@@ -1,27 +1,29 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'login_screen.dart';
 import '../service/auth_service.dart';
 import 'home.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 
-class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
-
-  @override
-  State<SplashScreen> createState() => _SplashScreenState();
-}
-
-class _SplashScreenState extends State<SplashScreen> {
+// ============= PROVIDER CLASS =============
+class SplashProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
+  
+  bool _isLoading = true;
+  String? _errorMessage;
+  bool _isLoggedIn = false;
+  bool _hasValidTokens = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _checkAuthAndNavigate();
-  }
+  bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+  bool get isLoggedIn => _isLoggedIn;
+  bool get hasValidTokens => _hasValidTokens;
 
-  Future<void> _checkAuthAndNavigate() async {
+  Future<void> checkAuthAndNavigate(BuildContext context) async {
+    _isLoading = true;
+    notifyListeners();
+
     try {
       // Add a small delay for the splash screen to be visible
       await Future.delayed(const Duration(seconds: 3));
@@ -30,14 +32,101 @@ class _SplashScreenState extends State<SplashScreen> {
       await _authService.debugPrintAllData();
 
       // Check authentication status
-      final isLoggedIn = await _authService.isLoggedIn();
+      _isLoggedIn = await _authService.isLoggedIn();
+      print('=== AUTHENTICATION STATUS ===');
+      print('Is Logged In: $_isLoggedIn');
+
+      // Optional: Also check token validity if needed
+      try {
+        _hasValidTokens = await _authService.hasValidTokens();
+        print('Has Valid Tokens: $_hasValidTokens');
+      } catch (e) {
+        print('Error checking tokens: $e');
+        _hasValidTokens = false;
+      }
+      
+      print('===============================');
+
+      _isLoading = false;
+      notifyListeners();
+
+      // Navigate based on authentication status
+      if (_isLoggedIn) {
+        print('✅ User is authenticated - Navigating to HomeScreen');
+        _navigateToHome(context);
+      } else {
+        print('❌ User is not authenticated - Navigating to SignupScreen');
+        _navigateToLogin(context);
+      }
+    } catch (e) {
+      print('=== ERROR IN SPLASH SCREEN ===');
+      print('Error Type: ${e.runtimeType}');
+      print('Error Message: $e');
+      print('Falling back to SignupScreen');
+      print('===============================');
+      
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+
+      _navigateToLogin(context);
+    }
+  }
+
+  void _navigateToHome(BuildContext context) {
+    if (context.mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomeScreen()),
+      );
+    }
+  }
+
+  void _navigateToLogin(BuildContext context) {
+    if (context.mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+    }
+  }
+}
+
+// ============= SCREEN CLASS =============
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Start auth check directly without provider
+    _checkAuthAndNavigate();
+  }
+
+  Future<void> _checkAuthAndNavigate() async {
+    final authService = AuthService();
+    
+    try {
+      // Add a small delay for the splash screen to be visible
+      await Future.delayed(const Duration(seconds: 3));
+
+      print('=== SPLASH SCREEN: Printing SharedPreferences data ===');
+      await authService.debugPrintAllData();
+
+      // Check authentication status
+      final isLoggedIn = await authService.isLoggedIn();
       print('=== AUTHENTICATION STATUS ===');
       print('Is Logged In: $isLoggedIn');
 
       // Optional: Also check token validity if needed
       bool hasValidTokens = false;
       try {
-        hasValidTokens = await _authService.hasValidTokens();
+        hasValidTokens = await authService.hasValidTokens();
         print('Has Valid Tokens: $hasValidTokens');
       } catch (e) {
         print('Error checking tokens: $e');
@@ -51,8 +140,6 @@ class _SplashScreenState extends State<SplashScreen> {
 
       // Navigate based on authentication status
       if (isLoggedIn) {
-        // If you want to also check token validity, use:
-        // if (isLoggedIn && hasValidTokens) {
         print('✅ User is authenticated - Navigating to HomeScreen');
         Navigator.pushReplacement(
           context,
@@ -66,11 +153,9 @@ class _SplashScreenState extends State<SplashScreen> {
         );
       }
     } catch (e) {
-      // Enhanced error logging
       print('=== ERROR IN SPLASH SCREEN ===');
       print('Error Type: ${e.runtimeType}');
       print('Error Message: $e');
-      print('Stack Trace: ${StackTrace.current}');
       print('Falling back to SignupScreen');
       print('===============================');
       

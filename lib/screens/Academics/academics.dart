@@ -4,11 +4,12 @@ import '../../common/theme_color.dart';
 import '../../common/bottom_navbar.dart';
 import 'exam_schedule/exam_schedule.dart';
 import '../view_profile.dart';
-import '../settings.dart';
+import '../settings/settings.dart';
 import '../../service/auth_service.dart';
 import '../Academics/results.dart';
 import 'assignments/assignments.dart';
 import '../../screens/performance.dart';
+import '../../service/notification_service.dart';
 
 class AcademicsScreen extends StatefulWidget {
   const AcademicsScreen({Key? key}) : super(key: key);
@@ -17,7 +18,7 @@ class AcademicsScreen extends StatefulWidget {
   State<AcademicsScreen> createState() => _AcademicsScreenState();
 }
 
-class _AcademicsScreenState extends State<AcademicsScreen> {
+class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingObserver {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final AuthService _authService = AuthService();
   
@@ -35,8 +36,33 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadProfileData();
     _loadStudentType();
+    _reloadBadgeState();
+    _debugBadgeState();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Reload badge state when app comes to foreground while on this screen
+      _reloadBadgeState();
+    }
+  }
+
+  Future<void> _reloadBadgeState() async {
+    debugPrint('🔄 Reloading badge state in Academics screen');
+    // Trigger UI rebuild to reflect latest badge state
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _loadProfileData() async {
@@ -65,6 +91,13 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
       debugPrint('Error loading student type: $e');
     }
   }
+
+  Future<void> _debugBadgeState() async {
+  final prefs = await SharedPreferences.getInstance();
+  final hasUnread = prefs.getBool('has_unread_assignments') ?? false;
+  debugPrint('🔍 DEBUG - SharedPreferences badge state: $hasUnread');
+  debugPrint('🔍 DEBUG - ValueNotifier badge state: ${NotificationService.hasUnreadAssignments.value}');
+}
 
   // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
@@ -105,6 +138,11 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
   }
 
   void _navigateToAssignments() {
+    // Clear the badge when assignments screen is opened
+    if (NotificationService.hasUnreadAssignments.value) {
+      NotificationService.clearAssignmentBadge();
+    }
+    
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -333,15 +371,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Text(
-                      'Manage your academic activities',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.9),
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.1,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -421,13 +450,21 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
                       const SizedBox(height: 12),
                     ],
 
-                    // Assignments Card (For all students)
-                    _buildAcademicCard(
-                      icon: Icons.assignment_rounded,
-                      title: 'Assignments',
-                      subtitle: 'Submit and track assignments',
-                      color: AppColors.warningOrange,
-                      onTap: _navigateToAssignments,
+                    // Assignments Card (For all students) - With unread badge
+                    // Using the same ValueNotifier that controls the bottom navbar badge
+                    ValueListenableBuilder<bool>(
+                      valueListenable: NotificationService.hasUnreadAssignments,
+                      builder: (context, hasUnread, child) {
+                        debugPrint('🎯 Academics Screen - Assignments badge state: $hasUnread');
+                        return _buildAcademicCard(
+                          icon: Icons.assignment_rounded,
+                          title: 'Assignments',
+                          subtitle: 'Submit and track assignments',
+                          color: AppColors.warningOrange,
+                          onTap: _navigateToAssignments,
+                          showBadge: hasUnread, // Same condition as bottom navbar
+                        );
+                      },
                     ),
 
                     const SizedBox(height: 24),
@@ -454,7 +491,10 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
     required Color color,
     required VoidCallback onTap,
     bool comingSoon = false,
+    bool showBadge = false, // New parameter for showing badge
   }) {
+    debugPrint('🔄 Building Academic Card - $title, showBadge: $showBadge');
+    
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -471,84 +511,112 @@ class _AcademicsScreenState extends State<AcademicsScreen> {
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Row(
+          child: Stack(
+            clipBehavior: Clip.none,
             children: [
-              // Icon Container
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  color: color,
-                  size: 26,
-                ),
-              ),
-              
-              const SizedBox(width: 14),
-              
-              // Text Content
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                            letterSpacing: -0.2,
-                          ),
+              Row(
+                children: [
+                  // Icon Container with potential badge
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        if (comingSoon) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 3,
-                            ),
+                        child: Icon(
+                          icon,
+                          color: color,
+                          size: 26,
+                        ),
+                      ),
+                      // Unread badge - synchronized with bottom navbar
+                      if (showBadge)
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: Container(
+                            width: 16,
+                            height: 16,
                             decoration: BoxDecoration(
-                              color: AppColors.primaryYellow.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: const Text(
-                              'Soon',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.primaryYellowDark,
-                                letterSpacing: 0.3,
+                              color: Colors.red,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: Colors.white,
+                                width: 2,
                               ),
                             ),
                           ),
-                        ],
+                        ),
+                    ],
+                  ),
+                  
+                  const SizedBox(width: 14),
+                  
+                  // Text Content
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textDark,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            if (comingSoon) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryYellow.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                                child: const Text(
+                                  'Soon',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primaryYellowDark,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppColors.textGrey,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppColors.textGrey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              const SizedBox(width: 6),
-              
-              // Arrow Icon
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                color: color.withOpacity(0.6),
-                size: 16,
+                  ),
+                  
+                  const SizedBox(width: 6),
+                  
+                  // Arrow Icon
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    color: color.withOpacity(0.6),
+                    size: 16,
+                  ),
+                ],
               ),
             ],
           ),

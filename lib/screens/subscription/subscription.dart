@@ -10,7 +10,7 @@ import '../../common/theme_color.dart';
 import '../subscription/subscription_detail.dart';
 import '../../common/bottom_navbar.dart';
 import '../view_profile.dart';
-import '../settings.dart';
+import '../settings/settings.dart';
 
 class SubscriptionScreen extends StatefulWidget {
   const SubscriptionScreen({super.key});
