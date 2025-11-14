@@ -5,6 +5,105 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
+import 'dart:io';
+
+// ============= RESPONSIVE UTILITY CLASS =============
+class ResponsiveUtils {
+  static bool isTablet(BuildContext context) {
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    return shortestSide >= 600;
+  }
+
+  static bool isLandscape(BuildContext context) {
+    return MediaQuery.of(context).orientation == Orientation.landscape;
+  }
+
+  static double getResponsiveWidth(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+
+    if (isTabletDevice || isLandscapeMode) {
+      return width * 0.5;
+    }
+    return width * 0.9;
+  }
+
+  static double getMaxContainerWidth(BuildContext context) {
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+
+    if (isTabletDevice) {
+      return 500.0;
+    } else if (isLandscapeMode) {
+      return 450.0;
+    }
+    return double.infinity;
+  }
+
+  static double getFontSize(BuildContext context, double baseSize) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return baseSize * 0.85;
+    } else if (isTabletDevice) {
+      return baseSize * 1.2;
+    }
+    return (baseSize / 375) * width;
+  }
+
+  static double getHeaderHeight(BuildContext context) {
+    final height = MediaQuery.of(context).size.height;
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return height * 0.85;
+    }
+    return height * 0.35;
+  }
+
+  static double getIconSize(BuildContext context, double baseSize) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+    
+    if (!isLandscapeMode) {
+      if (isTabletDevice) {
+        return screenWidth * (baseSize / 375) * 1.2;
+      } else {
+        return screenWidth * (baseSize / 375);
+      }
+    }
+    
+    if (isTabletDevice) {
+      return screenHeight * (baseSize / 667) * 0.8;
+    } else {
+      return screenHeight * (baseSize / 667) * 0.7;
+    }
+  }
+
+  static EdgeInsets getHorizontalPadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    
+    if (isTabletDevice) {
+      return EdgeInsets.symmetric(horizontal: width * 0.15);
+    }
+    return const EdgeInsets.symmetric(horizontal: 20);
+  }
+
+  static double getVerticalSpacing(BuildContext context, double baseSpacing) {
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return baseSpacing * 0.6;
+    }
+    return baseSpacing;
+  }
+}
 
 // ============= PROVIDER CLASS =============
 class ForgotPasswordProvider extends ChangeNotifier {
@@ -24,7 +123,6 @@ class ForgotPasswordProvider extends ChangeNotifier {
       return;
     }
 
-    // email validation
     final emailRegex = RegExp(
       r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     );
@@ -58,8 +156,10 @@ class ForgotPasswordProvider extends ChangeNotifier {
 
     debugPrint('Sending OTP to email: $email');
 
+    HttpClient? httpClient;
+
     try {
-      final httpClient = ApiConfig.createHttpClient();
+      httpClient = ApiConfig.createHttpClient();
 
       final request = await httpClient.postUrl(
         Uri.parse('${ApiConfig.baseUrl}/api/admin/forget-password/'),
@@ -86,8 +186,6 @@ class ForgotPasswordProvider extends ChangeNotifier {
 
       debugPrint('Response status: ${httpResponse.statusCode}');
       debugPrint('Response body: $responseBody');
-
-      httpClient.close();
 
       if (httpResponse.statusCode == 200) {
         final Map<String, dynamic> responseData = jsonDecode(responseBody);
@@ -140,6 +238,7 @@ class ForgotPasswordProvider extends ChangeNotifier {
         'message': errorMessage,
       };
     } finally {
+      httpClient?.close();
       _isLoading = false;
       notifyListeners();
     }
@@ -218,7 +317,6 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
         AppColors.successGreen,
       );
 
-      // Navigate to OTP verification page
       Future.delayed(const Duration(milliseconds: 800), () {
         if (mounted) {
           Navigator.pushReplacementNamed(
@@ -257,18 +355,28 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   }
 
   Widget _buildHeader(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    final headerHeight = ResponsiveUtils.getHeaderHeight(context);
+    
+    final iconSize = ResponsiveUtils.getIconSize(context, 45);
+    final titleFontSize = ResponsiveUtils.getFontSize(context, 24);
+    final subtitleFontSize = ResponsiveUtils.getFontSize(context, 14);
 
     return Container(
       width: double.infinity,
-      height: screenHeight * 0.35,
+      height: headerHeight,
       decoration: BoxDecoration(
         gradient: AppGradients.background,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(35),
-          bottomRight: Radius.circular(35),
-        ),
+        borderRadius: isLandscape 
+            ? const BorderRadius.only(
+                topRight: Radius.circular(35),
+                bottomRight: Radius.circular(35),
+              )
+            : const BorderRadius.only(
+                bottomLeft: Radius.circular(35),
+                bottomRight: Radius.circular(35),
+              ),
         boxShadow: [
           BoxShadow(
             color: AppColors.shadowYellow,
@@ -323,64 +431,72 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
             top: MediaQuery.of(context).padding.top + 10,
             left: 16,
             child: IconButton(
-              icon: const Icon(
+              icon: Icon(
                 Icons.arrow_back_ios_new,
-                color: AppColors.white,
-                size: 22,
+                color: AppColors.primaryBlue,
+                size: ResponsiveUtils.getFontSize(context, 20),
               ),
               onPressed: () => Navigator.pop(context),
             ),
           ),
 
-          // Title and Icon
           Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: AppGradients.primaryYellow,
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.primaryYellow.withOpacity(0.4),
-                        spreadRadius: 5,
-                        blurRadius: 15,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    Icons.lock_reset,
-                    color: AppColors.white,
-                    size: screenWidth * 0.12,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  "Forgot Password?",
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.065,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.primaryBlue,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 40),
-                  child: Text(
-                    "Don't worry! Enter your email to reset",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: screenWidth * 0.037,
-                      fontWeight: FontWeight.w400,
-                      color: AppColors.primaryBlue,
-                      height: 1.3,
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                vertical: isLandscape ? 16 : 20,
+                horizontal: 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(isLandscape ? 10 : 16),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: AppGradients.primaryYellow,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryYellow.withOpacity(0.4),
+                          spreadRadius: 5,
+                          blurRadius: 15,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.lock_reset,
+                      color: AppColors.white,
+                      size: iconSize * (isLandscape ? 0.8 : 1),
                     ),
                   ),
-                ),
-              ],
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 12)),
+                  Text(
+                    "Forgot Password?",
+                    style: TextStyle(
+                      fontSize: titleFontSize,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primaryBlue,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 6)),
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLandscape ? 10 : 40,
+                    ),
+                    child: Text(
+                      "Don't worry! Enter your email to reset",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: subtitleFontSize * 0.95,
+                        fontWeight: FontWeight.w400,
+                        color: AppColors.primaryBlue,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -389,265 +505,307 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
   }
 
   Widget _buildEmailCard(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    return ScaleTransition(
-      scale: _scaleAnimation!,
-      child: FadeTransition(
-        opacity: _fadeAnimation!,
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.circular(25),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.shadowGrey,
-                spreadRadius: 0,
-                blurRadius: 30,
-                offset: const Offset(0, 10),
-              ),
-              BoxShadow(
-                color: AppColors.shadowYellow,
-                spreadRadius: 0,
-                blurRadius: 20,
-                offset: const Offset(0, 5),
-              ),
-            ],
-          ),
-          child: Consumer<ForgotPasswordProvider>(
-            builder: (context, provider, child) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Email label
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          gradient: AppGradients.primaryYellow,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          Icons.email_outlined,
-                          color: AppColors.white,
-                          size: screenWidth * 0.05,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        "Email Address",
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.042,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textDark,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
+    final maxWidth = ResponsiveUtils.getMaxContainerWidth(context);
+    final horizontalPadding = ResponsiveUtils.getHorizontalPadding(context);
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    
+    final containerPadding = EdgeInsets.symmetric(
+      horizontal: (isTabletDevice && !isLandscape) ? 24 : (isLandscape ? 12 : 20),
+      vertical: (isTabletDevice && !isLandscape) ? 20 : (isLandscape ? 12 : 16),
+    );
+    
+    return Center(
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        padding: horizontalPadding,
+        child: ScaleTransition(
+          scale: _scaleAnimation!,
+          child: FadeTransition(
+            opacity: _fadeAnimation!,
+            child: Container(
+              padding: containerPadding,
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(25),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.shadowGrey,
+                    spreadRadius: 0,
+                    blurRadius: 30,
+                    offset: const Offset(0, 10),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  // Email input field
-                  Container(
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.grey50,
-                          AppColors.grey100,
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: provider.isEmailValid
-                            ? AppColors.successGreen.withOpacity(0.6)
-                            : provider.emailError != null
-                                ? AppColors.errorRed.withOpacity(0.6)
-                                : AppColors.grey300,
-                        width: 1.5,
-                      ),
-                      boxShadow: provider.isEmailValid
-                          ? [
-                              BoxShadow(
-                                color: AppColors.successGreen.withOpacity(0.1),
-                                spreadRadius: 0,
-                                blurRadius: 8,
-                                offset: const Offset(0, 2),
-                              ),
-                            ]
-                          : provider.emailError != null
-                              ? [
-                                  BoxShadow(
-                                    color: AppColors.errorRed.withOpacity(0.1),
-                                    spreadRadius: 0,
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ]
-                              : [],
-                    ),
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: emailController,
-                          enabled: !provider.isLoading,
-                          keyboardType: TextInputType.emailAddress,
-                          style: TextStyle(
-                            fontSize: screenWidth * 0.04,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.grey800,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: "Enter your registered email",
-                            hintStyle: TextStyle(
-                              color: AppColors.grey500,
-                              fontSize: screenWidth * 0.037,
-                              fontWeight: FontWeight.w400,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                            suffixIcon: provider.isEmailValid
-                                ? Icon(
-                                    Icons.check_circle,
-                                    color: AppColors.successGreen,
-                                    size: screenWidth * 0.055,
-                                  )
-                                : provider.emailError != null
-                                    ? Icon(
-                                        Icons.error,
-                                        color: AppColors.errorRed,
-                                        size: screenWidth * 0.055,
-                                      )
-                                    : null,
-                          ),
-                          onChanged: (value) {
-                            provider.validateEmail(value.trim());
-                          },
-                        ),
-
-                        if (provider.emailError != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.info_outline,
-                                  color: AppColors.errorRed,
-                                  size: screenWidth * 0.04,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    provider.emailError!,
-                                    style: TextStyle(
-                                      color: AppColors.errorRed,
-                                      fontSize: screenWidth * 0.034,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
+                  BoxShadow(
+                    color: AppColors.shadowYellow,
+                    spreadRadius: 0,
+                    blurRadius: 20,
+                    offset: const Offset(0, 5),
                   ),
-
-                  const SizedBox(height: 24),
-
-                  // Continue button
-                  _buildContinueButton(context, screenWidth, provider),
                 ],
-              );
-            },
+              ),
+              child: Consumer<ForgotPasswordProvider>(
+                builder: (context, provider, child) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildEmailField(provider),
+                      SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
+                      _buildContinueButton(context, provider),
+                    ],
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildContinueButton(BuildContext context, double screenWidth, ForgotPasswordProvider provider) {
+  Widget _buildEmailField(ForgotPasswordProvider provider) {
+    final fontSize = ResponsiveUtils.getFontSize(context, 14);
+    final iconSize = ResponsiveUtils.getFontSize(context, 16);
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Email label
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                gradient: AppGradients.primaryYellow,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.email_outlined,
+                color: AppColors.white,
+                size: iconSize,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "Email Address",
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Email input field
+        Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.grey50,
+                AppColors.grey100,
+              ],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: provider.isEmailValid
+                  ? AppColors.successGreen.withOpacity(0.6)
+                  : provider.emailError != null
+                      ? AppColors.errorRed.withOpacity(0.6)
+                      : AppColors.grey300,
+              width: 1.5,
+            ),
+            boxShadow: provider.isEmailValid
+                ? [
+                    BoxShadow(
+                      color: AppColors.successGreen.withOpacity(0.1),
+                      spreadRadius: 0,
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : provider.emailError != null
+                    ? [
+                        BoxShadow(
+                          color: AppColors.errorRed.withOpacity(0.1),
+                          spreadRadius: 0,
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : [],
+          ),
+          child: Column(
+            children: [
+              TextField(
+                controller: emailController,
+                enabled: !provider.isLoading,
+                keyboardType: TextInputType.emailAddress,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.grey800,
+                ),
+                decoration: InputDecoration(
+                  hintText: "Enter your registered email",
+                  hintStyle: TextStyle(
+                    color: AppColors.grey500,
+                    fontSize: fontSize * 0.95,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  suffixIcon: provider.isEmailValid
+                      ? Icon(
+                          Icons.check_circle,
+                          color: AppColors.successGreen,
+                          size: iconSize * 1.2,
+                        )
+                      : provider.emailError != null
+                          ? Icon(
+                              Icons.error,
+                              color: AppColors.errorRed,
+                              size: iconSize * 1.2,
+                            )
+                          : null,
+                ),
+                onChanged: (value) {
+                  provider.validateEmail(value.trim());
+                },
+              ),
+
+              if (provider.emailError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: AppColors.errorRed,
+                        size: fontSize * 0.9,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          provider.emailError!,
+                          style: TextStyle(
+                            color: AppColors.errorRed,
+                            fontSize: fontSize * 0.85,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildContinueButton(BuildContext context, ForgotPasswordProvider provider) {
+    final fontSize = ResponsiveUtils.getFontSize(context, 16);
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    
+    double buttonHeight;
+    if (isLandscape) {
+      buttonHeight = 42.0;
+    } else if (isTabletDevice) {
+      buttonHeight = 60.0;
+    } else {
+      buttonHeight = 56.0;
+    }
+    
     bool isEnabled = provider.isEmailValid;
 
-    return Container(
-      width: double.infinity,
-      height: 56,
-      decoration: BoxDecoration(
-        gradient: isEnabled
-            ? AppGradients.primaryYellow
-            : const LinearGradient(
-                colors: [
-                  AppColors.grey300,
-                  AppColors.grey400,
-                ],
-              ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: isEnabled
-            ? [
-                BoxShadow(
-                  color: AppColors.shadowYellow,
-                  spreadRadius: 0,
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+    return Center(
+      child: Container(
+        width: isLandscape ? 250.0 : double.infinity,
+        height: buttonHeight,
+        decoration: BoxDecoration(
+          gradient: isEnabled
+              ? AppGradients.primaryYellow
+              : const LinearGradient(
+                  colors: [
+                    AppColors.grey300,
+                    AppColors.grey400,
+                  ],
                 ),
-              ]
-            : [],
-      ),
-      child: ElevatedButton(
-        onPressed: isEnabled && !provider.isLoading
-            ? () => _handleSendOTP(context)
-            : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.transparent,
-          shadowColor: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          padding: EdgeInsets.zero,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: isEnabled
+              ? [
+                  BoxShadow(
+                    color: AppColors.shadowYellow,
+                    spreadRadius: 0,
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ]
+              : [],
         ),
-        child: provider.isLoading
-            ? const SizedBox(
-                height: 24,
-                width: 24,
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
-                  strokeWidth: 2.5,
-                ),
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "Continue",
-                    style: TextStyle(
-                      fontSize: screenWidth * 0.042,
-                      fontWeight: FontWeight.w700,
-                      color: isEnabled ? AppColors.white : AppColors.grey600,
-                      letterSpacing: 0.5,
+        child: ElevatedButton(
+          onPressed: isEnabled && !provider.isLoading
+              ? () => _handleSendOTP(context)
+              : null,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: EdgeInsets.zero,
+            minimumSize: Size.zero,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: provider.isLoading
+              ? SizedBox(
+                  height: isLandscape ? 16 : 20,
+                  width: isLandscape ? 16 : 20,
+                  child: const CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
+                    strokeWidth: 2.5,
+                  ),
+                )
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      "Continue",
+                      style: TextStyle(
+                        fontSize: isLandscape ? fontSize * 0.85 : fontSize * 0.9,
+                        fontWeight: FontWeight.w700,
+                        color: isEnabled ? AppColors.white : AppColors.grey600,
+                        letterSpacing: 0.5,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.arrow_forward_rounded,
-                    color: isEnabled ? AppColors.white : AppColors.grey600,
-                    size: screenWidth * 0.05,
-                  ),
-                ],
-              ),
+                    SizedBox(width: isLandscape ? 4 : 6),
+                    Icon(
+                      Icons.arrow_forward_rounded,
+                      color: isEnabled ? AppColors.white : AppColors.grey600,
+                      size: isLandscape ? fontSize * 0.95 : fontSize * 1.1,
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final verticalSpacing = ResponsiveUtils.getVerticalSpacing(context, 40);
+    
     return ChangeNotifierProvider(
       create: (_) => ForgotPasswordProvider(),
       child: Builder(
@@ -655,14 +813,49 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           backgroundColor: const Color(0xFFF5F5F5),
           body: GestureDetector(
             onTap: () => FocusScope.of(context).unfocus(),
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildHeader(context),
-                  const SizedBox(height: 40),
-                  _buildEmailCard(context),
-                  SizedBox(height: MediaQuery.of(context).viewInsets.bottom + 20),
-                ],
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (isLandscape) {
+                    return Row(
+                      children: [
+                        Flexible(
+                          flex: 2,
+                          child: _buildHeader(context),
+                        ),
+                        Flexible(
+                          flex: 3,
+                          child: Center(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 16,
+                                horizontal: 16,
+                              ),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
+                                ),
+                                child: _buildEmailCard(context),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                  return SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        _buildHeader(context),
+                        SizedBox(height: verticalSpacing),
+                        _buildEmailCard(context),
+                        SizedBox(
+                          height: MediaQuery.of(context).viewInsets.bottom + 20,
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           ),

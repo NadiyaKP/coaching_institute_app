@@ -4,6 +4,7 @@ import 'package:coaching_institute_app/service/notification_service.dart';
 import '../../screens/Academics/academics.dart';
 import '../screens/mock_test/mock_test.dart';
 import '../screens/subscription/subscription.dart';
+import '../screens/my_documents/my_documents.dart';
 
 class CommonBottomNavBar extends StatefulWidget {
   final int currentIndex;
@@ -76,9 +77,12 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
           topLeft: Radius.circular(16),
           topRight: Radius.circular(16),
         ),
-        child: ValueListenableBuilder<bool>(
-          valueListenable: NotificationService.hasUnreadAssignments,
-          builder: (context, hasUnread, child) {
+        child: ValueListenableBuilder<Map<String, bool>>(
+          valueListenable: NotificationService.badgeNotifier,
+          builder: (context, badges, child) {
+            final bool showAcademicsBadge = badges['hasUnreadAssignments'] ?? false;
+            final bool showSubscriptionBadge = badges['hasUnreadSubscription'] ?? false;
+            
             return BottomNavigationBar(
               currentIndex: widget.currentIndex,
               onTap: (index) {
@@ -110,7 +114,9 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
                 BottomNavigationBarItem(
                   icon: _buildIconWithBadge(
                     icon: Icon(_getSecondTabIcon()),
-                    showBadge: hasUnread && _getSecondTabLabel() == 'Academics',
+                    showBadge: _getSecondTabLabel() == 'Academics' 
+                        ? showAcademicsBadge 
+                        : showSubscriptionBadge,
                   ),
                   label: _getSecondTabLabel(),
                 ),
@@ -407,6 +413,23 @@ class CommonProfileDrawer extends StatelessWidget {
                       icon: Icons.person_outline_rounded,
                       label: 'View Profile',
                       onTap: onViewProfile,
+                    ),
+                    const Divider(height: 1, color: Colors.grey),
+                    _buildDrawerItem(
+                      icon: Icons.description_outlined,
+                      label: 'My Documents',
+                      onTap: () {
+                        // Close the drawer first
+                        Navigator.of(context).pop();
+                        // Navigate to My Documents page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MyDocumentsScreen(),
+                            settings: const RouteSettings(name: '/my_documents'),
+                          ),
+                        );
+                      },
                     ),
                     const Divider(height: 1, color: Colors.grey),
                     _buildDrawerItem(

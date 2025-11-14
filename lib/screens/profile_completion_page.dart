@@ -81,6 +81,115 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
     super.dispose();
   }
 
+  // Check if all fields are filled
+  bool get _isAllFieldsFilled {
+    return selectedBirthDate != null &&
+           selectedGender != null &&
+           selectedCourse != null &&
+           selectedSubCourse != null &&
+           selectedSubCourseId != null;
+  }
+
+  // Responsive helpers
+  bool _isLandscape(BuildContext context) {
+    return MediaQuery.of(context).orientation == Orientation.landscape;
+  }
+
+  bool _isTablet(BuildContext context) {
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    return shortestSide >= 600;
+  }
+
+  double _getResponsiveFontSize(BuildContext context, double baseSize) {
+    final isLandscape = _isLandscape(context);
+    final isTablet = _isTablet(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    
+    double fontSize = baseSize;
+    
+    if (isTablet) {
+      fontSize = baseSize * 1.1;
+    }
+    
+    if (isLandscape) {
+      fontSize = fontSize * 0.85;
+    }
+    
+    // Scale based on screen width
+    final scaleFactor = (screenWidth / 375).clamp(0.8, 1.3);
+    fontSize = fontSize * scaleFactor;
+    
+    return fontSize;
+  }
+
+  double _getResponsiveIconSize(BuildContext context, double baseSize) {
+    final isLandscape = _isLandscape(context);
+    final isTablet = _isTablet(context);
+    
+    double iconSize = baseSize;
+    
+    if (isTablet) {
+      iconSize = baseSize * 1.15;
+    }
+    
+    if (isLandscape) {
+      iconSize = iconSize * 0.8;
+    }
+    
+    return iconSize;
+  }
+
+  double _getResponsivePadding(BuildContext context, double basePadding) {
+    final isLandscape = _isLandscape(context);
+    final isTablet = _isTablet(context);
+    
+    double padding = basePadding;
+    
+    if (isTablet) {
+      padding = basePadding * 1.3;
+    }
+    
+    if (isLandscape) {
+      padding = padding * 0.7;
+    }
+    
+    return padding;
+  }
+
+  double _getFormWidth(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isLandscape = _isLandscape(context);
+    final isTablet = _isTablet(context);
+    
+    if (isLandscape) {
+      if (isTablet) {
+        return screenWidth * 0.6;
+      }
+      return screenWidth * 0.7;
+    }
+    
+    if (isTablet) {
+      return screenWidth * 0.7;
+    }
+    
+    return screenWidth * 0.85;
+  }
+
+  double _getContinueButtonWidth(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isLandscape = _isLandscape(context);
+    final isTablet = _isTablet(context);
+    
+    if (isLandscape) {
+      if (isTablet) {
+        return screenWidth * 0.4;
+      }
+      return screenWidth * 0.5;
+    }
+    
+    return double.infinity;
+  }
+
   // Fetch courses and subcourses using ApiConfig
   Future<void> _fetchCoursesAndSubcourses() async {
     setState(() {
@@ -298,23 +407,11 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
     }
   }
 
-  void _skipPage() {
-    if (currentPageIndex < 2) {
-      setState(() {
-        currentPageIndex++;
-      });
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-    }
-  }
-
   void _completeProfile() async {
-    if (selectedCourse == null || selectedSubCourse == null) {
+    if (!_isAllFieldsFilled) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select both course and level'),
+          content: Text('Please complete all fields'),
           backgroundColor: AppColors.errorRed,
         ),
       );
@@ -378,21 +475,29 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
   }
 
   Widget _buildDotIndicator() {
+    final isLandscape = _isLandscape(context);
+    final dotSize = isLandscape ? 6.0 : 8.0;
+    final activeDotWidth = isLandscape ? 18.0 : 24.0;
+    final spacing = isLandscape ? 3.0 : 4.0;
+    
     return Container(
-      margin: const EdgeInsets.only(top: 20, bottom: 10),
+      margin: EdgeInsets.only(
+        top: _getResponsivePadding(context, 20),
+        bottom: _getResponsivePadding(context, 10),
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: List.generate(3, (index) {
           return AnimatedContainer(
             duration: const Duration(milliseconds: 300),
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            width: currentPageIndex == index ? 24 : 8,
-            height: 8,
+            margin: EdgeInsets.symmetric(horizontal: spacing),
+            width: currentPageIndex == index ? activeDotWidth : dotSize,
+            height: dotSize,
             decoration: BoxDecoration(
               color: currentPageIndex == index 
                   ? AppColors.primaryYellow 
                   : AppColors.grey300,
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(dotSize / 2),
               boxShadow: currentPageIndex == index ? [
                 BoxShadow(
                   color: AppColors.shadowYellow,
@@ -408,452 +513,231 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
   }
 
   Widget _buildBirthDateForm() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final formWidth = _getFormWidth(context);
+    final isLandscape = _isLandscape(context);
     
-    return Container(
-      height: screenHeight * 0.6,
-      child: Center(
-        child: SingleChildScrollView(
-          child: Container(
-            width: screenWidth * 0.85,
-            padding: const  EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadowGrey,
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: const Color(0xFFFFD54F).withOpacity(0.6),
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFD54F).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(15),
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: formWidth,
+              padding: EdgeInsets.all(_getResponsivePadding(context, 28)),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(_getResponsivePadding(context, 20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.shadowGrey,
+                    blurRadius: isLandscape ? 15 : 20,
+                    offset: Offset(0, isLandscape ? 4 : 8),
                   ),
-                  child: const Icon(
-                    Icons.cake_rounded,
-                    size: 32,
-                    color: AppColors.primaryYellow,
+                  BoxShadow(
+                    color: const Color(0xFFFFD54F).withOpacity(0.6),
+                    blurRadius: isLandscape ? 20 : 30,
+                    spreadRadius: isLandscape ? 1 : 2,
+                    offset: Offset(0, isLandscape ? 2 : 4),
                   ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                Text(
-                  'When is your birthday?',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.05,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                    height: 1.3,
-                  ),
-                ),
-                
-                const SizedBox(height: 8),
-                
-                Text(
-                  'Help us personalize your learning experience',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.035,
-                    color: AppColors.textGrey,
-                    height: 1.4,
-                  ),
-                ),
-                
-                const SizedBox(height: 24),
-                
-                GestureDetector(
-                  onTap: _selectBirthDate,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: _getResponsiveIconSize(context, 60),
+                    height: _getResponsiveIconSize(context, 60),
                     decoration: BoxDecoration(
-                      border: Border.all(color: AppColors.grey300, width: 1.5),
-                      borderRadius: BorderRadius.circular(12),
-                      color: AppColors.grey50,
+                      color: const Color(0xFFFFD54F).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(_getResponsivePadding(context, 15)),
                     ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.calendar_today, color: AppColors.primaryBlue, size: 20),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            selectedBirthDate != null
-                                ? "${selectedBirthDate!.day}/${selectedBirthDate!.month}/${selectedBirthDate!.year}"
-                                : 'Select your birth date',
-                            style: TextStyle(
-                              fontSize: screenWidth * 0.038,
-                              color: selectedBirthDate != null 
-                                  ? AppColors.textDark 
-                                  : AppColors.grey500,
-                              fontWeight: FontWeight.w500,
+                    child: Icon(
+                      Icons.cake_rounded,
+                      size: _getResponsiveIconSize(context, 32),
+                      color: AppColors.primaryYellow,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 20)),
+                  
+                  Text(
+                    'When is your birthday?',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 20),
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                      height: 1.3,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 8)),
+                  
+                  Text(
+                    'Help us personalize your learning experience',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 14),
+                      color: AppColors.textGrey,
+                      height: 1.4,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 24)),
+                  
+                  GestureDetector(
+                    onTap: _selectBirthDate,
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(_getResponsivePadding(context, 18)),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.grey300, width: 1.5),
+                        borderRadius: BorderRadius.circular(12),
+                        color: AppColors.grey50,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.calendar_today,
+                            color: AppColors.primaryBlue,
+                            size: _getResponsiveIconSize(context, 20),
+                          ),
+                          SizedBox(width: _getResponsivePadding(context, 12)),
+                          Expanded(
+                            child: Text(
+                              selectedBirthDate != null
+                                  ? "${selectedBirthDate!.day}/${selectedBirthDate!.month}/${selectedBirthDate!.year}"
+                                  : 'Select your birth date',
+                              style: TextStyle(
+                                fontSize: _getResponsiveFontSize(context, 15),
+                                color: selectedBirthDate != null 
+                                    ? AppColors.textDark 
+                                    : AppColors.grey500,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
-                        ),
-                        const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
-                      ],
+                          Icon(
+                            Icons.arrow_drop_down,
+                            color: AppColors.primaryBlue,
+                            size: _getResponsiveIconSize(context, 24),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
+            
+            // Next button below card
+            SizedBox(height: _getResponsivePadding(context, 24)),
+            Container(
+              width: formWidth,
+              height: isLandscape ? 40.0 : 44.0,
+              child: ElevatedButton(
+                onPressed: _nextPage,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryYellow,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 3,
+                  shadowColor: AppColors.shadowYellow,
+                ),
+                child: Text(
+                  'Next',
+                  style: TextStyle(
+                    fontSize: _getResponsiveFontSize(context, 14),
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildGenderForm() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final formWidth = _getFormWidth(context);
+    final isLandscape = _isLandscape(context);
     
-    return Container(
-      height: screenHeight * 0.6,
-      child: Center(
-        child: SingleChildScrollView(
-          child: Container(
-            width: screenWidth * 0.85,
-            padding: const EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadowGrey,
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: const Color(0xFFFFD54F).withOpacity(0.6),
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFD54F).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(15),
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: formWidth,
+              padding: EdgeInsets.all(_getResponsivePadding(context, 28)),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(_getResponsivePadding(context, 20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.shadowGrey,
+                    blurRadius: isLandscape ? 15 : 20,
+                    offset: Offset(0, isLandscape ? 4 : 8),
                   ),
-                  child: const Icon(
-                    Icons.person_outline_rounded,
-                    size: 32,
-                    color: AppColors.primaryYellow,
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                Text(
-                  'What\'s your gender?',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.05,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                    height: 1.3,
-                  ),
-                ),
-                
-                const SizedBox(height: 8),
-                
-                Text(
-                  'This helps us create a better experience for you',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.035,
-                    color: AppColors.textGrey,
-                    height: 1.4,
-                  ),
-                ),
-                
-                const SizedBox(height: 24),
-                
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.grey300, width: 1.5),
-                    borderRadius: BorderRadius.circular(12),
-                    color: AppColors.grey50,
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: selectedGender,
-                      hint: Text(
-                        'Select your gender',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.038,
-                          color: AppColors.grey500,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      isExpanded: true,
-                      icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.038,
-                        color: AppColors.textDark,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      dropdownColor: AppColors.white,
-                      items: ['Male', 'Female', 'Other'].map((String gender) {
-                        return DropdownMenuItem<String>(
-                          value: gender,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(gender),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (String? newValue) {
-                        setState(() {
-                          selectedGender = newValue;
-                        });
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCourseForm() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    
-    return Container(
-      height: screenHeight * 0.6,
-      child: Center(
-        child: SingleChildScrollView(
-          child: Container(
-            width: screenWidth * 0.85,
-            padding: const EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              color: AppColors.white,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadowGrey,
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-                BoxShadow(
-                  color: const Color(0xFFFFD54F).withOpacity(0.6),
-                  blurRadius: 30,
-                  spreadRadius: 2,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFD54F).withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: const Icon(
-                    Icons.school_rounded,
-                    size: 32,
-                    color: AppColors.primaryYellow,
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                Text(
-                  'What course are you pursuing?',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.05,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                    height: 1.3,
-                  ),
-                ),
-                
-                const SizedBox(height: 8),
-                
-                Text(
-                  'Select your main course and level',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.035,
-                    color: AppColors.textGrey,
-                    height: 1.4,
-                  ),
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // Course Dropdown
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.grey300, width: 1.5),
-                    borderRadius: BorderRadius.circular(12),
-                    color: AppColors.grey50,
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: isLoadingData
-                        ? Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Row(
-                              children: [
-                                const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      AppColors.primaryYellow,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'Loading courses...',
-                                  style: TextStyle(
-                                    fontSize: screenWidth * 0.038,
-                                    color: AppColors.textGrey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : DropdownButton<String>(
-                            value: selectedCourse,
-                            hint: Text(
-                              availableCourses.isEmpty && dataLoadError != null
-                                  ? 'Error loading courses'
-                                  : 'Select your course',
-                              style: TextStyle(
-                                fontSize: screenWidth * 0.038,
-                                color: availableCourses.isEmpty && dataLoadError != null
-                                    ? AppColors.errorRed
-                                    : AppColors.grey500,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            isExpanded: true,
-                            icon: availableCourses.isEmpty && dataLoadError != null
-                                ? IconButton(
-                                    icon: const Icon(Icons.refresh, color: AppColors.primaryBlue, size: 20),
-                                    onPressed: _fetchCoursesAndSubcourses,
-                                  )
-                                : const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
-                            style: TextStyle(
-                              fontSize: screenWidth * 0.038,
-                              color: AppColors.textDark,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            dropdownColor: AppColors.white,
-                            menuMaxHeight: 300, 
-                            items: availableCourses.map((CourseModel course) {
-                              return DropdownMenuItem<String>(
-                                value: course.title,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 12), 
-                                  child: Text(
-                                    course.title,
-                                    style: TextStyle(
-                                      fontSize: screenWidth * 0.038,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: availableCourses.isEmpty ? null : (String? newValue) {
-                              setState(() {
-                                selectedCourse = newValue;
-                                selectedSubCourse = null;
-                                selectedSubCourseId = null;
-                              });
-                            },
-                          ),
-                  ),
-                ),
-                
-                if (dataLoadError != null && availableCourses.isEmpty) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.errorRed.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.errorRed.withOpacity(0.3)),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.error_outline, color: AppColors.errorRed, size: 18),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            dataLoadError!,
-                            style: TextStyle(
-                              fontSize: screenWidth * 0.032,
-                              color: AppColors.errorRed,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        TextButton(
-                          onPressed: _fetchCoursesAndSubcourses,
-                          style: TextButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            minimumSize: const Size(0, 0),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          child: Text(
-                            'Retry',
-                            style: TextStyle(
-                              fontSize: screenWidth * 0.032,
-                              color: AppColors.primaryYellow,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                  BoxShadow(
+                    color: const Color(0xFFFFD54F).withOpacity(0.6),
+                    blurRadius: isLandscape ? 20 : 30,
+                    spreadRadius: isLandscape ? 1 : 2,
+                    offset: Offset(0, isLandscape ? 2 : 4),
                   ),
                 ],
-                
-                if (selectedCourse != null) ...[
-                  const SizedBox(height: 16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: _getResponsiveIconSize(context, 60),
+                    height: _getResponsiveIconSize(context, 60),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD54F).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(_getResponsivePadding(context, 15)),
+                    ),
+                    child: Icon(
+                      Icons.person_outline_rounded,
+                      size: _getResponsiveIconSize(context, 32),
+                      color: AppColors.primaryYellow,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 20)),
+                  
+                  Text(
+                    'Select your gender',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 20),
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                      height: 1.3,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 8)),
+                  
+                  Text(
+                    'This helps us create a better experience for you',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 14),
+                      color: AppColors.textGrey,
+                      height: 1.4,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 24)),
+                  
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 4),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: _getResponsivePadding(context, 18),
+                      vertical: _getResponsivePadding(context, 4),
+                    ),
                     decoration: BoxDecoration(
                       border: Border.all(color: AppColors.grey300, width: 1.5),
                       borderRadius: BorderRadius.circular(12),
@@ -861,133 +745,426 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
-                        value: selectedSubCourse,
+                        value: selectedGender,
                         hint: Text(
-                          'Select your level',
+                          'Select your gender',
                           style: TextStyle(
-                            fontSize: screenWidth * 0.038,
+                            fontSize: _getResponsiveFontSize(context, 15),
                             color: AppColors.grey500,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                         isExpanded: true,
-                        icon: const Icon(Icons.arrow_drop_down, color: AppColors.primaryBlue, size: 24),
+                        icon: Icon(
+                          Icons.arrow_drop_down,
+                          color: AppColors.primaryBlue,
+                          size: _getResponsiveIconSize(context, 24),
+                        ),
                         style: TextStyle(
-                          fontSize: screenWidth * 0.038,
+                          fontSize: _getResponsiveFontSize(context, 15),
                           color: AppColors.textDark,
                           fontWeight: FontWeight.w500,
                         ),
                         dropdownColor: AppColors.white,
-                        menuMaxHeight: 300, 
-                        items: availableSubcourses
-                            .where((subcourse) => subcourse.course == selectedCourse)
-                            .map((SubcourseModel subcourse) {
+                        items: ['Male', 'Female', 'Other'].map((String gender) {
                           return DropdownMenuItem<String>(
-                            value: subcourse.title,
+                            value: gender,
                             child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 12), 
-                              child: Text(
-                                subcourse.title,
-                                style: TextStyle(
-                                  fontSize: screenWidth * 0.038,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                              padding: EdgeInsets.symmetric(
+                                vertical: _getResponsivePadding(context, 8),
                               ),
+                              child: Text(gender),
                             ),
-                            onTap: () {
-                              setState(() {
-                                selectedSubCourseId = subcourse.id;
-                              });
-                            },
                           );
                         }).toList(),
                         onChanged: (String? newValue) {
                           setState(() {
-                            selectedSubCourse = newValue;
+                            selectedGender = newValue;
                           });
                         },
                       ),
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionButtons() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.08, vertical: 20),
-      child: Row(
-        children: [
-          if (currentPageIndex < 2) ...[
-            Expanded(
-              child: Container(
-                height: 44, 
-                margin: const EdgeInsets.only(right: 8),
-                child: OutlinedButton(
-                  onPressed: _skipPage,
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: AppColors.primaryYellow, width: 1.5),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12), 
-                    ),
-                    backgroundColor: AppColors.white,
+            
+            // Next button below card
+            SizedBox(height: _getResponsivePadding(context, 24)),
+            Container(
+              width: formWidth,
+              height: isLandscape ? 40.0 : 44.0,
+              child: ElevatedButton(
+                onPressed: _nextPage,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryYellow,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Text(
-                    'Skip',
-                    style: TextStyle(
-                      fontSize: screenWidth * 0.036, 
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primaryYellow,
-                    ),
+                  elevation: 3,
+                  shadowColor: AppColors.shadowYellow,
+                ),
+                child: Text(
+                  'Next',
+                  style: TextStyle(
+                    fontSize: _getResponsiveFontSize(context, 14),
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.white,
                   ),
                 ),
               ),
             ),
           ],
-          
-          Expanded(
-            flex: currentPageIndex < 2 ? 1 : 2,
-            child: Container(
-              margin: EdgeInsets.only(left: currentPageIndex < 2 ? 8 : 0),
-              child: currentPageIndex == 2
-                  ? ContinueButton(
-                      isEnabled: selectedCourse != null && selectedSubCourse != null,
-                      isLoading: isSubmitting,
-                      onPressed: _completeProfile,
-                      screenWidth: screenWidth,
-                    )
-                  : Container(
-                      height: 44, 
-                      child: ElevatedButton(
-                        onPressed: _nextPage,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryYellow,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12), 
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCourseForm() {
+    final formWidth = _getFormWidth(context);
+    final isLandscape = _isLandscape(context);
+    final buttonWidth = _getContinueButtonWidth(context);
+    
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: formWidth,
+              padding: EdgeInsets.all(_getResponsivePadding(context, 28)),
+              decoration: BoxDecoration(
+                color: AppColors.white,
+                borderRadius: BorderRadius.circular(_getResponsivePadding(context, 20)),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.shadowGrey,
+                    blurRadius: isLandscape ? 15 : 20,
+                    offset: Offset(0, isLandscape ? 4 : 8),
+                  ),
+                  BoxShadow(
+                    color: const Color(0xFFFFD54F).withOpacity(0.6),
+                    blurRadius: isLandscape ? 20 : 30,
+                    spreadRadius: isLandscape ? 1 : 2,
+                    offset: Offset(0, isLandscape ? 2 : 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: _getResponsiveIconSize(context, 60),
+                    height: _getResponsiveIconSize(context, 60),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFD54F).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(_getResponsivePadding(context, 15)),
+                    ),
+                    child: Icon(
+                      Icons.school_rounded,
+                      size: _getResponsiveIconSize(context, 32),
+                      color: AppColors.primaryYellow,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 20)),
+                  
+                  Text(
+                    'What course are you pursuing?',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 20),
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textDark,
+                      height: 1.3,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 8)),
+                  
+                  Text(
+                    'Select your main course and level',
+                    style: TextStyle(
+                      fontSize: _getResponsiveFontSize(context, 14),
+                      color: AppColors.textGrey,
+                      height: 1.4,
+                    ),
+                  ),
+                  
+                  SizedBox(height: _getResponsivePadding(context, 24)),
+                  
+                  // Course Dropdown - Scrollable
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: _getResponsivePadding(context, 18),
+                      vertical: _getResponsivePadding(context, 4),
+                    ),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.grey300, width: 1.5),
+                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.grey50,
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: isLoadingData
+                          ? Padding(
+                              padding: EdgeInsets.all(_getResponsivePadding(context, 16)),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    width: _getResponsiveIconSize(context, 16),
+                                    height: _getResponsiveIconSize(context, 16),
+                                    child: const CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        AppColors.primaryYellow,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: _getResponsivePadding(context, 12)),
+                                  Text(
+                                    'Loading courses...',
+                                    style: TextStyle(
+                                      fontSize: _getResponsiveFontSize(context, 15),
+                                      color: AppColors.textGrey,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : DropdownButton<String>(
+                              value: selectedCourse,
+                              hint: Text(
+                                availableCourses.isEmpty && dataLoadError != null
+                                    ? 'Error loading courses'
+                                    : 'Select your course',
+                                style: TextStyle(
+                                  fontSize: _getResponsiveFontSize(context, 15),
+                                  color: availableCourses.isEmpty && dataLoadError != null
+                                      ? AppColors.errorRed
+                                      : AppColors.grey500,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              isExpanded: true,
+                              icon: availableCourses.isEmpty && dataLoadError != null
+                                  ? IconButton(
+                                      icon: Icon(
+                                        Icons.refresh,
+                                        color: AppColors.primaryBlue,
+                                        size: _getResponsiveIconSize(context, 20),
+                                      ),
+                                      onPressed: _fetchCoursesAndSubcourses,
+                                    )
+                                  : Icon(
+                                      Icons.arrow_drop_down,
+                                      color: AppColors.primaryBlue,
+                                      size: _getResponsiveIconSize(context, 24),
+                                    ),
+                              style: TextStyle(
+                                fontSize: _getResponsiveFontSize(context, 15),
+                                color: AppColors.textDark,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              dropdownColor: AppColors.white,
+                              menuMaxHeight: isLandscape ? 200 : 300,
+                              items: availableCourses.map((CourseModel course) {
+                                return DropdownMenuItem<String>(
+                                  value: course.title,
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      vertical: _getResponsivePadding(context, 12),
+                                    ),
+                                    child: Text(
+                                      course.title,
+                                      style: TextStyle(
+                                        fontSize: _getResponsiveFontSize(context, 15),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                              onChanged: availableCourses.isEmpty ? null : (String? newValue) {
+                                setState(() {
+                                  selectedCourse = newValue;
+                                  selectedSubCourse = null;
+                                  selectedSubCourseId = null;
+                                });
+                              },
+                            ),
+                    ),
+                  ),
+                  
+                  if (dataLoadError != null && availableCourses.isEmpty) ...[
+                    SizedBox(height: _getResponsivePadding(context, 16)),
+                    Container(
+                      padding: EdgeInsets.all(_getResponsivePadding(context, 12)),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorRed.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.errorRed.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            color: AppColors.errorRed,
+                            size: _getResponsiveIconSize(context, 18),
                           ),
-                          elevation: 3,
-                          shadowColor: AppColors.shadowYellow,
-                        ),
-                        child: Text(
-                          'Next',
+                          SizedBox(width: _getResponsivePadding(context, 10)),
+                          Expanded(
+                            child: Text(
+                              dataLoadError!,
+                              style: TextStyle(
+                                fontSize: _getResponsiveFontSize(context, 12),
+                                color: AppColors.errorRed,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: _getResponsivePadding(context, 10)),
+                          TextButton(
+                            onPressed: _fetchCoursesAndSubcourses,
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: _getResponsivePadding(context, 10),
+                                vertical: _getResponsivePadding(context, 6),
+                              ),
+                              minimumSize: const Size(0, 0),
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: Text(
+                              'Retry',
+                              style: TextStyle(
+                                fontSize: _getResponsiveFontSize(context, 12),
+                                color: AppColors.primaryYellow,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  
+                  if (selectedCourse != null) ...[
+                    SizedBox(height: _getResponsivePadding(context, 16)),
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: _getResponsivePadding(context, 18),
+                        vertical: _getResponsivePadding(context, 4),
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppColors.grey300, width: 1.5),
+                        borderRadius: BorderRadius.circular(12),
+                        color: AppColors.grey50,
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: selectedSubCourse,
+                          hint: Text(
+                            'Select your level',
+                            style: TextStyle(
+                              fontSize: _getResponsiveFontSize(context, 15),
+                              color: AppColors.grey500,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          isExpanded: true,
+                          icon: Icon(
+                            Icons.arrow_drop_down,
+                            color: AppColors.primaryBlue,
+                            size: _getResponsiveIconSize(context, 24),
+                          ),
                           style: TextStyle(
-                            fontSize: screenWidth * 0.036, 
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.white,
+                            fontSize: _getResponsiveFontSize(context, 15),
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w500,
                           ),
+                          dropdownColor: AppColors.white,
+                          menuMaxHeight: isLandscape ? 200 : 300,
+                          items: availableSubcourses
+                              .where((subcourse) => subcourse.course == selectedCourse)
+                              .map((SubcourseModel subcourse) {
+                            return DropdownMenuItem<String>(
+                              value: subcourse.title,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  vertical: _getResponsivePadding(context, 12),
+                                ),
+                                child: Text(
+                                  subcourse.title,
+                                  style: TextStyle(
+                                    fontSize: _getResponsiveFontSize(context, 15),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                              onTap: () {
+                                setState(() {
+                                  selectedSubCourseId = subcourse.id;
+                                });
+                              },
+                            );
+                          }).toList(),
+                          onChanged: (String? newValue) {
+                            setState(() {
+                              selectedSubCourse = newValue;
+                            });
+                          },
                         ),
                       ),
                     ),
+                  ],
+                ],
+              ),
             ),
-          ),
-        ],
+            
+            // Continue button below card
+            SizedBox(height: _getResponsivePadding(context, 24)),
+            Container(
+              width: buttonWidth,
+              child: Opacity(
+                opacity: _isAllFieldsFilled ? 1.0 : 0.5,
+                child: Container(
+                  height: isLandscape ? 40.0 : 44.0,
+                  child: ElevatedButton(
+                    onPressed: _isAllFieldsFilled && !isSubmitting ? _completeProfile : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryYellow,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: _isAllFieldsFilled ? 3 : 0,
+                      shadowColor: AppColors.shadowYellow,
+                      disabledBackgroundColor: AppColors.primaryYellow,
+                    ),
+                    child: isSubmitting
+                        ? SizedBox(
+                            width: _getResponsiveIconSize(context, 20),
+                            height: _getResponsiveIconSize(context, 20),
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
+                            ),
+                          )
+                        : Text(
+                            'Continue',
+                            style: TextStyle(
+                              fontSize: _getResponsiveFontSize(context, 14),
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -995,6 +1172,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final isLandscape = _isLandscape(context);
     
     return Scaffold(
       backgroundColor: AppColors.backgroundGrey,
@@ -1003,66 +1181,100 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
         backgroundColor: AppColors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textDark, size: 20),
+          icon: Icon(
+            Icons.arrow_back_ios,
+            color: AppColors.textDark,
+            size: _getResponsiveIconSize(context, 20),
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         centerTitle: true,
-        title: const Text(
+        title: Text(
           'Complete Your Profile',
           style: TextStyle(
             color: AppColors.textDark,
             fontWeight: FontWeight.w600,
-            fontSize: 16,
+            fontSize: _getResponsiveFontSize(context, 16),
           ),
         ),
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            const Expanded(
-              flex: 1,
-              child: SizedBox(),
-            ),
-            
-            Container(
-              height: screenHeight * 0.7, 
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: PageView(
-                      controller: _pageController,
-                      onPageChanged: (index) {
-                        setState(() {
-                          currentPageIndex = index;
-                        });
-                      },
-                      children: [
-                        _buildBirthDateForm(),
-                        _buildGenderForm(),
-                        _buildCourseForm(),
-                      ],
-                    ),
-                  ),
-                  
-                  // Dot indicators 
-                  _buildDotIndicator(),
-                ],
-              ),
-            ),
-            
-            // Action buttons at the bottom
-            _buildActionButtons(),
-            
-            // Bottom spacer
-            const Expanded(
-              flex: 1,
-              child: SizedBox(),
-            ),
-          ],
-        ),
+        child: isLandscape
+            ? _buildLandscapeLayout(screenHeight)
+            : _buildPortraitLayout(screenHeight),
       ),
+    );
+  }
+
+  Widget _buildPortraitLayout(double screenHeight) {
+    return Column(
+      children: [
+        const Expanded(
+          flex: 1,
+          child: SizedBox(),
+        ),
+        
+        Expanded(
+          flex: 8,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (index) {
+                    setState(() {
+                      currentPageIndex = index;
+                    });
+                  },
+                  children: [
+                    _buildBirthDateForm(),
+                    _buildGenderForm(),
+                    _buildCourseForm(),
+                  ],
+                ),
+              ),
+              
+              _buildDotIndicator(),
+            ],
+          ),
+        ),
+        
+        const Expanded(
+          flex: 1,
+          child: SizedBox(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLandscapeLayout(double screenHeight) {
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  onPageChanged: (index) {
+                    setState(() {
+                      currentPageIndex = index;
+                    });
+                  },
+                  children: [
+                    _buildBirthDateForm(),
+                    _buildGenderForm(),
+                    _buildCourseForm(),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        _buildDotIndicator(),
+      ],
     );
   }
 }

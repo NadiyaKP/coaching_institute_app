@@ -422,34 +422,36 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
   }
 
   Widget _buildOverallScoreCard(dynamic score, String remarks) {
-    double scoreValue = 0.0;
-    if (score is int) {
-      scoreValue = score.toDouble();
-    } else if (score is double) {
-      scoreValue = score;
-    } else {
-      scoreValue = double.tryParse(score.toString()) ?? 0.0;
-    }
+  double scoreValue = 0.0;
+  if (score is int) {
+    scoreValue = score.toDouble();
+  } else if (score is double) {
+    scoreValue = score;
+  } else {
+    scoreValue = double.tryParse(score.toString()) ?? 0.0;
+  }
 
-    Color scoreColor;
-    String performanceLabel;
-    IconData performanceIcon;
-    
-    if (scoreValue >= 75) {
-      scoreColor = const Color(0xFF10B981);
-      performanceLabel = 'Excellent';
-      performanceIcon = Icons.workspace_premium_rounded;
-    } else if (scoreValue >= 50) {
-      scoreColor = AppColors.primaryYellow;
-      performanceLabel = 'Good';
-      performanceIcon = Icons.trending_up_rounded;
-    } else {
-      scoreColor = const Color(0xFFEF4444);
-      performanceLabel = 'Needs Improvement';
-      performanceIcon = Icons.trending_down_rounded;
-    }
+  Color scoreColor;
+  String performanceLabel;
+  IconData performanceIcon;
 
-    return Container(
+  if (scoreValue >= 75) {
+    scoreColor = const Color(0xFF10B981);
+    performanceLabel = 'Excellent';
+    performanceIcon = Icons.workspace_premium_rounded;
+  } else if (scoreValue >= 50) {
+    scoreColor = AppColors.primaryYellow;
+    performanceLabel = 'Good';
+    performanceIcon = Icons.trending_up_rounded;
+  } else {
+    scoreColor = const Color(0xFFEF4444);
+    performanceLabel = 'Needs Improvement';
+    performanceIcon = Icons.trending_down_rounded;
+  }
+
+  return SizedBox(
+    width: 360, // ⬅️ Increase this value (example: 360 or MediaQuery width * 0.9)
+    child: Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -482,7 +484,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
                   size: 14,
                   color: AppColors.primaryBlue,
                 ),
-                 SizedBox(width: 6),
+                SizedBox(width: 6),
                 Text(
                   'Last Week Summary',
                   style: TextStyle(
@@ -496,7 +498,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
             ),
           ),
           const SizedBox(height: 18),
-          
+
           AnimatedBuilder(
             animation: _scoreAnimation,
             builder: (context, child) {
@@ -538,7 +540,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
             },
           ),
           const SizedBox(height: 18),
-          
+
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
@@ -569,8 +571,10 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   Widget _buildWeeklyAnalysisCard() {
     final categories = ['Attend', 'Videos', 'Notes', 'Tests', 'Papers', 'Refs'];

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:chewie/chewie.dart';
+import 'package:video_player/video_player.dart';
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -15,21 +17,18 @@ import '../../../../service/api_config.dart';
 import '../../../../service/auth_service.dart';
 import '../../../../common/theme_color.dart';
 
-class VideoClassesScreen extends StatefulWidget {
-  const VideoClassesScreen({super.key});
+class ReferenceClassesScreen extends StatefulWidget {
+  const ReferenceClassesScreen({super.key});
 
   @override
-  State<VideoClassesScreen> createState() => _VideoClassesScreenState();
+  State<ReferenceClassesScreen> createState() => _ReferenceClassesScreenState();
 }
 
-class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBindingObserver {
+class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _accessToken;
   String? _subcourseId;
-  String _studentType = ''; // Added student type
-
-  // Navigation state
-  String _currentPage = 'videos'; // videos only now
+  String _studentType = '';
 
   // Data lists
   List<dynamic> _videos = [];
@@ -78,7 +77,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         try {
           _videoRecordsBox = Hive.box<VideoWatchingRecord>('video_records_box');
           _hiveInitialized = true;
-          debugPrint('✅ Using existing Hive box for video records');
         } catch (e) {
           debugPrint('❌ Failed to use existing Hive box: $e');
         }
@@ -92,17 +90,15 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     
-    // Only send data for online students
     if (_studentType.toLowerCase() == 'online') {
       if (state == AppLifecycleState.paused || 
           state == AppLifecycleState.inactive ||
           state == AppLifecycleState.hidden) {
-        _sendStoredVideoDataToAPI(); // Fire and forget
+        _sendStoredVideoDataToAPI();
       }
     }
   }
 
-  // Load student type from SharedPreferences
   Future<void> _loadStudentType() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -117,7 +113,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
 
   Future<void> _initializeData() async {
     await _getAccessToken();
-    await _loadStudentType(); // Load student type
+    await _loadStudentType();
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _loadDataFromSharedPreferences();
     } else {
@@ -142,7 +138,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         _subcourseId = prefs.getString('profile_subcourse_id') ?? '';
       });
 
-      // Directly fetch videos since we removed the course page
       if (_subcourseId != null && _subcourseId!.isNotEmpty) {
         await _fetchVideos();
       } else {
@@ -219,6 +214,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
             _filteredVideos = List.from(_videos);
             _isLoading = false;
           });
+          debugPrint('✅ Fetched ${_videos.length} videos');
         } else {
           _showError(data['message'] ?? 'Failed to fetch videos');
         }
@@ -301,7 +297,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   }
 
   Future<void> _sendStoredVideoDataToAPI() async {
-    // Only send data for online students
     if (_studentType.toLowerCase() != 'online') {
       debugPrint('Student type is $_studentType - skipping video data collection');
       return;
@@ -343,19 +338,12 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         'referencelinks': allVideoData,
       };
 
-      debugPrint('REQUEST:');
-      debugPrint('Endpoint: /api/performance/add_readed_referencelink/');
-      debugPrint('Method: POST');
-      debugPrint('Authorization: Bearer $_accessToken');
-      debugPrint('Request Body:');
-      debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
+      debugPrint('Request Body: ${const JsonEncoder.withIndent('  ').convert(requestBody)}');
 
       final client = ApiConfig.createHttpClient();
       final httpClient = IOClient(client);
 
       final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_referencelink/';
-
-      debugPrint('Full URL: $apiUrl');
 
       // Fire and forget - don't await the response
       httpClient.post(
@@ -367,22 +355,17 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         },
         body: jsonEncode(requestBody),
       ).timeout(const Duration(seconds: 30)).then((response) {
-        debugPrint('\nRESPONSE RECEIVED (async):');
         debugPrint('Status Code: ${response.statusCode}');
         
         if (response.statusCode == 200 || response.statusCode == 201) {
           debugPrint('✓ All video watching data sent successfully to API');
-          _clearStoredVideoData(); // Clear data only on success
+          _clearStoredVideoData();
         } else {
           debugPrint('✗ Failed to send video watching data. Status: ${response.statusCode}');
-          // Don't clear data on failure, it will be retried later
         }
       }).catchError((error) {
         debugPrint('✗ Error sending stored video records to API: $error');
-        // Don't clear data on error, it will be retried later
       });
-
-      debugPrint('=== API CALL INITIATED (fire and forget) ===\n');
 
     } catch (e) {
       debugPrint('✗ Error preparing API call: $e');
@@ -399,47 +382,50 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   }
 
   Future<bool> _handleDeviceBackButton() async {
-    // Only check for stored data for online students
     if (_studentType.toLowerCase() == 'online') {
       final hasData = await _hasStoredVideoData();
       if (hasData) {
-        // Fire and forget - don't wait for response
         _sendStoredVideoDataToAPI();
       }
     }
-    // Always return true to allow immediate navigation
     return true;
   }
 
   void _handleBackNavigation() async {
-    // Only check for stored data for online students
     if (_studentType.toLowerCase() == 'online') {
       final hasData = await _hasStoredVideoData();
       if (hasData) {
-        // Fire and forget - don't wait for response
         _sendStoredVideoDataToAPI();
       }
     }
-    // Navigate back immediately
     if (mounted) {
       Navigator.pop(context);
     }
   }
 
   String _getAppBarTitle() {
-    return _isSearching ? 'Search Videos' : 'Video Classes';
+    return _isSearching ? 'Search Videos' : 'Reference Classes';
   }
 
   String? _extractYouTubeId(String url) {
     try {
-      final regex = RegExp(
-        r'^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*',
-        caseSensitive: false,
-      );
-      final match = regex.firstMatch(url);
-      return (match != null && match.groupCount >= 7) ? match.group(7) : null;
+      // Handle youtu.be short URLs
+      if (url.contains('youtu.be/')) {
+        final regex = RegExp(r'youtu\.be\/([a-zA-Z0-9_-]{11})');
+        final match = regex.firstMatch(url);
+        return match?.group(1);
+      }
+      
+      // Handle youtube.com URLs
+      if (url.contains('youtube.com') || url.contains('youtu.be')) {
+        final regex = RegExp(r'(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})');
+        final match = regex.firstMatch(url);
+        return match?.group(1);
+      }
+      
+      return null;
     } catch (e) {
-      debugPrint('Error extracting YouTube ID: $e');
+      debugPrint('Error extracting YouTube ID from $url: $e');
       return null;
     }
   }
@@ -451,9 +437,11 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   void _openVideo(String url, String title, String encryptedReferencelinkId) {
     final videoId = _extractYouTubeId(url);
     if (videoId != null && videoId.isNotEmpty) {
+      debugPrint('🎬 Opening YouTube video: $videoId - $title');
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => VideoPlayerPage(
+            youtubeUrl: url,
             videoId: videoId, 
             title: title,
             encryptedReferencelinkId: encryptedReferencelinkId,
@@ -462,24 +450,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         ),
       );
     } else {
-      _launchExternalUrl(url);
-    }
-  }
-
-  Future<void> _launchExternalUrl(String url) async {
-    final uri = Uri.tryParse(url);
-    if (uri == null) {
-      _showError('Invalid URL');
-      return;
-    }
-    if (!await canLaunchUrl(uri)) {
-      _showError('Cannot open link');
-      return;
-    }
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      _showError('Failed to open link: $e');
+      _showError('Could not extract YouTube video ID from URL');
     }
   }
 
@@ -525,11 +496,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     return PopScope(
       canPop: false,
       onPopInvoked: (bool didPop) async {
-        if (didPop) {
-          return;
-        }
-        
-        // This will handle the back navigation immediately
+        if (didPop) return;
         final shouldPop = await _handleDeviceBackButton();
         if (shouldPop && mounted) {
           Navigator.of(context).pop();
@@ -644,7 +611,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                               CircularProgressIndicator(
                                 valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                               ),
-                               SizedBox(height: 16),
+                              SizedBox(height: 16),
                               Text(
                                 'Loading...',
                                 style: TextStyle(
@@ -763,7 +730,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section
             if (!_isSearching) ...[
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -780,7 +746,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                       ),
                       const SizedBox(width: 12),
                       const Text(
-                        'Video Classes',
+                        'Reference Classes',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
@@ -847,6 +813,8 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
     final youtubeId = _extractYouTubeId(url);
     final thumbnailUrl = youtubeId != null ? _getYouTubeThumbnail(youtubeId) : null;
 
+    debugPrint('Building video card: $title - YouTube ID: $youtubeId - Thumbnail: $thumbnailUrl');
+
     return GestureDetector(
       onTap: () => _openVideo(url, title, encryptedReferencelinkId),
       child: Container(
@@ -879,42 +847,38 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                             Image.network(
                               thumbnailUrl,
                               fit: BoxFit.cover,
-                              loadingBuilder: (context, child, progress) {
-                                if (progress == null) return child;
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
                                 return Container(
                                   color: Colors.grey[300],
-                                  child: const Center(
+                                  child: Center(
                                     child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                                      value: loadingProgress.expectedTotalBytes != null
+                                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                          : null,
+                                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                                     ),
                                   ),
                                 );
                               },
                               errorBuilder: (context, error, stackTrace) {
+                                debugPrint('Error loading thumbnail: $error');
                                 return Container(
                                   color: Colors.grey[300],
                                   child: const Center(
-                                    child: Icon(Icons.broken_image, size: 24),
+                                    child: Icon(Icons.broken_image, size: 24, color: Colors.grey),
                                   ),
                                 );
                               },
                             ),
                             Container(
-                              color: Colors.black.withOpacity(0.25),
+                              color: Colors.black.withOpacity(0.3),
                             ),
-                            Center(
-                              child: Container(
-                                height: 32,
-                                width: 32, 
-                                decoration: BoxDecoration(
-                                  color: const Color.fromARGB(255, 255, 106, 0).withOpacity(0.2),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.play_arrow,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
+                            const Center(
+                              child: Icon(
+                                Icons.play_circle_fill,
+                                color: Colors.white,
+                                size: 32,
                               ),
                             ),
                           ],
@@ -928,6 +892,14 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                                 Icons.videocam_off,
                                 size: 24,
                                 color: Colors.grey,
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'No Thumbnail',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ],
                           ),
@@ -957,7 +929,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
 
                     const SizedBox(height: 6),
 
-                    // Added date and play indicator
+                    // Added date
                     Row(
                       children: [
                         if (addedAt.isNotEmpty)
@@ -969,10 +941,6 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                        if (addedAt.isNotEmpty) const SizedBox(width: 8),
-                       
-                        const SizedBox(width: 4),
-                       
                       ],
                     ),
                   ],
@@ -981,7 +949,7 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
 
               const SizedBox(width: 12),
 
-              // Play button with light blue color
+              // Play button
               Container(
                 height: 40,
                 width: 40,
@@ -1003,8 +971,9 @@ class _VideoClassesScreenState extends State<VideoClassesScreen> with WidgetsBin
   }
 }
 
-/// Full-screen video player page using youtube_player_iframe
+/// Full-screen video player page
 class VideoPlayerPage extends StatefulWidget {
+  final String youtubeUrl;
   final String videoId;
   final String title;
   final String encryptedReferencelinkId;
@@ -1012,6 +981,7 @@ class VideoPlayerPage extends StatefulWidget {
 
   const VideoPlayerPage({
     Key? key,
+    required this.youtubeUrl,
     required this.videoId,
     required this.title,
     required this.encryptedReferencelinkId,
@@ -1023,8 +993,10 @@ class VideoPlayerPage extends StatefulWidget {
 }
 
 class _VideoPlayerPageState extends State<VideoPlayerPage> {
-  late YoutubePlayerController _controller;
+  VideoPlayerController? _videoPlayerController;
+  ChewieController? _chewieController;
   bool _isLoading = true;
+  bool _hasError = false;
   late Box<VideoWatchingRecord> _videoRecordsBox;
   bool _hiveInitialized = false;
   
@@ -1038,9 +1010,8 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
   void initState() {
     super.initState();
     _initializeHive();
-    _initializeController();
+    _initializeVideo();
     
-    // Set preferred orientations to allow both portrait and landscape
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
@@ -1061,71 +1032,87 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         debugPrint('✅ Hive initialized for video player');
       } catch (e) {
         debugPrint('❌ Error initializing Hive in video player: $e');
-        try {
-          _videoRecordsBox = Hive.box<VideoWatchingRecord>('video_records_box');
-          _hiveInitialized = true;
-        } catch (e) {
-          debugPrint('❌ Failed to use existing Hive box in video player: $e');
-        }
       }
     }
   }
 
-  void _initializeController() {
-    _controller = YoutubePlayerController(
-      params: const YoutubePlayerParams(
-        showControls: true,
-        showFullscreenButton: true,
-        mute: false,
-        enableCaption: true,
-        loop: false,
-        showVideoAnnotations: false,
-        strictRelatedVideos: true,
-      ),
-    );
+  Future<void> _initializeVideo() async {
+    try {
+      debugPrint('🔄 Initializing YouTube video: ${widget.videoId}');
+      
+      final yt = YoutubeExplode();
+      
+      // Get video stream manifest
+      final streamManifest = await yt.videos.streamsClient.getManifest(widget.videoId);
+      
+      // Get the best muxed stream (video + audio)
+      final streamInfo = streamManifest.muxed.withHighestBitrate();
+      
+      if (streamInfo == null) {
+        throw Exception('No suitable video stream found');
+      }
+      
+      final streamUrl = streamInfo.url.toString();
+      debugPrint('🎬 Video stream URL obtained: ${streamUrl.substring(0, 100)}...');
 
-    // Load the video after controller is created
-    _controller.loadVideoById(videoId: widget.videoId);
+      // Initialize video player
+      _videoPlayerController = VideoPlayerController.network(streamUrl);
+      
+      await _videoPlayerController!.initialize();
 
-    // Listen for player state changes
-    _controller.listen((event) {
-      // Handle loading state
-      if (event.playerState == PlayerState.playing || 
-          event.playerState == PlayerState.paused ||
-          event.playerState == PlayerState.cued) {
-        if (_isLoading) {
-          setState(() {
-            _isLoading = false;
-          });
+      // Set up listener for video state changes
+      _videoPlayerController!.addListener(() {
+        if (widget.enableWatchingData) {
+          _handleVideoStateChange(_videoPlayerController!.value);
         }
-      }
+      });
 
-      // Handle video state changes for timer tracking (only if enabled)
-      if (widget.enableWatchingData) {
-        _handleVideoStateChange(event.playerState);
+      // Initialize Chewie controller
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: true,
+        looping: false,
+        allowFullScreen: true,
+        allowMuting: true,
+        allowPlaybackSpeedChanging: true,
+        showControls: true,
+        materialProgressColors: ChewieProgressColors(
+          playedColor: AppColors.primaryYellow,
+          handleColor: AppColors.primaryYellow,
+          backgroundColor: Colors.grey.shade700,
+          bufferedColor: Colors.grey.shade500,
+        ),
+        autoInitialize: true,
+      );
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      debugPrint('✅ Video player initialized successfully');
+
+    } catch (e) {
+      debugPrint('❌ Error loading video: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _hasError = true;
+        });
+        _showError('Failed to load video: $e');
       }
-    });
+    }
   }
 
-  void _handleVideoStateChange(PlayerState state) {
-    switch (state) {
-      case PlayerState.playing:
-        if (!_isPlaying) {
-          _startWatchingTimer();
-        }
-        break;
-      case PlayerState.paused:
-        if (_isPlaying) {
-          _pauseWatchingTimer();
-        }
-        break;
-      case PlayerState.ended:
-      case PlayerState.unStarted:
-      case PlayerState.buffering:
-        _stopWatchingTimer();
-        break;
-      default:
-        break;
+  void _handleVideoStateChange(VideoPlayerValue value) {
+    if (value.isPlaying && !_isPlaying) {
+      _startWatchingTimer();
+    } else if (!value.isPlaying && _isPlaying) {
+      _pauseWatchingTimer();
+    }
+    
+    // Check if video ended
+    if (value.position >= value.duration && value.duration > Duration.zero) {
+      _stopWatchingTimer();
     }
   }
 
@@ -1139,14 +1126,13 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       });
     });
     
-    debugPrint('▶️ Video playing - timer started');
-    debugPrint('📹 encrypted_referencelink_id: ${widget.encryptedReferencelinkId}');
+    debugPrint('▶ Video playing - timer started');
   }
 
   void _pauseWatchingTimer() {
     _isPlaying = false;
     _watchTimer?.cancel();
-    debugPrint('⏸️ Video paused - timer stopped at $_totalWatchedSeconds seconds');
+    debugPrint('⏸ Video paused - timer stopped at $_totalWatchedSeconds seconds');
   }
 
   void _stopWatchingTimer() {
@@ -1155,7 +1141,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     if (widget.enableWatchingData) {
       _saveWatchingRecord();
     }
-    debugPrint('⏹️ Video stopped - total watched: $_totalWatchedSeconds seconds');
+    debugPrint('⏹ Video stopped - total watched: $_totalWatchedSeconds seconds');
   }
 
   Future<void> _saveWatchingRecord() async {
@@ -1164,7 +1150,6 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         final now = DateTime.now();
         final currentDate = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
         
-        // Check if a record with same encrypted_referencelink_id and watched_date exists
         VideoWatchingRecord? existingRecord;
         dynamic existingKey;
         
@@ -1180,24 +1165,16 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         }
         
         if (existingRecord != null && existingKey != null) {
-          // Update existing record by adding watched time
           final updatedRecord = VideoWatchingRecord(
             encryptedReferencelinkId: widget.encryptedReferencelinkId,
             watchedTime: existingRecord.watchedTime + _totalWatchedSeconds,
             watchedDate: currentDate,
-            createdAt: existingRecord.createdAt, // Keep original creation time
+            createdAt: existingRecord.createdAt,
           );
           
           await _videoRecordsBox.put(existingKey, updatedRecord);
-          
-          debugPrint('✅ Video watching record UPDATED in Hive:');
-          debugPrint('   - encrypted_referencelink_id: ${widget.encryptedReferencelinkId}');
-          debugPrint('   - previous watched_time: ${existingRecord.watchedTime} seconds');
-          debugPrint('   - added watched_time: $_totalWatchedSeconds seconds');
-          debugPrint('   - total watched_time: ${updatedRecord.watchedTime} seconds');
-          debugPrint('   - watched_date: $currentDate');
+          debugPrint('✅ Video watching record UPDATED in Hive');
         } else {
-          // Create new record
           final record = VideoWatchingRecord(
             encryptedReferencelinkId: widget.encryptedReferencelinkId,
             watchedTime: _totalWatchedSeconds,
@@ -1206,11 +1183,7 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
           );
 
           await _videoRecordsBox.add(record);
-          
-          debugPrint('✅ Video watching record CREATED in Hive:');
-          debugPrint('   - encrypted_referencelink_id: ${widget.encryptedReferencelinkId}');
-          debugPrint('   - watched_time: $_totalWatchedSeconds seconds');
-          debugPrint('   - watched_date: $currentDate');
+          debugPrint('✅ Video watching record CREATED in Hive');
         }
       } catch (e) {
         debugPrint('❌ Error saving video watching record: $e');
@@ -1218,15 +1191,27 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
+  void _showError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: _initializeVideo,
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
-    // Stop timer and save record when leaving the player
     _stopWatchingTimer();
-    
-    // Restore portrait orientation and system UI
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    _controller.close();
+    _videoPlayerController?.dispose();
+    _chewieController?.dispose();
     super.dispose();
   }
 
@@ -1243,25 +1228,73 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
         ),
         backgroundColor: AppColors.primaryYellow,
         iconTheme: const IconThemeData(color: Colors.white),
-        // Removed the open in browser action button
+        actions: [
+          if (_hasError)
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: _initializeVideo,
+              tooltip: 'Retry',
+            ),
+        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // YouTube Player
+            // Video Player Section
             Expanded(
               child: Container(
                 color: Colors.black,
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    YoutubePlayer(
-                      controller: _controller,
-                      aspectRatio: 16 / 9,
-                    ),
-                    if (_isLoading)
-                      const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
+                    if (_chewieController != null && 
+                        _videoPlayerController != null && 
+                        _videoPlayerController!.value.isInitialized)
+                      Chewie(controller: _chewieController!)
+                    else if (_isLoading)
+                      const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'Loading video...',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (_hasError)
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              color: Colors.white,
+                              size: 50,
+                            ),
+                            const SizedBox(height: 16),
+                            const Text(
+                              'Failed to load video',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _initializeVideo,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.primaryYellow,
+                              ),
+                              child: const Text(
+                                'Retry',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                   ],
                 ),
@@ -1276,12 +1309,26 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
                 color: Colors.white,
                 borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
               ),
-              child: Text(
-                widget.title,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.title,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  if (widget.enableWatchingData)
+                    Text(
+                      'Watched: $_totalWatchedSeconds seconds',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                ],
               ),
             ),
           ],
@@ -1296,15 +1343,12 @@ class CurvedHeaderClipper extends CustomClipper<Path> {
   Path getClip(Size size) {
     Path path = Path();
     path.lineTo(0, size.height - 30);
-    
-    // Create a quadratic bezier curve for smooth bottom
     path.quadraticBezierTo(
       size.width / 2,
       size.height,
       size.width,
       size.height - 30,
     );
-    
     path.lineTo(size.width, 0);
     path.close();
     return path;

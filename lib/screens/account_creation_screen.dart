@@ -9,19 +9,12 @@ import '../common/theme_color.dart';
 // ============= PROVIDER CLASS =============
 class AccountCreationProvider extends ChangeNotifier {
   bool _isLoading = false;
-  bool _agreedToTerms = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
 
   bool get isLoading => _isLoading;
-  bool get agreedToTerms => _agreedToTerms;
   bool get obscurePassword => _obscurePassword;
   bool get obscureConfirmPassword => _obscureConfirmPassword;
-
-  void toggleTermsAgreement() {
-    _agreedToTerms = !_agreedToTerms;
-    notifyListeners();
-  }
 
   void togglePasswordVisibility() {
     _obscurePassword = !_obscurePassword;
@@ -40,10 +33,6 @@ class AccountCreationProvider extends ChangeNotifier {
     required String password,
     required String countryCode,
   }) async {
-    if (!_agreedToTerms) {
-      return {'error': 'Please agree to the Terms and Conditions'};
-    }
-
     _isLoading = true;
     notifyListeners();
 
@@ -188,19 +177,6 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
     debugPrint('=== REGISTRATION STARTED ===');
     final provider = Provider.of<AccountCreationProvider>(context, listen: false);
 
-    if (!provider.agreedToTerms) {
-      debugPrint('Terms not agreed');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please agree to the Terms and Conditions'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-      return;
-    }
-
     debugPrint('Form validation check');
     if (formKey.currentState?.validate() ?? false) {
       debugPrint('Form validated, calling API');
@@ -217,7 +193,6 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
       if (result != null && result['success'] == true) {
         debugPrint('Registration successful, showing snackbar');
         if (mounted) {
-          // Show success message
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(result['message'] ?? 'OTP sent successfully'),
@@ -227,7 +202,6 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
           );
 
           debugPrint('Navigating to OTP verification');
-          // Navigate immediately
           Navigator.pushNamed(
             context,
             '/otp_verification',
@@ -262,311 +236,272 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+    final orientation = MediaQuery.of(context).orientation;
+    final isLandscape = orientation == Orientation.landscape;
+    final isTablet = screenWidth >= 600;
+
+    // Responsive sizing factors
+    final horizontalPadding = isTablet ? screenWidth * 0.15 : screenWidth * 0.05;
+    final formMaxWidth = isTablet ? 600.0 : double.infinity;
+    final fontSize = _getResponsiveFontSize(screenWidth, isLandscape, isTablet);
 
     return ChangeNotifierProvider(
       create: (_) => AccountCreationProvider(),
       child: Builder(
         builder: (context) => Scaffold(
-        backgroundColor: AppColors.backgroundLight,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios, color: AppColors.textDark, size: 20),
-            onPressed: () => Navigator.pop(context),
+          backgroundColor: AppColors.backgroundLight,
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            leading: IconButton(
+              icon: Icon(
+                Icons.arrow_back_ios,
+                color: AppColors.textDark,
+                size: isLandscape ? 18 : 20,
+              ),
+              onPressed: () => Navigator.pop(context),
+            ),
           ),
-        ),
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.05),
-            child: Column(
-              children: [
-                SizedBox(height: screenHeight * 0.015),
+          body: SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                child: Container(
+                  constraints: BoxConstraints(maxWidth: formMaxWidth),
+                  child: Column(
+                    children: [
+                      SizedBox(height: isLandscape ? screenHeight * 0.01 : screenHeight * 0.015),
 
-                // Header section
-                Text(
-                  'Create Your Account',
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.072,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.primaryBlue,
-                  ),
-                ),
-
-                SizedBox(height: screenHeight * 0.03),
-
-                // Main form container
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: AppColors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.shadowGrey,
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
+                      // Header section
+                      Text(
+                        'Create Your Account',
+                        style: TextStyle(
+                          fontSize: fontSize.titleLarge,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primaryBlue,
+                        ),
                       ),
-                      BoxShadow(
-                        color: AppColors.shadowGrey.withOpacity(0.5),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Form(
-                    key: formKey,
-                    child: Consumer<AccountCreationProvider>(
-                      builder: (context, provider, child) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Full Name Field
-                            _buildFieldLabel('Full Name', screenWidth),
-                            const SizedBox(height: 6),
-                            _buildTextField(
-                              controller: nameController,
-                              hintText: 'Enter your full name',
-                              icon: Icons.person_outline,
-                              validator: (value) {
-                                if (value?.trim().isEmpty ?? true) {
-                                  return 'Please enter your full name';
-                                }
-                                if (value!.trim().length < 2) {
-                                  return 'Name must be at least 2 characters long';
-                                }
-                                return null;
-                              },
-                              textCapitalization: TextCapitalization.words,
-                              screenWidth: screenWidth,
-                              isLoading: provider.isLoading,
+
+                      SizedBox(height: isLandscape ? screenHeight * 0.02 : screenHeight * 0.03),
+
+                      // Main form container
+                      Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.all(isLandscape ? 16 : 20),
+                        decoration: BoxDecoration(
+                          color: AppColors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.shadowGrey,
+                              blurRadius: 16,
+                              offset: const Offset(0, 4),
                             ),
-
-                            SizedBox(height: screenHeight * 0.02),
-
-                            // Mobile Number Field
-                            _buildFieldLabel('Mobile Number', screenWidth),
-                            const SizedBox(height: 6),
-                            _buildTextField(
-                              controller: mobileController,
-                              hintText: 'Enter your mobile number',
-                              icon: Icons.phone_outlined,
-                              keyboardType: TextInputType.phone,
-                              validator: (value) {
-                                if (value?.trim().isEmpty ?? true) {
-                                  return 'Please enter your mobile number';
-                                }
-                                if (value!.trim().length < 10) {
-                                  return 'Please enter a valid mobile number';
-                                }
-                                return null;
-                              },
-                              screenWidth: screenWidth,
-                              isLoading: provider.isLoading,
-                            ),
-
-                            SizedBox(height: screenHeight * 0.02),
-
-                            // Email Field
-                            _buildFieldLabel('Email Address', screenWidth),
-                            const SizedBox(height: 6),
-                            _buildTextField(
-                              controller: emailController,
-                              hintText: 'Enter your email address',
-                              icon: Icons.email_outlined,
-                              keyboardType: TextInputType.emailAddress,
-                              validator: (value) {
-                                if (value?.trim().isEmpty ?? true) {
-                                  return 'Please enter your email address';
-                                }
-                                if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
-                                    .hasMatch(value!.trim())) {
-                                  return 'Please enter a valid email address';
-                                }
-                                return null;
-                              },
-                              screenWidth: screenWidth,
-                              isLoading: provider.isLoading,
-                            ),
-
-                            SizedBox(height: screenHeight * 0.02),
-
-                            // Password Field
-                            _buildFieldLabel('Password', screenWidth),
-                            const SizedBox(height: 6),
-                            _buildPasswordField(
-                              controller: passwordController,
-                              hintText: 'Enter your password',
-                              obscureText: provider.obscurePassword,
-                              onToggleVisibility: provider.togglePasswordVisibility,
-                              validator: (value) {
-                                if (value?.isEmpty ?? true) {
-                                  return 'Please enter a password';
-                                }
-                                if (value!.length < 4) {
-                                  return 'Password must be at least 4 characters';
-                                }
-                                return null;
-                              },
-                              screenWidth: screenWidth,
-                              isLoading: provider.isLoading,
-                            ),
-
-                            SizedBox(height: screenHeight * 0.02),
-
-                            // Confirm Password Field
-                            _buildFieldLabel('Confirm Password', screenWidth),
-                            const SizedBox(height: 6),
-                            _buildPasswordField(
-                              controller: confirmPasswordController,
-                              hintText: 'Confirm your password',
-                              obscureText: provider.obscureConfirmPassword,
-                              onToggleVisibility: provider.toggleConfirmPasswordVisibility,
-                              validator: (value) {
-                                if (value?.isEmpty ?? true) {
-                                  return 'Please confirm your password';
-                                }
-                                if (value != passwordController.text) {
-                                  return 'Passwords do not match';
-                                }
-                                return null;
-                              },
-                              screenWidth: screenWidth,
-                              isLoading: provider.isLoading,
-                            ),
-
-                            SizedBox(height: screenHeight * 0.025),
-
-                            // Terms and Conditions
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Transform.scale(
-                                  scale: 0.85,
-                                  child: Checkbox(
-                                    value: provider.agreedToTerms,
-                                    onChanged: provider.isLoading
-                                        ? null
-                                        : (value) {
-                                            provider.toggleTermsAgreement();
-                                          },
-                                    activeColor: AppColors.primaryYellow,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: GestureDetector(
-                                    onTap: provider.isLoading
-                                        ? null
-                                        : () {
-                                            provider.toggleTermsAgreement();
-                                          },
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(top: 12),
-                                      child: RichText(
-                                        text: TextSpan(
-                                          style: TextStyle(
-                                            fontSize: screenWidth * 0.03,
-                                            color: AppColors.textGrey,
-                                            height: 1.4,
-                                          ),
-                                          children: const [
-                                            TextSpan(text: 'I agree to the '),
-                                            TextSpan(
-                                              text: 'Terms and Conditions',
-                                              style: TextStyle(
-                                                color: AppColors.primaryYellow,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            TextSpan(text: ' and '),
-                                            TextSpan(
-                                              text: 'Privacy Policy',
-                                              style: TextStyle(
-                                                color: AppColors.primaryYellow,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-
-                            SizedBox(height: screenHeight * 0.03),
-
-                            // Continue Button
-                            Container(
-                              width: double.infinity,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                gradient: AppGradients.primaryYellow,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.shadowYellow,
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: ElevatedButton(
-                                onPressed: provider.isLoading ? null : () => _registerStudent(context),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  disabledBackgroundColor: AppColors.grey300,
-                                  shadowColor: Colors.transparent,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: provider.isLoading
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          color: AppColors.white,
-                                          strokeWidth: 2.5,
-                                        ),
-                                      )
-                                    : Text(
-                                        'Continue',
-                                        style: TextStyle(
-                                          fontSize: screenWidth * 0.038,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.white,
-                                        ),
-                                      ),
-                              ),
+                            BoxShadow(
+                              color: AppColors.shadowGrey.withOpacity(0.5),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
                           ],
-                        );
-                      },
-                    ),
+                        ),
+                        child: Form(
+                          key: formKey,
+                          child: Consumer<AccountCreationProvider>(
+                            builder: (context, provider, child) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Full Name Field
+                                  _buildFieldLabel('Full Name', fontSize),
+                                  SizedBox(height: isLandscape ? 4 : 6),
+                                  _buildTextField(
+                                    controller: nameController,
+                                    hintText: 'Enter your full name',
+                                    icon: Icons.person_outline,
+                                    validator: (value) {
+                                      if (value?.trim().isEmpty ?? true) {
+                                        return 'Please enter your full name';
+                                      }
+                                      if (value!.trim().length < 2) {
+                                        return 'Name must be at least 2 characters long';
+                                      }
+                                      return null;
+                                    },
+                                    textCapitalization: TextCapitalization.words,
+                                    fontSize: fontSize,
+                                    isLoading: provider.isLoading,
+                                    isLandscape: isLandscape,
+                                  ),
+
+                                  SizedBox(height: isLandscape ? screenHeight * 0.015 : screenHeight * 0.02),
+
+                                  // Mobile Number Field
+                                  _buildFieldLabel('Mobile Number', fontSize),
+                                  SizedBox(height: isLandscape ? 4 : 6),
+                                  _buildTextField(
+                                    controller: mobileController,
+                                    hintText: 'Enter your mobile number',
+                                    icon: Icons.phone_outlined,
+                                    keyboardType: TextInputType.phone,
+                                    validator: (value) {
+                                      if (value?.trim().isEmpty ?? true) {
+                                        return 'Please enter your mobile number';
+                                      }
+                                      if (value!.trim().length < 10) {
+                                        return 'Please enter a valid mobile number';
+                                      }
+                                      return null;
+                                    },
+                                    fontSize: fontSize,
+                                    isLoading: provider.isLoading,
+                                    isLandscape: isLandscape,
+                                  ),
+
+                                  SizedBox(height: isLandscape ? screenHeight * 0.015 : screenHeight * 0.02),
+
+                                  // Email Field
+                                  _buildFieldLabel('Email Address', fontSize),
+                                  SizedBox(height: isLandscape ? 4 : 6),
+                                  _buildTextField(
+                                    controller: emailController,
+                                    hintText: 'Enter your email address',
+                                    icon: Icons.email_outlined,
+                                    keyboardType: TextInputType.emailAddress,
+                                    validator: (value) {
+                                      if (value?.trim().isEmpty ?? true) {
+                                        return 'Please enter your email address';
+                                      }
+                                      if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$')
+                                          .hasMatch(value!.trim())) {
+                                        return 'Please enter a valid email address';
+                                      }
+                                      return null;
+                                    },
+                                    fontSize: fontSize,
+                                    isLoading: provider.isLoading,
+                                    isLandscape: isLandscape,
+                                  ),
+
+                                  SizedBox(height: isLandscape ? screenHeight * 0.015 : screenHeight * 0.02),
+
+                                  // Password Field
+                                  _buildFieldLabel('Password', fontSize),
+                                  SizedBox(height: isLandscape ? 4 : 6),
+                                  _buildPasswordField(
+                                    controller: passwordController,
+                                    hintText: 'Enter your password',
+                                    obscureText: provider.obscurePassword,
+                                    onToggleVisibility: provider.togglePasswordVisibility,
+                                    validator: (value) {
+                                      if (value?.isEmpty ?? true) {
+                                        return 'Please enter a password';
+                                      }
+                                      if (value!.length < 4) {
+                                        return 'Password must be at least 4 characters';
+                                      }
+                                      return null;
+                                    },
+                                    fontSize: fontSize,
+                                    isLoading: provider.isLoading,
+                                    isLandscape: isLandscape,
+                                  ),
+
+                                  SizedBox(height: isLandscape ? screenHeight * 0.015 : screenHeight * 0.02),
+
+                                  // Confirm Password Field
+                                  _buildFieldLabel('Confirm Password', fontSize),
+                                  SizedBox(height: isLandscape ? 4 : 6),
+                                  _buildPasswordField(
+                                    controller: confirmPasswordController,
+                                    hintText: 'Confirm your password',
+                                    obscureText: provider.obscureConfirmPassword,
+                                    onToggleVisibility: provider.toggleConfirmPasswordVisibility,
+                                    validator: (value) {
+                                      if (value?.isEmpty ?? true) {
+                                        return 'Please confirm your password';
+                                      }
+                                      if (value != passwordController.text) {
+                                        return 'Passwords do not match';
+                                      }
+                                      return null;
+                                    },
+                                    fontSize: fontSize,
+                                    isLoading: provider.isLoading,
+                                    isLandscape: isLandscape,
+                                  ),
+
+                                  SizedBox(height: isLandscape ? screenHeight * 0.02 : screenHeight * 0.03),
+
+                                  // Continue Button
+                                  Center(
+                                    child: Container(
+                                      width: isLandscape ? screenWidth * 0.4 : double.infinity,
+                                      height: isLandscape ? 42 : 48,
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(12),
+                                        gradient: AppGradients.primaryYellow,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: AppColors.shadowYellow,
+                                            blurRadius: 10,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ElevatedButton(
+                                        onPressed: provider.isLoading ? null : () => _registerStudent(context),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.transparent,
+                                          disabledBackgroundColor: AppColors.grey300,
+                                          shadowColor: Colors.transparent,
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                        ),
+                                        child: provider.isLoading
+                                            ? SizedBox(
+                                                width: isLandscape ? 18 : 20,
+                                                height: isLandscape ? 18 : 20,
+                                                child: const CircularProgressIndicator(
+                                                  color: AppColors.white,
+                                                  strokeWidth: 2.5,
+                                                ),
+                                              )
+                                            : Text(
+                                                'Continue',
+                                                style: TextStyle(
+                                                  fontSize: fontSize.buttonText,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: AppColors.white,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+
+                      SizedBox(height: isLandscape ? screenHeight * 0.02 : screenHeight * 0.025),
+                    ],
                   ),
                 ),
-
-                SizedBox(height: screenHeight * 0.025),
-              ],
+              ),
             ),
           ),
         ),
       ),
-      ),
     );
   }
 
-  Widget _buildFieldLabel(String label, double screenWidth) {
+  Widget _buildFieldLabel(String label, _FontSizes fontSize) {
     return Text(
       label,
       style: TextStyle(
-        fontSize: screenWidth * 0.032,
+        fontSize: fontSize.label,
         fontWeight: FontWeight.w600,
         color: AppColors.textDark,
       ),
@@ -578,8 +513,9 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
     required String hintText,
     required IconData icon,
     required String? Function(String?) validator,
-    required double screenWidth,
+    required _FontSizes fontSize,
     required bool isLoading,
+    required bool isLandscape,
     TextInputType? keyboardType,
     TextCapitalization textCapitalization = TextCapitalization.none,
   }) {
@@ -589,7 +525,7 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
       keyboardType: keyboardType,
       textCapitalization: textCapitalization,
       style: TextStyle(
-        fontSize: screenWidth * 0.035,
+        fontSize: fontSize.input,
         fontWeight: FontWeight.w500,
         color: AppColors.textDark,
       ),
@@ -597,12 +533,12 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
         hintText: hintText,
         hintStyle: TextStyle(
           color: AppColors.grey400,
-          fontSize: screenWidth * 0.033,
+          fontSize: fontSize.hint,
         ),
         prefixIcon: Icon(
           icon,
           color: AppColors.grey500,
-          size: 20,
+          size: isLandscape ? 18 : 20,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
@@ -629,12 +565,12 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
         ),
         filled: true,
         fillColor: isLoading ? AppColors.grey100 : AppColors.grey50,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: isLandscape ? 12 : 14,
+          vertical: isLandscape ? 10 : 12,
         ),
         errorStyle: TextStyle(
-          fontSize: screenWidth * 0.028,
+          fontSize: fontSize.error,
         ),
       ),
       validator: validator,
@@ -647,15 +583,16 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
     required bool obscureText,
     required VoidCallback onToggleVisibility,
     required String? Function(String?) validator,
-    required double screenWidth,
+    required _FontSizes fontSize,
     required bool isLoading,
+    required bool isLandscape,
   }) {
     return TextFormField(
       controller: controller,
       enabled: !isLoading,
       obscureText: obscureText,
       style: TextStyle(
-        fontSize: screenWidth * 0.035,
+        fontSize: fontSize.input,
         fontWeight: FontWeight.w500,
         color: AppColors.textDark,
       ),
@@ -663,18 +600,18 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
         hintText: hintText,
         hintStyle: TextStyle(
           color: AppColors.grey400,
-          fontSize: screenWidth * 0.033,
+          fontSize: fontSize.hint,
         ),
-        prefixIcon: const Icon(
+        prefixIcon: Icon(
           Icons.lock_outline,
           color: AppColors.grey500,
-          size: 20,
+          size: isLandscape ? 18 : 20,
         ),
         suffixIcon: IconButton(
           icon: Icon(
             obscureText ? Icons.visibility_off_outlined : Icons.visibility_outlined,
             color: AppColors.grey500,
-            size: 20,
+            size: isLandscape ? 18 : 20,
           ),
           onPressed: onToggleVisibility,
         ),
@@ -703,15 +640,67 @@ class _AccountCreationScreenState extends State<AccountCreationScreen> {
         ),
         filled: true,
         fillColor: isLoading ? AppColors.grey100 : AppColors.grey50,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: isLandscape ? 12 : 14,
+          vertical: isLandscape ? 10 : 12,
         ),
         errorStyle: TextStyle(
-          fontSize: screenWidth * 0.028,
+          fontSize: fontSize.error,
         ),
       ),
       validator: validator,
     );
   }
+
+  _FontSizes _getResponsiveFontSize(double screenWidth, bool isLandscape, bool isTablet) {
+    if (isTablet) {
+      return _FontSizes(
+        titleLarge: isLandscape ? 24 : 28,
+        label: isLandscape ? 12 : 14,
+        input: isLandscape ? 13 : 15,
+        hint: isLandscape ? 12 : 14,
+        error: isLandscape ? 10 : 11,
+        buttonText: isLandscape ? 14 : 16,
+      );
+    } else {
+      // Small to medium phones
+      if (screenWidth < 375) {
+        return _FontSizes(
+          titleLarge: isLandscape ? 20 : 24,
+          label: isLandscape ? 10 : 12,
+          input: isLandscape ? 11 : 13,
+          hint: isLandscape ? 10 : 12,
+          error: isLandscape ? 9 : 10,
+          buttonText: isLandscape ? 12 : 14,
+        );
+      }
+      // Regular phones
+      return _FontSizes(
+        titleLarge: isLandscape ? 22 : screenWidth * 0.072,
+        label: isLandscape ? 11 : screenWidth * 0.032,
+        input: isLandscape ? 12 : screenWidth * 0.035,
+        hint: isLandscape ? 11 : screenWidth * 0.033,
+        error: isLandscape ? 9 : screenWidth * 0.028,
+        buttonText: isLandscape ? 13 : screenWidth * 0.038,
+      );
+    }
+  }
+}
+
+class _FontSizes {
+  final double titleLarge;
+  final double label;
+  final double input;
+  final double hint;
+  final double error;
+  final double buttonText;
+
+  _FontSizes({
+    required this.titleLarge,
+    required this.label,
+    required this.input,
+    required this.hint,
+    required this.error,
+    required this.buttonText,
+  });
 }

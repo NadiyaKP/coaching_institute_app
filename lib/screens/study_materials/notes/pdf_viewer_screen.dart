@@ -55,18 +55,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
 
   Future<void> _initializeHive() async {
     try {
-      // Box should already be open from main.dart
       if (Hive.isBoxOpen('pdf_records_box')) {
         _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
         debugPrint('✅ Using existing Hive box in PDFViewerScreen');
       } else {
-        // Fallback: try to open if somehow not open
         debugPrint('⚠️ Box not open, trying to open...');
         _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
         debugPrint('✅ Opened Hive box in PDFViewerScreen');
       }
       
-      // Only start tracking if reading data is enabled
       if (widget.enableReadingData) {
         _startTracking();
       } else {
@@ -76,7 +73,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
       _downloadAndSavePDF();
     } catch (e) {
       debugPrint('❌ Error in Hive initialization: $e');
-      // Continue loading PDF even if Hive fails
       if (widget.enableReadingData) {
         _startTracking();
       }
@@ -98,7 +94,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     
-    // Only track if reading data is enabled
     if (!widget.enableReadingData) return;
     
     switch (state) {
@@ -136,24 +131,18 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
         debugPrint('Session Duration: ${sessionDuration.inSeconds} seconds');
         debugPrint('Total Viewing Time: ${_totalViewingTime.inSeconds} seconds');
         
-        // Store the viewing data in Hive (don't send to API yet)
         await _storeViewingData();
       }
     }
   }
 
   Future<void> _storeViewingData() async {
-    // Don't store data if reading data collection is disabled
     if (!widget.enableReadingData) return;
     
     try {
-      // Get current date in yy-MM-dd format
       final currentDate = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      
-      // Create a unique key based on encrypted_note_id and date
       final recordKey = 'pdf_record_${widget.noteId}_$currentDate';
       
-      // Check if a record already exists for this encrypted_note_id and date
       final existingRecord = _pdfRecordsBox.values.firstWhere(
         (record) => record.recordKey == recordKey,
         orElse: () => PdfReadingRecord(
@@ -168,20 +157,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
       int totalSeconds = _totalViewingTime.inSeconds;
       
       if (existingRecord.recordKey.isNotEmpty) {
-        // Add the new duration to existing record
         totalSeconds = existingRecord.readedtimeSeconds + _totalViewingTime.inSeconds;
         debugPrint('Found existing record. Adding ${_totalViewingTime.inSeconds}s to ${existingRecord.readedtimeSeconds}s');
-        
-        // Remove the existing record to update it
         await existingRecord.delete();
       }
       
-      // Convert seconds to minutes with 2 decimal precision (e.g., 70 seconds = 1.17 minutes)
       final readedTimeMinutes = totalSeconds > 0 
           ? double.parse((totalSeconds / 60.0).toStringAsFixed(2))
           : 0.0;
       
-      // Create new record
       final viewingRecord = PdfReadingRecord(
         encryptedNoteId: widget.noteId,
         readedtime: readedTimeMinutes,
@@ -190,7 +174,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
         recordKey: recordKey,
       );
       
-      // Store the record in Hive
       await _pdfRecordsBox.add(viewingRecord);
       
       debugPrint('Stored viewing data for encrypted_note_id: ${widget.noteId}');
@@ -199,7 +182,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
       debugPrint('readedtime (minutes): $readedTimeMinutes');
       debugPrint('Storage Key: $recordKey');
       
-      // Print all stored records for debugging
       _printStoredRecords();
       
     } catch (e) {
@@ -210,10 +192,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
   Future<void> _printStoredRecords() async {
     try {
       final allRecords = _pdfRecordsBox.values.toList();
-      
       debugPrint('=== STORED PDF RECORDS ===');
       debugPrint('Total records: ${allRecords.length}');
-      
       for (final record in allRecords) {
         debugPrint('Record Key: ${record.recordKey}');
         debugPrint('  encrypted_note_id: ${record.encryptedNoteId}');
@@ -235,35 +215,12 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
         errorMessage = null;
       });
 
-      debugPrint('\n=== PDF DOWNLOAD DETAILED DEBUG ===');
-      debugPrint('PDF URL received: "${widget.pdfUrl}"');
-      debugPrint('PDF URL length: ${widget.pdfUrl.length}');
-      debugPrint('Note ID: ${widget.noteId}');
-      debugPrint('Title: ${widget.title}');
-      debugPrint('Reading Data Enabled: ${widget.enableReadingData}');
-      debugPrint('Access Token length: ${widget.accessToken.length}');
-      debugPrint('Access Token (first 50 chars): ${widget.accessToken.substring(0, widget.accessToken.length > 50 ? 50 : widget.accessToken.length)}...');
-
-      // Parse the URL to check its components
-      Uri parsedUri = Uri.parse(widget.pdfUrl);
-      debugPrint('--- PARSED URL COMPONENTS ---');
-      debugPrint('Scheme: ${parsedUri.scheme}');
-      debugPrint('Host: ${parsedUri.host}');
-      debugPrint('Port: ${parsedUri.port}');
-      debugPrint('Path: ${parsedUri.path}');
-      debugPrint('Query: ${parsedUri.query}');
-      debugPrint('Full URL: ${parsedUri.toString()}');
-      debugPrint('--- END PARSED COMPONENTS ---');
-
-      // Create HTTP client with custom certificate handling
       final client = ApiConfig.createHttpClient();
       final httpClient = IOClient(client);
 
-      // Detect if the URL is a presigned MinIO/S3 URL
+      Uri parsedUri = Uri.parse(widget.pdfUrl);
       final isPresignedUrl = parsedUri.queryParameters.containsKey('X-Amz-Signature');
-      debugPrint('Presigned URL detected: $isPresignedUrl');
 
-      // Prepare headers (skip Bearer for presigned URLs)
       final headers = {
         'ngrok-skip-browser-warning': 'true',
         ...ApiConfig.commonHeaders,
@@ -271,51 +228,21 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
           'Authorization': 'Bearer ${widget.accessToken}',
       };
 
-      debugPrint('Sending GET request to: ${widget.pdfUrl}');
-      debugPrint('Using Authorization header: ${!isPresignedUrl}');
-
-      // Perform GET request
       final response = await httpClient
           .get(Uri.parse(widget.pdfUrl), headers: headers)
           .timeout(const Duration(minutes: 2));
 
-      debugPrint('Response Status Code: ${response.statusCode}');
-      debugPrint('Response Reason: ${response.reasonPhrase}');
-      debugPrint('Response Headers: ${response.headers}');
-      debugPrint('Response Body Length: ${response.bodyBytes.length} bytes');
-
       if (response.statusCode == 200) {
-        debugPrint('✅ PDF downloaded successfully, saving to file...');
-
-        // Get temporary directory
         final dir = await getTemporaryDirectory();
-
-        // Create a unique filename
         final fileName = 'pdf_${widget.noteId}_${DateTime.now().millisecondsSinceEpoch}.pdf';
         final file = File('${dir.path}/$fileName');
-
-        // Write the PDF bytes to file
         await file.writeAsBytes(response.bodyBytes);
 
-        debugPrint('✅ PDF saved to: ${file.path}');
-        debugPrint('File size: ${await file.length()} bytes');
-
-        // Update state to show the PDF
         setState(() {
           localPath = file.path;
           isLoading = false;
         });
-
-        debugPrint('✅ PDF ready to display');
       } else {
-        // Print first 500 characters of error response
-        final errorBody = response.body.length > 500
-            ? '${response.body.substring(0, 500)}...'
-            : response.body;
-        debugPrint('--- ERROR RESPONSE BODY ---');
-        debugPrint(errorBody);
-        debugPrint('--- END ERROR RESPONSE ---');
-
         setState(() {
           isLoading = false;
           errorMessage = 'Failed to download PDF: ${response.statusCode} - ${response.reasonPhrase}';
@@ -323,14 +250,10 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
       }
     } catch (e) {
       debugPrint('❌ Error loading PDF: $e');
-      debugPrint('Stack trace: ${StackTrace.current}');
-
       setState(() {
         isLoading = false;
         errorMessage = 'Error loading PDF: ${e.toString()}';
       });
-    } finally {
-      debugPrint('=== END PDF DOWNLOAD DEBUG ===\n');
     }
   }
 
@@ -362,18 +285,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
         backgroundColor: AppColors.primaryYellow,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
-        actions: [
-          if (!isLoading && localPath != null)
-            IconButton(
-              icon: const Icon(Icons.share),
-              onPressed: _sharePDF,
-            ),
-          if (!isLoading && localPath != null && widget.enableReadingData)
-            IconButton(
-              icon: const Icon(Icons.timer),
-              onPressed: _showTimerStatus,
-            ),
-        ],
       ),
       body: Container(
         decoration: const BoxDecoration(
@@ -408,10 +319,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
             SizedBox(height: 16),
             Text(
               'Loading PDF...',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.black54,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.black54),
             ),
           ],
         ),
@@ -425,11 +333,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.error_outline,
-                size: 80,
-                color: AppColors.errorRed,
-              ),
+              const Icon(Icons.error_outline, size: 80, color: AppColors.errorRed),
               const SizedBox(height: 16),
               const Text(
                 'Failed to load PDF',
@@ -443,10 +347,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
               Text(
                 errorMessage!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.black54,
-                ),
+                style: const TextStyle(fontSize: 16, color: Colors.black54),
               ),
               const SizedBox(height: 24),
               ElevatedButton(
@@ -500,9 +401,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
             onViewCreated: (PDFViewController controller) {
               pdfViewController = controller;
             },
-            onLinkHandler: (String? uri) {
-              // Handle link clicks if needed
-            },
             onPageChanged: (int? page, int? total) {
               setState(() {
                 currentPage = page ?? 0;
@@ -527,10 +425,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
     return const Center(
       child: Text(
         'No PDF available',
-        style: TextStyle(
-          fontSize: 16,
-          color: Colors.black54,
-        ),
+        style: TextStyle(fontSize: 16, color: Colors.black54),
       ),
     );
   }
@@ -665,17 +560,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
   }
 
   void _showTimerStatus() {
-    // Only show timer status if reading data is enabled
-    if (!widget.enableReadingData) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Reading data collection is disabled for your account type'),
-          backgroundColor: Colors.grey,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
+    if (!widget.enableReadingData) return;
 
     final totalSeconds = _totalViewingTime.inSeconds;
     final readedTimeMinutes = totalSeconds > 0 
@@ -691,16 +576,5 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> with WidgetsBindingOb
     debugPrint('Current Page: $currentPage');
     debugPrint('Total Pages: $totalPages');
     debugPrint('=== END TIMER STATUS ===');
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Reading Time: $readedTimeMinutes minutes',
-          style: const TextStyle(color: Colors.white),
-        ),
-        backgroundColor: AppColors.primaryYellow,
-        duration: const Duration(seconds: 2),
-      ),
-    );
   }
 }

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:better_player/better_player.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:chewie/chewie.dart';
+import 'package:video_player/video_player.dart';
 import 'package:coaching_institute_app/service/auth_service.dart';
 import 'package:coaching_institute_app/service/api_config.dart';
 import '../../common/theme_color.dart';
@@ -23,46 +26,67 @@ class VideoStreamScreen extends StatefulWidget {
 }
 
 class _VideoStreamScreenState extends State<VideoStreamScreen> {
-  BetterPlayerController? _betterPlayerController;
+  VideoPlayerController? _videoPlayerController;
+  ChewieController? _chewieController;
+
   bool _isLoading = true;
   bool _hasError = false;
   String _errorMessage = '';
   String? _accessToken;
-  String _studentType = ''; // Added student type
+  String _studentType = '';
   final AuthService _authService = AuthService();
 
-  // Event tracking variables
+  // Event tracking
   List<Map<String, dynamic>> _events = [];
   double _currentPlaybackSpeed = 1.0;
   Duration? _lastPosition;
   bool _isFirstPlay = true;
   bool _videoCompletedInThisSession = false;
   bool _hasEventsSaved = false;
-  
-  // Seek tracking variables
+  bool _wasPlaying = false;
+
+  // Seek tracking
   bool _isSeeking = false;
   Duration? _seekStartPosition;
   DateTime? _lastSeekTime;
   Duration? _pendingSeekEndPosition;
-  
-  // Event deduplication variables
+
+  // Event deduplication
   String? _lastEventType;
   Duration? _lastEventPosition;
   DateTime? _lastEventTime;
-  
+
   // Position tracking for seek detection
   Duration? _previousPosition;
   DateTime? _lastPositionCheckTime;
 
+  // Cleaned video ID
+  late String _cleanVideoId;
+
   @override
   void initState() {
     super.initState();
-    _loadStudentType().then((_) {
-      _initializeVideo();
-    });
+    _cleanVideoId = _getCleanVideoId(widget.videoId);
+    _loadStudentType().then((_) => _initializeVideo());
   }
 
-  // Load student type from SharedPreferences
+  String _getCleanVideoId(String videoId) {
+    String cleaned = videoId.trim();
+    
+    // Remove square brackets if present
+    if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
+      cleaned = cleaned.substring(1, cleaned.length - 1);
+    }
+    
+    // Remove any quotes
+    cleaned = cleaned.replaceAll('"', '').replaceAll("'", '');
+    
+    debugPrint('🎬 Original Video ID: $videoId');
+    debugPrint('🎬 Cleaned Video ID: $cleaned');
+    
+    return cleaned;
+  }
+
   Future<void> _loadStudentType() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -84,7 +108,6 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
       });
 
       _accessToken = await _authService.getAccessToken();
-
       if (_accessToken == null || _accessToken!.isEmpty) {
         setState(() {
           _hasError = true;
@@ -94,67 +117,56 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
         return;
       }
 
-      String videoUrl = '${ApiConfig.baseUrl}/api/videos/stream/${widget.videoId}/';
+      // Construct the URL with cleaned video ID
+      final apiUrl = '${ApiConfig.baseUrl}/api/videos/stream/$_cleanVideoId/';
+      
+      // Debug prints to verify URL construction
+      debugPrint('🌐 Base URL: ${ApiConfig.baseUrl}');
+      debugPrint('🎬 Clean Video ID: $_cleanVideoId');
+      debugPrint('🔗 Full API Path: /api/videos/stream/$_cleanVideoId/');
 
-      debugPrint('🎬 Initializing BetterPlayer...');
-      debugPrint('Video URL: $videoUrl');
-      debugPrint('Student Type: $_studentType');
-      debugPrint('Event Tracking Enabled: ${_studentType.toLowerCase() == 'online'}');
-
-      BetterPlayerDataSource dataSource = BetterPlayerDataSource(
-        BetterPlayerDataSourceType.network,
-        videoUrl,
+      final response = await http.get(
+        Uri.parse(apiUrl),
         headers: {
           'Authorization': 'Bearer $_accessToken',
-          'Accept': '*/*',
-          'Connection': 'keep-alive',
+          'Accept': 'application/json',
         },
       );
 
-      _betterPlayerController = BetterPlayerController(
-        BetterPlayerConfiguration(
-          autoPlay: true,
-          fit: BoxFit.contain,
-          allowedScreenSleep: false,
-          autoDispose: true,
-          aspectRatio: 16 / 9,
-          handleLifecycle: true,
-          fullScreenByDefault: false,
-          errorBuilder: (context, errorMessage) {
-            return _buildErrorContent(errorMessage);
-          },
-          controlsConfiguration: const BetterPlayerControlsConfiguration(
-            enableFullscreen: true,
-            enableProgressText: true,
-            enablePlaybackSpeed: true,
-            enableSkips: true,
-            forwardSkipTimeInMilliseconds: 10000,
-            backwardSkipTimeInMilliseconds: 10000,
-            loadingColor: AppColors.primaryYellow,
-          ),
-        ),
-        betterPlayerDataSource: dataSource,
+      debugPrint('📡 Response Status: ${response.statusCode}');
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to fetch video URL. Status: ${response.statusCode}');
+      }
+
+      final data = jsonDecode(response.body);
+      final presignedUrl = data['url'];
+      debugPrint('🎬 Presigned video URL received');
+
+      _videoPlayerController = VideoPlayerController.network(presignedUrl);
+      await _videoPlayerController!.initialize();
+
+      _chewieController = ChewieController(
+        videoPlayerController: _videoPlayerController!,
+        autoPlay: true,
+        aspectRatio: 16 / 9,
+        allowFullScreen: true,
+        allowMuting: true,
+        allowPlaybackSpeedChanging: true,
+        errorBuilder: (context, errorMsg) => _buildErrorContent(errorMsg),
       );
 
-      // Add event listeners only for online students
+      // Setup event listeners for online students only
       if (_studentType.toLowerCase() == 'online') {
-        _betterPlayerController!.addEventsListener(_handleVideoEvent);
-        
-        // Add position listener to detect seeks (including skip buttons)
-        _betterPlayerController!.videoPlayerController?.addListener(_onPositionChanged);
-        
+        _videoPlayerController!.addListener(_handleVideoPlayerChanges);
         debugPrint('🎬 Event tracking ENABLED for online student');
       } else {
         debugPrint('🎬 Event tracking DISABLED for student type: $_studentType');
       }
 
-      setState(() {
-        _isLoading = false;
-      });
-
-      debugPrint('✅ BetterPlayer ready to play');
+      setState(() => _isLoading = false);
     } catch (e) {
-      debugPrint('❌ Exception during video initialization: $e');
+      debugPrint('❌ Video init error: $e');
       if (mounted) {
         setState(() {
           _hasError = true;
@@ -165,41 +177,42 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
     }
   }
 
-  void _onPositionChanged() {
-    // Only track position changes for online students
+  void _handleVideoPlayerChanges() {
+    // Only track for online students
     if (_studentType.toLowerCase() != 'online') return;
-    
-    final controller = _betterPlayerController?.videoPlayerController;
-    if (controller == null) return;
-    
-    final currentPosition = controller.value.position;
-    final isPlaying = controller.value.isPlaying;
+    if (!_videoPlayerController!.value.isInitialized) return;
+
+    final currentPosition = _videoPlayerController!.value.position;
+    final isPlaying = _videoPlayerController!.value.isPlaying;
+    final speed = _videoPlayerController!.value.playbackSpeed;
     final now = DateTime.now();
-    
-    // Check if this is a significant position jump (seek detection)
+
+    // Track speed changes
+    if (speed != _currentPlaybackSpeed) {
+      _handleSpeedChange(currentPosition, speed);
+      _currentPlaybackSpeed = speed;
+    }
+
+    // Position-based seek detection
     if (_previousPosition != null && _lastPositionCheckTime != null) {
       final timeDiff = now.difference(_lastPositionCheckTime!).inMilliseconds;
       final positionDiff = (currentPosition.inSeconds - _previousPosition!.inSeconds).abs();
-      
-      // If position jumped more than expected for normal playback, it's likely a seek
-      // Expected change = (timeDiff/1000) * playbackSpeed, allow 2 second tolerance
+
+      // Expected change based on playback
       final expectedChange = (timeDiff / 1000) * _currentPlaybackSpeed;
-      
+
       if (positionDiff > expectedChange + 2 && timeDiff < 1000) {
-        // This is a seek (including skip buttons and scrubbing)
+        // Seek detected
         if (!_isSeeking) {
-          // Start of a new seek operation
           debugPrint('🔍 Seek started: from ${_formatTime(_previousPosition!)}');
           _handleSeekStart(_previousPosition, _currentPlaybackSpeed);
         }
-        
-        // Update the pending end position (will be updated multiple times during scrubbing)
+
         _pendingSeekEndPosition = currentPosition;
         _lastSeekTime = now;
-        
         debugPrint('🔍 Seek in progress: to ${_formatTime(currentPosition)}');
       } else if (_isSeeking && timeDiff > 500) {
-        // No more position jumps for 500ms - seek operation completed
+        // Seek completed
         if (_pendingSeekEndPosition != null) {
           debugPrint('🔍 Seek completed: finalizing to ${_formatTime(_pendingSeekEndPosition!)}');
           _finalizeSeekEvent(_pendingSeekEndPosition!, _currentPlaybackSpeed);
@@ -207,90 +220,206 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
         }
       }
     }
-    
+
     _previousPosition = currentPosition;
     _lastPositionCheckTime = now;
-  }
 
-  void _handleVideoEvent(BetterPlayerEvent event) {
-    // Only handle events for online students
-    if (_studentType.toLowerCase() != 'online') return;
-    
-    final currentPosition = _betterPlayerController?.videoPlayerController?.value.position;
-    final currentSpeed = _betterPlayerController?.videoPlayerController?.value.speed ?? 1.0;
-
-    if (event.betterPlayerEventType == BetterPlayerEventType.play) {
-      debugPrint('📹 Video PLAY event');
+    // Handle play/pause events
+    if (isPlaying && !_wasPlaying) {
+      // Video just started playing
+      debugPrint('📹 Video PLAY event detected');
       
       // Finalize any pending seek before recording play
       if (_isSeeking && _pendingSeekEndPosition != null) {
-        _finalizeSeekEvent(_pendingSeekEndPosition!, currentSpeed);
+        _finalizeSeekEvent(_pendingSeekEndPosition!, speed);
         _pendingSeekEndPosition = null;
       }
       
-      _addPlayEvent(currentPosition, currentSpeed);
-      _isFirstPlay = false;
-    } else if (event.betterPlayerEventType == BetterPlayerEventType.pause) {
-      debugPrint('⏸️ Video PAUSE event');
+      if (_isFirstPlay) {
+        _isFirstPlay = false;
+      }
+      _addPlayEvent(currentPosition, speed);
+      _wasPlaying = true;
+    } else if (!isPlaying && _wasPlaying) {
+      // Video just paused
+      debugPrint('⏸ Video PAUSE event detected');
       
       // Finalize any pending seek before recording pause
       if (_isSeeking && _pendingSeekEndPosition != null) {
-        _finalizeSeekEvent(_pendingSeekEndPosition!, currentSpeed);
+        _finalizeSeekEvent(_pendingSeekEndPosition!, speed);
         _pendingSeekEndPosition = null;
       }
       
-      _addPauseEvent(currentPosition, currentSpeed);
-    } else if (event.betterPlayerEventType == BetterPlayerEventType.seekTo) {
-      debugPrint('⏩ Video SEEK event detected from BetterPlayer');
-      // The position listener will handle the actual seek tracking
-      // This event just confirms a seek started
-      if (!_isSeeking && currentPosition != null) {
-        _handleSeekStart(currentPosition, currentSpeed);
-      }
-    } else if (event.betterPlayerEventType == BetterPlayerEventType.setSpeed) {
-      debugPrint('🎚️ Video SPEED change event');
-      _handleSpeedChange(currentPosition, currentSpeed);
-    } else if (event.betterPlayerEventType == BetterPlayerEventType.finished) {
-      debugPrint('✅ Video FINISHED event (video completed)');
+      _addPauseEvent(currentPosition, speed);
+      _wasPlaying = false;
+    }
+
+    _lastPosition = currentPosition;
+
+    // Detect video end
+    final duration = _videoPlayerController!.value.duration;
+    if (duration.inSeconds > 0 &&
+        currentPosition.inSeconds >= duration.inSeconds - 1 &&
+        !_videoCompletedInThisSession) {
       _videoCompletedInThisSession = true;
-      _addEndedEvent(currentPosition, currentSpeed);
+      _addEndedEvent(currentPosition, speed);
     }
   }
 
+  void _handleSeekStart(Duration? currentPosition, double speed) {
+    if (currentPosition == null) return;
+
+    if (!_isSeeking) {
+      _isSeeking = true;
+      _seekStartPosition = _lastPosition ?? currentPosition;
+      _lastSeekTime = DateTime.now();
+      debugPrint('🎯 SEEK STARTED: from=${_formatTime(_seekStartPosition!)}');
+    }
+  }
+
+  void _finalizeSeekEvent(Duration newPosition, double speed) {
+    if (_seekStartPosition == null) return;
+
+    final positionDifference = (newPosition.inSeconds - _seekStartPosition!.inSeconds).abs();
+
+    if (positionDifference >= 1) {
+      if (_shouldIgnoreEvent('seek', newPosition)) {
+        _isSeeking = false;
+        _seekStartPosition = null;
+        return;
+      }
+
+      final oldTimeFormatted = _formatTime(_seekStartPosition!);
+      final newTimeFormatted = _formatTime(newPosition);
+
+      final event = {
+        'event_type': 'seek',
+        'old_position': oldTimeFormatted,
+        'new_position': newTimeFormatted,
+        'playback_speed': speed,
+      };
+
+      _events.add(event);
+      _updateLastEvent('seek', newPosition);
+
+      debugPrint('🎯 SEEK FINALIZED: from=$oldTimeFormatted to=$newTimeFormatted, speed=${speed}x');
+    } else {
+      debugPrint('⏭ Seek ignored (position change < 1 second)');
+    }
+
+    _lastPosition = newPosition;
+    _isSeeking = false;
+    _seekStartPosition = null;
+  }
+
+  void _addPlayEvent(Duration? position, double speed) {
+    if (position == null) return;
+    if (_shouldIgnoreEvent('play', position)) return;
+
+    final timeFormatted = _formatTime(position);
+
+    final event = {
+      'event_type': 'play',
+      'time': timeFormatted,
+      'playback_speed': speed,
+    };
+
+    _events.add(event);
+    _lastPosition = position;
+    _updateLastEvent('play', position);
+
+    debugPrint('▶ Added PLAY event: time=$timeFormatted, speed=${speed}x');
+  }
+
+  void _addPauseEvent(Duration? position, double speed) {
+    if (position == null) return;
+    if (_shouldIgnoreEvent('pause', position)) return;
+
+    final timeFormatted = _formatTime(position);
+
+    final event = {
+      'event_type': 'pause',
+      'time': timeFormatted,
+      'playback_speed': speed,
+    };
+
+    _events.add(event);
+    _lastPosition = position;
+    _updateLastEvent('pause', position);
+
+    debugPrint('⏸ Added PAUSE event: time=$timeFormatted, speed=${speed}x');
+  }
+
+  void _handleSpeedChange(Duration? position, double newSpeed) {
+    if (position == null) return;
+
+    if (newSpeed != _currentPlaybackSpeed) {
+      final timeFormatted = _formatTime(position);
+
+      final event = {
+        'event_type': 'ratechange',
+        'time': timeFormatted,
+        'playback_speed': newSpeed,
+      };
+
+      _events.add(event);
+      _lastPosition = position;
+      _updateLastEvent('ratechange', position);
+
+      debugPrint('🎚 Added RATECHANGE event: time=$timeFormatted, old_speed=${_currentPlaybackSpeed}x, new_speed=${newSpeed}x');
+
+      _currentPlaybackSpeed = newSpeed;
+    }
+  }
+
+  void _addEndedEvent(Duration? position, double speed) {
+    if (position == null) return;
+    if (_shouldIgnoreEvent('ended', position)) return;
+
+    final timeFormatted = _formatTime(position);
+
+    final event = {
+      'event_type': 'ended',
+      'time': timeFormatted,
+      'playback_speed': speed,
+    };
+
+    _events.add(event);
+    _updateLastEvent('ended', position);
+
+    debugPrint('🏁 Added ENDED event: time=$timeFormatted, speed=${speed}x');
+  }
+
   bool _shouldIgnoreEvent(String eventType, Duration? position) {
-    if (_lastEventType == eventType && 
-        _lastEventPosition != null && 
+    if (_lastEventType == eventType &&
+        _lastEventPosition != null &&
         position != null &&
         _lastEventTime != null) {
-      
       final timeDiff = DateTime.now().difference(_lastEventTime!).inMilliseconds;
       final positionDiff = (position.inSeconds - _lastEventPosition!.inSeconds).abs();
-      
-      // Strict deduplication for play/pause: ignore events within 2 seconds at same position
+
       if (timeDiff < 2000 && positionDiff <= 1) {
-        debugPrint('⏭️ Ignoring duplicate $eventType event (within 2s at position ${_formatTime(position)})');
+        debugPrint('⏭ Ignoring duplicate $eventType event (within 2s at position ${_formatTime(position)})');
         return true;
       }
     }
-    
-    // Special case: If last event was a seek and this is a play at the seek's new position
-    // Check if we just recorded a seek event within the last 500ms to same position
+
+    // Special case: play after seek
     if (eventType == 'play' && _events.isNotEmpty) {
       final lastEvent = _events.last;
       if (lastEvent['event_type'] == 'seek' && _lastEventTime != null) {
         final timeSinceSeek = DateTime.now().difference(_lastEventTime!).inMilliseconds;
         if (timeSinceSeek < 500 && position != null) {
-          // Check if play position matches seek's new_position
           final seekNewPosition = lastEvent['new_position'] as String;
           final playPosition = _formatTime(position);
           if (seekNewPosition == playPosition) {
-            debugPrint('⏭️ Ignoring play event immediately after seek to same position');
+            debugPrint('⏭ Ignoring play event immediately after seek to same position');
             return true;
           }
         }
       }
     }
-    
+
     return false;
   }
 
@@ -300,142 +429,11 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
     _lastEventTime = DateTime.now();
   }
 
-  void _handleSeekStart(Duration? currentPosition, double speed) {
-    if (currentPosition == null) return;
-    
-    // Only record the start position if we're not already seeking
-    if (!_isSeeking) {
-      _isSeeking = true;
-      _seekStartPosition = _lastPosition ?? currentPosition;
-      _lastSeekTime = DateTime.now();
-      
-      debugPrint('🎯 SEEK STARTED: from=${_formatTime(_seekStartPosition!)}');
-    }
-  }
-
-  void _finalizeSeekEvent(Duration newPosition, double speed) {
-    if (_seekStartPosition == null) return;
-    
-    // Check if there was actual position change (threshold: 1 second)
-    final positionDifference = (newPosition.inSeconds - _seekStartPosition!.inSeconds).abs();
-    
-    if (positionDifference >= 1) {
-      // Check for duplicate seek event
-      if (_shouldIgnoreEvent('seek', newPosition)) {
-        _isSeeking = false;
-        _seekStartPosition = null;
-        return;
-      }
-      
-      final oldTimeFormatted = _formatTime(_seekStartPosition!);
-      final newTimeFormatted = _formatTime(newPosition);
-      
-      final event = {
-        'event_type': 'seek',
-        'old_position': oldTimeFormatted,
-        'new_position': newTimeFormatted,
-        'playback_speed': speed,
-      };
-      
-      _events.add(event);
-      _updateLastEvent('seek', newPosition);
-      
-      debugPrint('🎯 SEEK FINALIZED: from=$oldTimeFormatted to=$newTimeFormatted, speed=${speed}x');
-    } else {
-      debugPrint('⏭️ Seek ignored (position change < 1 second)');
-    }
-    
-    _lastPosition = newPosition;
-    _isSeeking = false;
-    _seekStartPosition = null;
-  }
-
-  void _addPlayEvent(Duration? position, double speed) {
-    if (position == null) return;
-    
-    if (_shouldIgnoreEvent('play', position)) return;
-    
-    final timeFormatted = _formatTime(position);
-    
-    final event = {
-      'event_type': 'play',
-      'time': timeFormatted,
-      'playback_speed': speed,
-    };
-    
-    _events.add(event);
-    _lastPosition = position;
-    _updateLastEvent('play', position);
-    
-    debugPrint('▶️ Added PLAY event: time=$timeFormatted, speed=${speed}x');
-  }
-
-  void _addPauseEvent(Duration? position, double speed) {
-    if (position == null) return;
-    
-    if (_shouldIgnoreEvent('pause', position)) return;
-    
-    final timeFormatted = _formatTime(position);
-    
-    final event = {
-      'event_type': 'pause',
-      'time': timeFormatted,
-      'playback_speed': speed,
-    };
-    
-    _events.add(event);
-    _lastPosition = position;
-    _updateLastEvent('pause', position);
-    
-    debugPrint('⏸️ Added PAUSE event: time=$timeFormatted, speed=${speed}x');
-  }
-
-  void _handleSpeedChange(Duration? position, double newSpeed) {
-    if (position == null) return;
-    
-    if (newSpeed != _currentPlaybackSpeed) {
-      final timeFormatted = _formatTime(position);
-      
-      final event = {
-        'event_type': 'ratechange',
-        'time': timeFormatted,
-        'playback_speed': newSpeed,
-      };
-      
-      _events.add(event);
-      _lastPosition = position;
-      _updateLastEvent('ratechange', position);
-      
-      debugPrint('🎚️ Added RATECHANGE event: time=$timeFormatted, old_speed=${_currentPlaybackSpeed}x, new_speed=${newSpeed}x');
-      
-      _currentPlaybackSpeed = newSpeed;
-    }
-  }
-
-  void _addEndedEvent(Duration? position, double speed) {
-    if (position == null) return;
-    
-    if (_shouldIgnoreEvent('ended', position)) return;
-    
-    final timeFormatted = _formatTime(position);
-    
-    final event = {
-      'event_type': 'ended',
-      'time': timeFormatted,
-      'playback_speed': speed,
-    };
-    
-    _events.add(event);
-    _updateLastEvent('ended', position);
-    
-    debugPrint('🏁 Added ENDED event: time=$timeFormatted, speed=${speed}x');
-  }
-
   String _formatTime(Duration duration) {
     final hours = duration.inHours;
     final minutes = duration.inMinutes.remainder(60);
     final seconds = duration.inSeconds.remainder(60);
-    
+
     if (hours > 0) {
       return '${hours}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
     } else if (minutes > 0) {
@@ -446,31 +444,30 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
   }
 
   Future<void> _saveEventsToHive() async {
-    // Only save events for online students
     if (_studentType.toLowerCase() != 'online') {
       debugPrint('🎬 Student type is $_studentType - skipping event saving to Hive');
       return;
     }
-    
+
     if (_hasEventsSaved) {
-      debugPrint('⚠️ Events already saved, skipping duplicate save');
+      debugPrint('⚠ Events already saved, skipping duplicate save');
       return;
     }
-    
+
     try {
-      final currentPosition = _betterPlayerController?.videoPlayerController?.value.position;
-      final currentSpeed = _betterPlayerController?.videoPlayerController?.value.speed ?? _currentPlaybackSpeed;
-      
-      // Finalize any pending seek before saving
+      final currentPosition = _videoPlayerController?.value.position ?? Duration.zero;
+      final currentSpeed = _videoPlayerController?.value.playbackSpeed ?? _currentPlaybackSpeed;
+
+      // Finalize any pending seek
       if (_isSeeking && _pendingSeekEndPosition != null) {
         _finalizeSeekEvent(_pendingSeekEndPosition!, currentSpeed);
         _pendingSeekEndPosition = null;
       }
-      
+
       if (_events.isEmpty || _events.last['event_type'] != 'ended') {
-        if (currentPosition != null) {
+        if (currentPosition != Duration.zero) {
           _addEndedEvent(currentPosition, currentSpeed);
-          
+
           if (_videoCompletedInThisSession) {
             debugPrint('📝 Added ENDED event - Video completed naturally');
           } else {
@@ -480,44 +477,46 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
       }
 
       if (_events.isEmpty) {
-        debugPrint('⚠️ No events to save');
+        debugPrint('⚠ No events to save');
         _hasEventsSaved = true;
         return;
       }
 
       final box = await Hive.openBox('videoEvents');
-      
       Map<String, dynamic> videoData;
-      
-      if (box.containsKey(widget.videoId)) {
-        final existingData = box.get(widget.videoId) as Map;
+
+      // Use cleaned video ID for Hive storage
+      if (box.containsKey(_cleanVideoId)) {
+        final existingData = box.get(_cleanVideoId) as Map;
         videoData = Map<String, dynamic>.from(existingData);
-        
+
         List<dynamic> allSessions = List.from(videoData['events'] ?? []);
-        
+
         if (allSessions.isNotEmpty && allSessions.last is! List) {
           allSessions = [allSessions];
         }
-        
+
         allSessions.add(_events);
         debugPrint('📌 Created NEW SESSION');
-        
+
         videoData['events'] = allSessions;
         videoData['lastSessionCompleted'] = _videoCompletedInThisSession;
+        videoData['lastUpdated'] = DateTime.now().toIso8601String();
       } else {
         videoData = {
-          'video_id': widget.videoId,
-          'video_title': widget.videoTitle, // Added video title for better tracking
+          'video_id': _cleanVideoId,
+          'video_title': widget.videoTitle,
           'events': [_events],
           'lastSessionCompleted': _videoCompletedInThisSession,
+          'createdAt': DateTime.now().toIso8601String(),
+          'lastUpdated': DateTime.now().toIso8601String(),
         };
         debugPrint('📌 Created FIRST VIDEO ENTRY');
       }
-      
-      await box.put(widget.videoId, videoData);
-      
+
+      await box.put(_cleanVideoId, videoData);
       _hasEventsSaved = true;
-      
+
       int totalSessions = 0;
       int totalEvents = 0;
       final allEvents = videoData['events'] as List;
@@ -527,11 +526,11 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
           totalEvents += session.length;
         }
       }
-      
+
       debugPrint('═══════════════════════════════════════════════════════');
       debugPrint('💾 VIDEO EVENTS SAVED TO HIVE');
       debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('Video ID: ${widget.videoId}');
+      debugPrint('Video ID: $_cleanVideoId');
       debugPrint('Video Title: ${widget.videoTitle}');
       debugPrint('Events recorded in this watch: ${_events.length}');
       debugPrint('Video Completed: $_videoCompletedInThisSession');
@@ -539,9 +538,8 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
       debugPrint('Total events across all sessions: $totalEvents');
       debugPrint('Saved at: ${DateTime.now()}');
       debugPrint('═══════════════════════════════════════════════════════');
-      
+
       _printAllHiveData(box);
-      
     } catch (e) {
       debugPrint('❌ Error saving events to Hive: $e');
     }
@@ -550,7 +548,7 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
   void _printAllHiveData(Box box) {
     debugPrint('\n📦 ALL VIDEO EVENTS IN HIVE DATABASE:');
     debugPrint('═══════════════════════════════════════════════════════');
-    
+
     if (box.isEmpty) {
       debugPrint('No data stored yet.');
     } else {
@@ -562,43 +560,43 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
           debugPrint('  video_id: ${data['video_id']}');
           debugPrint('  video_title: ${data['video_title']}');
           debugPrint('  events: [');
-          
+
           final allEvents = data['events'] as List;
-          
+
           for (var sessionIndex = 0; sessionIndex < allEvents.length; sessionIndex++) {
             final session = allEvents[sessionIndex];
-            
+
             if (session is List) {
               debugPrint('    // Session ${sessionIndex + 1}');
               debugPrint('    [');
-              
+
               for (var eventIndex = 0; eventIndex < session.length; eventIndex++) {
                 final event = session[eventIndex] as Map;
                 debugPrint('      {');
-                
+
                 if (event.containsKey('event_type')) {
                   debugPrint('        "event_type": "${event['event_type']}",');
                 }
                 if (event.containsKey('time')) {
-                  debugPrint('        "time": ${event['time']},');
+                  debugPrint('        "time": "${event['time']}",');
                 }
                 if (event.containsKey('old_position')) {
-                  debugPrint('        "old_position": ${event['old_position']},');
+                  debugPrint('        "old_position": "${event['old_position']}",');
                 }
                 if (event.containsKey('new_position')) {
-                  debugPrint('        "new_position": ${event['new_position']},');
+                  debugPrint('        "new_position": "${event['new_position']}",');
                 }
                 if (event.containsKey('playback_speed')) {
                   debugPrint('        "playback_speed": ${event['playback_speed']}');
                 }
-                
+
                 debugPrint('      }${eventIndex < session.length - 1 ? ',' : ''}');
               }
-              
+
               debugPrint('    ]${sessionIndex < allEvents.length - 1 ? ',' : ''}');
             }
           }
-          
+
           debugPrint('  ]');
         }
         debugPrint('---------------------------------------------------');
@@ -692,18 +690,12 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
 
   @override
   void dispose() {
-    // Only save events for online students
     if (_studentType.toLowerCase() == 'online') {
       _saveEventsToHive();
+      _videoPlayerController?.removeListener(_handleVideoPlayerChanges);
     }
-    
-    // Only remove listeners if they were added (for online students)
-    if (_studentType.toLowerCase() == 'online') {
-      _betterPlayerController?.videoPlayerController?.removeListener(_onPositionChanged);
-      _betterPlayerController?.removeEventsListener(_handleVideoEvent);
-    }
-    
-    _betterPlayerController?.dispose();
+    _videoPlayerController?.dispose();
+    _chewieController?.dispose();
     super.dispose();
   }
 
@@ -711,7 +703,6 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
   Widget build(BuildContext context) {
     return WillPopScope(
       onWillPop: () async {
-        // Only save events for online students
         if (_studentType.toLowerCase() == 'online') {
           await _saveEventsToHive();
         }
@@ -774,11 +765,11 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
       return _buildErrorContent(_errorMessage);
     }
 
-    if (_betterPlayerController != null) {
+    if (_chewieController != null) {
       return Center(
         child: AspectRatio(
           aspectRatio: 16 / 9,
-          child: BetterPlayer(controller: _betterPlayerController!),
+          child: Chewie(controller: _chewieController!),
         ),
       );
     }

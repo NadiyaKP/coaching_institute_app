@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
+import 'dart:io';
 import '../../common/theme_color.dart';
 import '../../common/bottom_navbar.dart';
 import 'exam_schedule/exam_schedule.dart';
 import '../view_profile.dart';
 import '../settings/settings.dart';
 import '../../service/auth_service.dart';
+import '../../service/api_config.dart';
+import '../../service/notification_service.dart';
 import '../Academics/results.dart';
 import 'assignments/assignments.dart';
 import '../../screens/performance.dart';
-import '../../service/notification_service.dart';
+import '../../screens/Academics/my_leave_application/my_leave_application.dart';
 
 class AcademicsScreen extends StatefulWidget {
   const AcademicsScreen({Key? key}) : super(key: key);
@@ -31,7 +37,11 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
   bool profileCompleted = false;
   
   // Bottom Navigation Bar
-  int _currentIndex = 1; 
+  int _currentIndex = 1;
+  
+  // Notification counts
+  int unreadAssignmentsCount = 0;
+  int unreadExamsCount = 0;
 
   @override
   void initState() {
@@ -39,8 +49,7 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     WidgetsBinding.instance.addObserver(this);
     _loadProfileData();
     _loadStudentType();
-    _reloadBadgeState();
-    _debugBadgeState();
+    _loadUnreadNotificationCounts();
   }
 
   @override
@@ -52,16 +61,8 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Reload badge state when app comes to foreground while on this screen
-      _reloadBadgeState();
-    }
-  }
-
-  Future<void> _reloadBadgeState() async {
-    debugPrint('🔄 Reloading badge state in Academics screen');
-    // Trigger UI rebuild to reflect latest badge state
-    if (mounted) {
-      setState(() {});
+      // Reload notification counts when app comes to foreground
+      _loadUnreadNotificationCounts();
     }
   }
 
@@ -92,12 +93,207 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     }
   }
 
-  Future<void> _debugBadgeState() async {
-  final prefs = await SharedPreferences.getInstance();
-  final hasUnread = prefs.getBool('has_unread_assignments') ?? false;
-  debugPrint('🔍 DEBUG - SharedPreferences badge state: $hasUnread');
-  debugPrint('🔍 DEBUG - ValueNotifier badge state: ${NotificationService.hasUnreadAssignments.value}');
-}
+  // Update the bottom navbar badge based on unread counts
+  void _updateAcademicsBadge() {
+    // Check if both counts are zero
+    final bool hasUnread = (unreadAssignmentsCount > 0 || unreadExamsCount > 0);
+    
+    // Get current subscription badge state
+    final bool hasUnreadSubscription = NotificationService.badgeNotifier.value['hasUnreadSubscription'] ?? false;
+    
+    // Update the notification service badges (keeping subscription badge unchanged)
+    NotificationService.updateBadges(
+      hasUnreadAssignments: hasUnread,
+      hasUnreadSubscription: hasUnreadSubscription,
+    );
+    
+    debugPrint('🔔 Updated academics badge - hasUnread: $hasUnread (Assignments: $unreadAssignmentsCount, Exams: $unreadExamsCount)');
+  }
+
+  // Load and count unread notifications from SharedPreferences
+  Future<void> _loadUnreadNotificationCounts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? notificationsData = prefs.getString('unread_notifications');
+      
+      if (notificationsData != null && notificationsData.isNotEmpty) {
+        debugPrint('📬 Stored notifications data: $notificationsData');
+        
+        final List<dynamic> notifications = json.decode(notificationsData);
+        
+        int assignmentCount = 0;
+        int examCount = 0;
+        
+        for (var notification in notifications) {
+          if (notification['data'] != null) {
+            final String type = notification['data']['type']?.toString().toLowerCase() ?? '';
+            
+            if (type == 'assignment') {
+              assignmentCount++;
+            } else if (type == 'exam') {
+              examCount++;
+            }
+          }
+        }
+        
+        setState(() {
+          unreadAssignmentsCount = assignmentCount;
+          unreadExamsCount = examCount;
+        });
+        
+        debugPrint('📊 Unread counts - Assignments: $assignmentCount, Exams: $examCount');
+      } else {
+        debugPrint('📭 No unread notifications found');
+        setState(() {
+          unreadAssignmentsCount = 0;
+          unreadExamsCount = 0;
+        });
+      }
+      
+      // Update the bottom navbar badge after loading counts
+      _updateAcademicsBadge();
+    } catch (e) {
+      debugPrint('❌ Error loading unread notification counts: $e');
+      setState(() {
+        unreadAssignmentsCount = 0;
+        unreadExamsCount = 0;
+      });
+      
+      // Clear badge on error
+      _updateAcademicsBadge();
+    }
+  }
+
+  // Mark notifications as read by sending IDs to API
+  Future<void> _markNotificationsAsRead() async {
+    debugPrint('🔍 _markNotificationsAsRead() called');
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Debug: Check all keys in SharedPreferences
+      final allKeys = prefs.getKeys();
+      debugPrint('🔑 All SharedPreferences keys: $allKeys');
+      
+      final String? idsData = prefs.getString('ids');
+      debugPrint('📝 Raw IDs data from SharedPreferences: $idsData');
+      
+      if (idsData == null || idsData.isEmpty) {
+        debugPrint('📭 No IDs to mark as read');
+        return;
+      }
+      
+      // Parse the IDs list
+      List<dynamic> idsList;
+      try {
+        idsList = json.decode(idsData);
+        debugPrint('✅ Successfully parsed IDs list: $idsList (Type: ${idsList.runtimeType})');
+      } catch (e) {
+        debugPrint('❌ Failed to parse IDs JSON: $e');
+        // Clear corrupted data
+        await prefs.remove('ids');
+        return;
+      }
+      
+      if (idsList.isEmpty) {
+        debugPrint('📭 IDs list is empty after parsing');
+        await prefs.remove('ids');
+        return;
+      }
+      
+      debugPrint('📤 Marking ${idsList.length} notifications as read - IDs: $idsList');
+      
+      // Get fresh access token using AuthService (handles token refresh)
+      final String? accessToken = await _authService.getAccessToken();
+      debugPrint('🔐 Access token obtained from AuthService');
+      
+      if (accessToken == null || accessToken.isEmpty) {
+        debugPrint('❌ Access token not found or empty');
+        return;
+      }
+      
+      // Get base URL using ApiConfig.currentBaseUrl
+      final String baseUrl = ApiConfig.currentBaseUrl;
+      debugPrint('🌐 Base URL from ApiConfig: $baseUrl');
+      
+      if (baseUrl.isEmpty) {
+        debugPrint('❌ Base URL is empty');
+        return;
+      }
+      
+      // Prepare API endpoint
+      final String apiUrl = '$baseUrl/api/notifications/mark_read/';
+      
+      // Prepare request body
+      final Map<String, dynamic> requestBody = {
+        'ids': idsList,
+      };
+      
+      debugPrint('🌐 Full API URL: $apiUrl');
+      debugPrint('📦 Request Body: ${json.encode(requestBody)}');
+      debugPrint('🔐 Authorization Header: Bearer ${accessToken.substring(0, 10)}...');
+      
+      // Create HTTP client with custom certificate handling
+      final client = IOClient(ApiConfig.createHttpClient());
+      
+      try {
+        // Make POST request with authorization headers
+        debugPrint('📡 Sending POST request...');
+        final response = await client.post(
+          Uri.parse(apiUrl),
+          headers: {
+            'Authorization': 'Bearer $accessToken',
+            ...ApiConfig.commonHeaders,
+          },
+          body: json.encode(requestBody),
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            debugPrint('⏱️ Request timed out after 10 seconds');
+            throw Exception('Request timeout');
+          },
+        );
+        
+        debugPrint('📨 Response Status Code: ${response.statusCode}');
+        debugPrint('📨 Response Body: ${response.body}');
+        debugPrint('📨 Response Headers: ${response.headers}');
+        
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          // Successfully marked as read, clear the IDs from SharedPreferences
+          await prefs.remove('ids');
+          debugPrint('✅ Notifications marked as read successfully!');
+          debugPrint('🗑️ IDs list cleared from SharedPreferences');
+        } else if (response.statusCode == 401) {
+          debugPrint('⚠️ Token expired or invalid - User needs to login again');
+          // Handle token expiration
+          await _authService.logout();
+          if (mounted) {
+            Navigator.of(context).pushNamedAndRemoveUntil(
+              '/signup',
+              (Route<dynamic> route) => false,
+            );
+          }
+        } else {
+          debugPrint('⚠️ Failed to mark notifications as read');
+          debugPrint('⚠️ Status Code: ${response.statusCode}');
+          debugPrint('⚠️ Response: ${response.body}');
+        }
+      } finally {
+        client.close();
+      }
+    } on HandshakeException catch (e) {
+      debugPrint('❌ SSL Handshake error: $e');
+      debugPrint('This is normal in development environments with self-signed certificates');
+    } on SocketException catch (e) {
+      debugPrint('❌ Network error: $e');
+      debugPrint('Please check your internet connection');
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error marking notifications as read: $e');
+      debugPrint('❌ Stack trace: $stackTrace');
+    }
+    
+    debugPrint('🏁 _markNotificationsAsRead() completed');
+  }
 
   // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
@@ -109,14 +305,41 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
   }
 
   // Navigation methods
-  void _navigateToExamSchedule() {
-    Navigator.push(
+  void _navigateToExamSchedule() async {
+    // Clear exam badge immediately for instant feedback
+    setState(() {
+      unreadExamsCount = 0;
+    });
+    
+    // Update bottom navbar badge immediately
+    _updateAcademicsBadge();
+    
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const ExamScheduleScreen(),
         settings: const RouteSettings(name: '/exam_schedule'),
       ),
     );
+    
+    // After returning from exam_schedule, wait for dispose to complete
+    debugPrint('🔄 Returned from Exam Schedule');
+    await Future.delayed(const Duration(milliseconds: 300));
+    
+    // Now reload counts - exam notifications should be removed
+    debugPrint('🔄 Reloading notification counts');
+    await _loadUnreadNotificationCounts();
+    
+    // Ensure exam count stays 0 even if there's a timing issue
+    setState(() {
+      if (unreadExamsCount > 0) {
+        debugPrint('⚠️ Exam count still showing, forcing to 0');
+        unreadExamsCount = 0;
+      }
+    });
+    
+    // Update badge again after return
+    _updateAcademicsBadge();
   }
 
   void _navigateToResults() {
@@ -137,16 +360,42 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     );
   }
 
-  void _navigateToAssignments() {
-    // Clear the badge when assignments screen is opened
-    if (NotificationService.hasUnreadAssignments.value) {
-      NotificationService.clearAssignmentBadge();
-    }
-    
-    Navigator.push(
+  void _navigateToAssignments() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const AssignmentsScreen(),
+      ),
+    );
+    
+    // When returning from assignments:
+    debugPrint('🔄 Returned from Assignments');
+    
+    // Wait a bit to ensure any dispose() has completed
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    // First mark notifications as read (send to API)
+    await _markNotificationsAsRead();
+    
+    // Then reload the counts
+    debugPrint('🔄 Reloading notification counts after marking as read');
+    await _loadUnreadNotificationCounts();
+    
+    // Update bottom navbar badge
+    _updateAcademicsBadge();
+    
+    // Force UI update
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  // Navigate to Leave Application
+  void _navigateToLeaveApplication() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const MyLeaveApplicationScreen(),
       ),
     );
   }
@@ -414,13 +663,14 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
 
                     // Conditional rendering based on student type
                     if (!isOnlineStudent) ...[
-                      // Exam Schedule Card (Only for non-online students)
+                      // Exam Schedule Card (Only for non-online students) - With unread badge
                       _buildAcademicCard(
                         icon: Icons.calendar_today_rounded,
                         title: 'Exam Schedule',
                         subtitle: 'View your upcoming exams',
                         color: AppColors.primaryBlue,
                         onTap: _navigateToExamSchedule,
+                        badgeCount: unreadExamsCount,
                       ),
 
                       const SizedBox(height: 12),
@@ -451,21 +701,27 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                     ],
 
                     // Assignments Card (For all students) - With unread badge
-                    // Using the same ValueNotifier that controls the bottom navbar badge
-                    ValueListenableBuilder<bool>(
-                      valueListenable: NotificationService.hasUnreadAssignments,
-                      builder: (context, hasUnread, child) {
-                        debugPrint('🎯 Academics Screen - Assignments badge state: $hasUnread');
-                        return _buildAcademicCard(
-                          icon: Icons.assignment_rounded,
-                          title: 'Assignments',
-                          subtitle: 'Submit and track assignments',
-                          color: AppColors.warningOrange,
-                          onTap: _navigateToAssignments,
-                          showBadge: hasUnread, // Same condition as bottom navbar
-                        );
-                      },
+                    _buildAcademicCard(
+                      icon: Icons.assignment_rounded,
+                      title: 'Assignments',
+                      subtitle: 'Submit and track assignments',
+                      color: AppColors.warningOrange,
+                      onTap: _navigateToAssignments,
+                      badgeCount: unreadAssignmentsCount,
                     ),
+
+                    // Leave Application Card (Only for offline students)
+                    if (!isOnlineStudent) ...[
+                      const SizedBox(height: 12),
+                      
+                      _buildAcademicCard(
+                        icon: Icons.edit_note, 
+                        title: 'Leave Application',
+                        subtitle: 'Apply and track leave requests',
+                        color: AppColors.primaryBlue, 
+                        onTap: _navigateToLeaveApplication,
+                      ),
+                    ],
 
                     const SizedBox(height: 24),
                   ],
@@ -491,10 +747,8 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     required Color color,
     required VoidCallback onTap,
     bool comingSoon = false,
-    bool showBadge = false, // New parameter for showing badge
+    int badgeCount = 0,
   }) {
-    debugPrint('🔄 Building Academic Card - $title, showBadge: $showBadge');
-    
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -511,112 +765,110 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
         ),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          child: Stack(
-            clipBehavior: Clip.none,
+          child: Row(
             children: [
-              Row(
-                children: [
-                  // Icon Container with potential badge
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: color.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(
-                          icon,
-                          color: color,
-                          size: 26,
-                        ),
-                      ),
-                      // Unread badge - synchronized with bottom navbar
-                      if (showBadge)
-                        Positioned(
-                          top: -4,
-                          right: -4,
-                          child: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                  
-                  const SizedBox(width: 14),
-                  
-                  // Text Content
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              // Icon Container
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 26,
+                ),
+              ),
+              
+              const SizedBox(width: 14),
+              
+              // Text Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          children: [
-                            Text(
-                              title,
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textDark,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                            if (comingSoon) ...[
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryYellow.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(5),
-                                ),
-                                child: const Text(
-                                  'Soon',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.primaryYellowDark,
-                                    letterSpacing: 0.3,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 2),
                         Text(
-                          subtitle,
+                          title,
                           style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textGrey,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                            letterSpacing: -0.2,
                           ),
                         ),
+                        if (comingSoon) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryYellow.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: const Text(
+                              'Soon',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primaryYellowDark,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(width: 6),
+              
+              // Badge Count (if > 0) positioned on the right side
+              if (badgeCount > 0) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  
-                  const SizedBox(width: 6),
-                  
-                  // Arrow Icon
-                  Icon(
-                    Icons.arrow_forward_ios_rounded,
-                    color: color.withOpacity(0.6),
-                    size: 16,
+                  constraints: const BoxConstraints(
+                    minWidth: 24,
+                    minHeight: 24,
                   ),
-                ],
+                  child: Center(
+                    child: Text(
+                      badgeCount > 99 ? '99+' : badgeCount.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              
+              // Arrow Icon
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: color.withOpacity(0.6),
+                size: 16,
               ),
             ],
           ),

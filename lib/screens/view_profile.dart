@@ -77,6 +77,8 @@ class ProfileProvider with ChangeNotifier {
   String originalSubCourse = '';
   String originalSubCourseId = '';
 
+  // Public visibility
+  bool showPublic = false;
 
   bool get isEditing => _isEditing;
   bool get isLoading => _isLoading;
@@ -122,6 +124,77 @@ class ProfileProvider with ChangeNotifier {
     nameController.dispose();
     phoneController.dispose();
     emailController.dispose();
+  }
+
+  // Toggle public visibility
+  Future<void> togglePublicVisibility(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      String? accessToken = await _getAccessToken(prefs);
+      
+      if (accessToken == null || accessToken.isEmpty) {
+        throw Exception('No access token found');
+      }
+
+      final httpClient = IOClient(ApiConfig.createHttpClient());
+      final apiUrl = ApiConfig.buildUrl('/api/students/toggle_visibility/');
+
+      final headers = Map<String, String>.from(ApiConfig.commonHeaders);
+      headers['Authorization'] = 'Bearer $accessToken';
+
+      final response = await httpClient.patch(
+        Uri.parse(apiUrl),
+        headers: headers,
+        body: jsonEncode({'show_public': value}),
+      ).timeout(ApiConfig.requestTimeout);
+
+      print('Toggle Visibility API Response Status: ${response.statusCode}');
+      print('Toggle Visibility API Response Body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['success'] == true) {
+          showPublic = responseData['show_public'] ?? value;
+          notifyListeners();
+          print('✅ Public visibility updated to: $showPublic');
+        } else {
+          throw Exception(responseData['message'] ?? 'Failed to update visibility');
+        }
+      } else {
+        throw Exception('Failed to update visibility: HTTP ${response.statusCode}');
+      }
+
+      httpClient.close();
+    } catch (e) {
+      print('❌ Error toggling public visibility: $e');
+      rethrow;
+    }
+  }
+
+  Future<String?> _getAccessToken(SharedPreferences prefs) async {
+    List<String> possibleKeys = [
+      'access_token',
+      'accessToken', 
+      'token',
+      'auth_token',
+      'bearer_token',
+      'jwt_token'
+    ];
+    
+    for (String key in possibleKeys) {
+      String? token = prefs.getString(key);
+      if (token != null && token.isNotEmpty && _isValidToken(token)) {
+        return token;
+      }
+    }
+    return null;
+  }
+
+  bool _isValidToken(String token) {
+    if (token.isEmpty) return false;
+    if (token.split('.').length == 3) return true;
+    if (token.length > 10) return true;
+    return false;
   }
 }
 
@@ -279,6 +352,10 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
               _buildSectionHeader('Academic Information', Icons.menu_book_rounded),
               _buildAcademicInfoSection(profileProvider),
 
+              // Public Visibility Section (For all student types)
+              const SizedBox(height: 24),
+              _buildPublicVisibilitySection(profileProvider),
+
               // Subscription Information (Only for Public students)
               if (profileProvider.studentType.toLowerCase() == 'public' && profileProvider.subscriptionData != null) ...[
                 const SizedBox(height: 24),
@@ -301,16 +378,16 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
 
   Widget _buildProfileCard(ProfileProvider profileProvider) {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.symmetric(horizontal: 16), // Reduced margin to increase width
+      padding: const EdgeInsets.all(24), // Increased padding
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20), // Slightly larger border radius
         boxShadow: [
           BoxShadow(
             color: AppColors.primaryYellow.withOpacity(0.15),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+            blurRadius: 25, // Increased blur radius
+            offset: const Offset(0, 10), // Increased shadow offset
           ),
         ],
       ),
@@ -332,29 +409,29 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
               boxShadow: [
                 BoxShadow(
                   color: AppColors.primaryYellow.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                  blurRadius: 15, // Increased blur radius
+                  offset: const Offset(0, 6), // Increased shadow offset
                 ),
               ],
             ),
             child: const CircleAvatar(
-              radius: 45,
+              radius: 50, // Increased radius
               backgroundColor: Colors.white,
               child: Icon(
                 Icons.person_rounded,
-                size: 50,
+                size: 55, // Increased icon size
                 color: AppColors.primaryYellow,
               ),
             ),
           ),
           
-          const SizedBox(height: 16),
+          const SizedBox(height: 20), // Increased spacing
           
           // Name
           Text(
             profileProvider.nameController.text.isNotEmpty ? profileProvider.nameController.text : 'User Name',
             style: const TextStyle(
-              fontSize: 22,
+              fontSize: 24, // Increased font size
               fontWeight: FontWeight.bold,
               color: AppColors.textDark,
               letterSpacing: -0.3,
@@ -364,11 +441,11 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           
           // Email
           if (profileProvider.emailController.text.isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: 8), // Increased spacing
             Text(
               profileProvider.emailController.text,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 14, // Slightly increased font size
                 color: AppColors.textGrey,
                 fontWeight: FontWeight.w500,
               ),
@@ -378,9 +455,9 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           
           // Student Type Badge
           if (profileProvider.studentType.isNotEmpty) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 16), // Increased spacing
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), // Increased padding
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -388,7 +465,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
                     AppColors.primaryYellow.withOpacity(0.1),
                   ],
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(25), // Slightly larger border radius
                 border: Border.all(
                   color: AppColors.primaryYellow.withOpacity(0.3),
                   width: 1.5,
@@ -400,13 +477,13 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
                   const Icon(
                     Icons.school_rounded,
                     color: AppColors.primaryYellow,
-                    size: 16,
+                    size: 18, // Slightly increased icon size
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8), // Increased spacing
                   Text(
                     profileProvider.studentType.toUpperCase(),
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 13, // Slightly increased font size
                       fontWeight: FontWeight.bold,
                       color: AppColors.primaryYellow,
                       letterSpacing: 0.5,
@@ -419,6 +496,229 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildPublicVisibilitySection(ProfileProvider profileProvider) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            _buildSectionHeaderWithToggle(
+              'Show profile to public',
+              Icons.public_rounded,
+              profileProvider.showPublic,
+              onToggle: (value) {
+                _showPublicVisibilityDialog(context, profileProvider, value);
+              },
+              isFirst: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeaderWithToggle(
+    String title,
+    IconData icon,
+    bool value, {
+    required Function(bool) onToggle,
+    bool isFirst = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, isFirst ? 16 : 14, 16, 16),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.primaryBlue.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: AppColors.primaryBlue, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textDark,
+                    letterSpacing: -0.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onToggle,
+            activeColor: AppColors.primaryYellow,
+            activeTrackColor: AppColors.primaryYellow.withOpacity(0.5),
+          ),
+        ],
+      ),
+    );
+  }
+
+ void _showPublicVisibilityDialog(BuildContext context, ProfileProvider profileProvider, bool newValue) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      contentPadding: const EdgeInsets.all(0),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
+      content: SizedBox(
+        width: MediaQuery.of(context).size.width - 48,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with close button
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Manage your profile visibility',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: AppColors.textGrey),
+                    onPressed: () => Navigator.of(context).pop(),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    iconSize: 24,
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 16),
+              
+              // Description
+              const Text(
+                "Allow recruiters and others to view your profile when they search. Enabling this helps you get discovered for opportunities.",
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.textGrey,
+                  height: 1.4,
+                ),
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // Action buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                        // Call API with false to turn off visibility
+                        await _togglePublicVisibility(profileProvider, false);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Colors.red, width: 1.5),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        "Don't Allow",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.red,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                        // Call API with true to turn on visibility
+                        await _togglePublicVisibility(profileProvider, true);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryYellow,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Allow',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+  Future<void> _togglePublicVisibility(ProfileProvider profileProvider, bool value) async {
+    try {
+      await profileProvider.togglePublicVisibility(value);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              value ? 'Profile is now visible to public' : 'Profile is now private',
+            ),
+            backgroundColor: AppColors.primaryYellow,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update visibility: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildPersonalInfoSection(ProfileProvider profileProvider) {
@@ -1232,11 +1532,11 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
       child: Column(
         children: [
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.all(20),
+            margin: const EdgeInsets.symmetric(horizontal: 16), // Reduced margin
+            padding: const EdgeInsets.all(24), // Increased padding
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(20), // Larger border radius
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.04),
@@ -1248,17 +1548,17 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
             child: Column(
               children: [
                 Container(
-                  width: 94,
-                  height: 94,
+                  width: 104, // Increased width
+                  height: 104, // Increased height
                   decoration: const BoxDecoration(
                     color: AppColors.grey200,
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20), // Increased spacing
                 Container(
                   width: 180,
-                  height: 20,
+                  height: 24, // Increased height
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
@@ -1267,16 +1567,16 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
                 const SizedBox(height: 8),
                 Container(
                   width: 140,
-                  height: 14,
+                  height: 16, // Increased height
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16), // Increased spacing
                 Container(
                   width: 100,
-                  height: 32,
+                  height: 36, // Increased height
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(20),
@@ -1380,6 +1680,86 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
                       ),
                     ],
                   ),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          
+          // Public Visibility Skeleton
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 180,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.grey200,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: AppColors.grey200,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 48,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: AppColors.grey200,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1581,6 +1961,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           profileProvider.selectedBirthday = _formatDate(profile['dob']);
           profileProvider.studentType = profile['student_type']?.toString() ?? '';
           profileProvider.subscriptionData = profile['subscription'];
+          profileProvider.showPublic = profile['show_public'] ?? false;
           
           if (profile['enrollments'] != null) {
             print('🎓 Enrollments data: ${profile['enrollments']}');
@@ -1607,6 +1988,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           print('   - Subcourse: ${profileProvider.selectedSubCourse}');
           print('   - Subcourse ID: ${profileProvider.selectedSubCourseId}');
           print('   - Student Type: ${profileProvider.studentType}');
+          print('   - Show Public: ${profileProvider.showPublic}');
           print('   - Can Edit: ${profileProvider.canEditProfile}');
           
           await _fetchCoursesAndSubcourses(profileProvider);

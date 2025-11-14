@@ -14,6 +14,7 @@ import 'dart:async';
 import '../screens/subscription/subscription.dart';
 import 'streak_challenge_sheet.dart'; 
 import '../common/bottom_navbar.dart'; 
+import '../service/notification_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +25,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
+  
   String phoneNumber = '';
   String countryCode = '+91';
   String name = '';
@@ -40,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool isSubscriptionActive = false;
   bool profileCompleted = false;
   bool isLoading = true;
+  bool isRefreshing = false;
   bool _isCourseExpanded = false;
   String streakDays = '0';
   int currentStreak = 0;  
@@ -70,6 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _keyStudentType = 'profile_student_type';
   static const String _keyCurrentStreak = 'profile_current_streak'; 
   static const String _keyLongestStreak = 'profile_longest_streak'; 
+  static const String _keyUnreadNotifications = 'unread_notifications';
 
   @override
   void initState() {
@@ -82,6 +87,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _autoScrollTimer?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  // 🆕 Manual refresh trigger
+  void triggerRefresh() {
+    _refreshIndicatorKey.currentState?.show();
   }
 
   Future<void> _storeStartTime() async {
@@ -144,11 +154,35 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     
     _loadCachedProfileData().then((_) {
-     
       _storeStartTime();
-    
       _fetchProfileData();
     });
+  }
+
+  // 🆕 Main refresh method
+  Future<void> _refreshData() async {
+    setState(() {
+      isRefreshing = true;
+    });
+
+    try {
+      await _fetchProfileData();
+      
+      // 🆕 ALWAYS fetch subjects data from API during refresh, don't use cache
+      if (subcourseId.isNotEmpty) {
+        await _fetchAndStoreSubjects(forceRefresh: true);
+      }
+      
+      await _registerDeviceToken();
+      
+      debugPrint('✅ All data refreshed successfully from API');
+    } catch (e) {
+      debugPrint('❌ Error during refresh: $e');
+    } finally {
+      setState(() {
+        isRefreshing = false;
+      });
+    }
   }
 
  Future<void> _loadCachedProfileData() async {
@@ -264,6 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.remove(_keyStudentType);
       await prefs.remove(_keyCurrentStreak); 
       await prefs.remove(_keyLongestStreak);  
+      await prefs.remove(_keyUnreadNotifications);
       
       debugPrint('Cached profile data cleared');
     } catch (e) {
@@ -278,9 +313,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
  Future<void> _fetchProfileData() async {
   try {
-    setState(() {
-      isLoading = true;
-    });
+    if (!isRefreshing) {
+      setState(() {
+        isLoading = true;
+      });
+    }
 
     String accessToken = await _authService.getAccessToken();
 
@@ -374,11 +411,12 @@ class _HomeScreenState extends State<HomeScreen> {
           _storeStartTime();
 
           // After fetching profile data, fetch subjects data
+          // 🆕 During initial load, use cache if available, otherwise fetch from API
           if (subcourseId.isNotEmpty) {
-            await _fetchAndStoreSubjects();
+            await _fetchAndStoreSubjects(forceRefresh: false);
           }
 
-          // After fetching profile and subjects, register device token
+          // After fetching profile and subjects, register device token and fetch notifications
           _registerDeviceToken();
 
         } else {
@@ -440,8 +478,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-  // Fetch subjects from API and store in SharedPreferences
-  Future<void> _fetchAndStoreSubjects() async {
+  // 🆕 MODIFIED: Fetch subjects from API and store in SharedPreferences with forceRefresh option
+  Future<void> _fetchAndStoreSubjects({bool forceRefresh = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       
@@ -461,20 +499,22 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
 
-      // Check if subjects data already exists in SharedPreferences for this subcourse_id
-      final String? cachedSubjectsData = prefs.getString('subjects_data');
-      final String? cachedSubcourseId = prefs.getString('cached_subcourse_id');
-      
-      if (cachedSubjectsData != null && 
-          cachedSubjectsData.isNotEmpty && 
-          cachedSubcourseId == encryptedId) {
-        print('✅ Using cached subjects data from SharedPreferences');
-        print('Cached subcourse_id matches current: $encryptedId');
-        return;
+      // 🆕 Check if we should use cache (only for initial load, not during refresh)
+      if (!forceRefresh) {
+        final String? cachedSubjectsData = prefs.getString('subjects_data');
+        final String? cachedSubcourseId = prefs.getString('cached_subcourse_id');
+        
+        if (cachedSubjectsData != null && 
+            cachedSubjectsData.isNotEmpty && 
+            cachedSubcourseId == encryptedId) {
+          print('✅ Using cached subjects data from SharedPreferences');
+          print('Cached subcourse_id matches current: $encryptedId');
+          return;
+        }
       }
 
-      // No cached data or subcourse_id changed, fetch from API
-      print('📡 No cached data found or subcourse_id changed. Fetching from API...');
+      // 🆕 ALWAYS fetch from API during refresh OR if no cached data exists
+      print('📡 ${forceRefresh ? 'Force refreshing' : 'Fetching'} subjects from API...');
       
       // Encode the subcourse_id
       String encodedId = Uri.encodeComponent(encryptedId);
@@ -510,7 +550,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final List<dynamic> subjects = responseData['subjects'];
           await prefs.setInt('subjects_count', subjects.length);
           
-          print('✅ Subjects data stored successfully!');
+          print('✅ Subjects data ${forceRefresh ? 'refreshed' : 'stored'} successfully!');
           print('Total subjects: ${subjects.length}');
           print('Cached for subcourse_id: $encryptedId');
         } else {
@@ -582,6 +622,9 @@ class _HomeScreenState extends State<HomeScreen> {
           final responseData = json.decode(response.body);
           if (responseData['success'] == true) {
             debugPrint('✅ Device token registered successfully');
+            
+            // After successful device registration, fetch unread notifications
+            await _fetchUnreadNotifications();
           } else {
             debugPrint('⚠️ Device registration API returned success: false');
             debugPrint('Response data: $responseData');
@@ -614,6 +657,114 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Fetch unread notifications and store in SharedPreferences
+  Future<void> _fetchUnreadNotifications() async {
+    try {
+      debugPrint('📬 Fetching unread notifications...');
+      
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Get access token for authorization
+      String accessToken = await _authService.getAccessToken();
+      if (accessToken.isEmpty) {
+        debugPrint('❌ Access token not available for fetching notifications');
+        return;
+      }
+
+      debugPrint('✅ Access token available for fetching notifications');
+
+      final client = _createHttpClientWithCustomCert();
+
+      try {
+        final url = Uri.parse('${ApiConfig.currentBaseUrl}/api/notifications/unread/');
+        debugPrint('🌐 Making GET request to: $url');
+
+        // Make GET request to fetch unread notifications
+        final response = await client.get(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $accessToken',
+          },
+        ).timeout(const Duration(seconds: 15));
+
+        debugPrint('📬 Unread notifications response status: ${response.statusCode}');
+        debugPrint('📬 Unread notifications response body: ${response.body}');
+
+        if (response.statusCode == 200) {
+          final List<dynamic> responseData = json.decode(response.body);
+          
+          // Store the complete response in SharedPreferences
+          await prefs.setString(_keyUnreadNotifications, json.encode(responseData));
+          
+          debugPrint('✅ Unread notifications stored successfully');
+          debugPrint('📬 Total unread notifications: ${responseData.length}');
+          
+          // Print the stored data for verification
+          final storedData = prefs.getString(_keyUnreadNotifications);
+          debugPrint('💾 Stored notifications data: $storedData');
+          
+          // Update the notification service with the new data
+          _updateNotificationBadges(responseData);
+          
+        } else if (response.statusCode == 401) {
+          debugPrint('🔐 Unauthorized - token might be expired for notifications');
+        } else {
+          debugPrint('❌ Failed to fetch unread notifications: ${response.statusCode}');
+        }
+      } on TimeoutException {
+        debugPrint('⏰ Unread notifications request timed out');
+      } on SocketException catch (e) {
+        debugPrint('🌐 Network error during notifications fetch: $e');
+      } on HandshakeException catch (e) {
+        debugPrint('🔒 SSL Handshake error during notifications fetch: $e');
+      } catch (e) {
+        debugPrint('❌ Unexpected error during notifications fetch: $e');
+      } finally {
+        client.close();
+      }
+    } catch (e) {
+      debugPrint('💥 Error in _fetchUnreadNotifications method: $e');
+    }
+  }
+
+  // Update notification badges based on the response data
+  void _updateNotificationBadges(List<dynamic> notifications) {
+    bool hasAssignment = false;
+    bool hasExam = false;
+    bool hasSubscription = false;
+    bool hasVideoLecture = false; // 🆕 Track video lectures
+
+    for (var notification in notifications) {
+      if (notification['data'] != null) {
+        final String type = notification['data']['type']?.toString().toLowerCase() ?? '';
+        
+        if (type == 'assignment') {
+          hasAssignment = true;
+        } else if (type == 'exam') {
+          hasExam = true;
+        } else if (type == 'subscription') {
+          hasSubscription = true;
+        } else if (type == 'video_lecture') { // 🆕 Check for video_lecture type
+          hasVideoLecture = true;
+        }
+      }
+    }
+
+    debugPrint('🎯 Notification analysis:');
+    debugPrint('   - Assignment: $hasAssignment');
+    debugPrint('   - Exam: $hasExam');
+    debugPrint('   - Subscription: $hasSubscription');
+    debugPrint('   - Video Lecture: $hasVideoLecture'); // 🆕 Log video lecture status
+
+    // Update the notification service
+    NotificationService.updateBadges(
+      hasUnreadAssignments: hasAssignment || hasExam,
+      hasUnreadSubscription: hasSubscription,
+      hasUnreadVideoLectures: hasVideoLecture, // 🆕 Pass video lecture status
+    );
+  }
+
   // Retry device registration with new access token
   Future<void> _retryDeviceRegistration(String deviceToken, String newAccessToken) async {
     try {
@@ -640,6 +791,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
         if (response.statusCode == 200 || response.statusCode == 201) {
           debugPrint('✅ Device token registered successfully on retry');
+          
+          // After successful device registration, fetch unread notifications
+          await _fetchUnreadNotifications();
         } else {
           debugPrint('❌ Device registration failed on retry: ${response.statusCode}');
         }
@@ -902,6 +1056,9 @@ class _HomeScreenState extends State<HomeScreen> {
    }
 
   void _navigateToVideoClasses() {
+    // 🆕 Clear video lecture badge when user navigates to video classes
+    NotificationService.clearVideoLectureBadge();
+    
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -1002,430 +1159,435 @@ class _HomeScreenState extends State<HomeScreen> {
           Navigator.of(context).pop(); 
         },
       ),
-      body: Stack(
-        children: [
-          // Main scrollable content
-          Column(
-            children: [
-              // Non-scrollable Header Section with Curved Bottom
-              ClipPath(
-                clipper: CurvedHeaderClipper(),
-                child: Container(
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.primaryYellow,
-                        AppColors.primaryYellowDark,
-                      ],
-                    ),
+      body: RefreshIndicator(
+        key: _refreshIndicatorKey,
+        onRefresh: _refreshData,
+        color: AppColors.primaryYellow,
+        backgroundColor: AppColors.backgroundLight,
+        displacement: 40,
+        strokeWidth: 2.5,
+        triggerMode: RefreshIndicatorTriggerMode.onEdge,
+        child: Column(
+          children: [
+            // Non-scrollable Header Section with Curved Bottom
+            ClipPath(
+              clipper: CurvedHeaderClipper(),
+              child: Container(
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppColors.primaryYellow,
+                      AppColors.primaryYellowDark,
+                    ],
                   ),
-                  padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 0),
-                      // Welcome Text with Streak
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                RichText(
-                                  text: TextSpan(
-                                    style: const TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                      letterSpacing: -0.3,
-                                    ),
-                                    children: [
-                                      const TextSpan(text: 'Welcome, '),
-                                      TextSpan(
-                                        text: name.isNotEmpty 
-                                          ? name.split(' ').first 
-                                          : 'Student',
-                                      ),
-                                    ],
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 0),
+                    // Welcome Text with Streak
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              RichText(
+                                text: TextSpan(
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: -0.3,
                                   ),
+                                  children: [
+                                    const TextSpan(text: 'Welcome, '),
+                                    TextSpan(
+                                      text: name.isNotEmpty 
+                                        ? name.split(' ').first 
+                                        : 'Student',
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(height: 4),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Everything you need to learn in one place',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.white.withOpacity(0.88),
+                                  fontWeight: FontWeight.w500,
+                                  letterSpacing: 0.1,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        // Streak Display 
+                        GestureDetector(
+                          onTap: () {
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => StreakChallengeSheet(
+                                currentStreak: currentStreak,
+                                longestStreak: longestStreak,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text(
+                                  '🔥',
+                                  style: TextStyle(fontSize: 20),
+                                ),
+                                const SizedBox(width: 6),
                                 Text(
-                                  'Everything you need to learn in one place',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.white.withOpacity(0.88),
-                                    fontWeight: FontWeight.w500,
-                                    letterSpacing: 0.1,
+                                  '$currentStreak',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: -0.2,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(width: 16),
-                          // Streak Display 
-                          GestureDetector(
-                            onTap: () {
-                              showModalBottomSheet(
-                                context: context,
-                                isScrollControlled: true,
-                                backgroundColor: Colors.transparent,
-                                builder: (context) => StreakChallengeSheet(
-                                  currentStreak: currentStreak,
-                                  longestStreak: longestStreak,
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // Course and Subcourse Info 
+                    if (course.isNotEmpty || subcourse.isNotEmpty)
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            child: const Icon(
+                              Icons.school_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: RichText(
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              text: TextSpan(
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white,
+                                  letterSpacing: -0.1,
                                 ),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Text(
-                                    '🔥',
-                                    style: TextStyle(fontSize: 20),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '$currentStreak',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                      letterSpacing: -0.2,
+                                  if (course.isNotEmpty)
+                                    TextSpan(
+                                      text: course,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
-                                  ),
+                                  if (course.isNotEmpty && subcourse.isNotEmpty)
+                                    const TextSpan(
+                                      text: ' • ',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  if (subcourse.isNotEmpty)
+                                    TextSpan(
+                                      text: subcourse,
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.85),
+                                      ),
+                                    ),
                                 ],
                               ),
                             ),
                           ),
                         ],
                       ),
-
-                      const SizedBox(height: 18),
-
-                      // Course and Subcourse Info 
-                      if (course.isNotEmpty || subcourse.isNotEmpty)
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(4),
-                              child: const Icon(
-                                Icons.school_rounded,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: RichText(
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                text: TextSpan(
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.white,
-                                    letterSpacing: -0.1,
-                                  ),
-                                  children: [
-                                    if (course.isNotEmpty)
-                                      TextSpan(
-                                        text: course,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    if (course.isNotEmpty && subcourse.isNotEmpty)
-                                      const TextSpan(
-                                        text: ' • ',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    if (subcourse.isNotEmpty)
-                                      TextSpan(
-                                        text: subcourse,
-                                        style: TextStyle(
-                                          color: Colors.white.withOpacity(0.85),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
+            ),
 
-              // Scrollable Content
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Quick Access Section
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 28, 20, 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  width: 4,
-                                  height: 26,
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primaryYellow,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                const Text(
-                                  'Quick Access',
-                                  style: TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textDark,
-                                    letterSpacing: -0.3,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Scrollable Quick Access Cards
-                      SizedBox(
-                        height: 150,
-                        child: PageView(
-                          controller: _pageController,
-                          physics: const BouncingScrollPhysics(),
-                          onPageChanged: (index) {
-                            setState(() {
-                              _currentPage = index;
-                            });
-                          },
-                          children: [
-                            _buildQuickAccessCard(
-                              icon: Icons.description_rounded,
-                              title: 'Study Notes',
-                              subtitle: 'Comprehensive study materials',
-                              color1: AppColors.primaryYellow,
-                              color2: AppColors.primaryYellowLight,
-                              imagePath: "assets/images/notes.png",
-                              onTap: _navigateToNotes,
-                            ),
-                            _buildQuickAccessCard(
-                              icon: Icons.quiz_rounded,
-                              title: 'Question Papers',
-                              subtitle: 'Previous year papers',
-                              color1: AppColors.primaryBlue,
-                              color2: AppColors.primaryBlueLight,
-                              imagePath: "assets/images/question_papers.png",
-                              onTap: _navigateToQuestionPapers,
-                            ),
-                            _buildQuickAccessCard(
-                              icon: Icons.play_circle_filled_rounded,
-                              title: 'Video Classes',
-                              subtitle: 'Expert lectures and tutorials',
-                              color1: AppColors.warningOrange,
-                              color2: const Color(0xFFFFAB40),
-                              imagePath: "assets/images/video_classes.png",
-                              onTap: _navigateToVideoClasses,
-                            ),
-                            _buildQuickAccessCard(
-                              icon: Icons.assignment_rounded,
-                              title: 'Mock Tests',
-                              subtitle: 'Assess your preparation',
-                              color1: const Color(0xFFFFD54F),
-                              color2: const Color(0xFFFFE082),
-                              imagePath: "assets/images/mock_test.png",
-                              onTap: _navigateToMockTest,
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      // Page Indicator Dots
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Center(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(4, (index) {
-                              return Container(
-                                margin: const EdgeInsets.symmetric(horizontal: 4),
-                                width: _currentPage == index ? 10 : 6,
-                                height: 6,
+            // Scrollable Content
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Quick Access Section
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 4,
+                                height: 26,
                                 decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _currentPage == index
-                                      ? AppColors.primaryYellow
-                                      : AppColors.grey300,
+                                  color: AppColors.primaryYellow,
+                                  borderRadius: BorderRadius.circular(2),
                                 ),
-                              );
-                            }),
-                          ),
-                        ),
-                      ),
-
-                      // Main Action Buttons Section )
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding:  EdgeInsets.only(bottom: 16),
-                              child: Text(
-                                'Your Learning Tools',
+                              ),
+                              const SizedBox(width: 12),
+                              const Text(
+                                'Quick Access',
                                 style: TextStyle(
-                                  fontSize: 18,
+                                  fontSize: 22,
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.textDark,
-                                  letterSpacing: -0.2,
+                                  letterSpacing: -0.3,
                                 ),
                               ),
-                            ),
-                            // First Row: Video Classes and Notes
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildActionButton(
-                                    icon: Icons.play_circle_filled_rounded,
-                                    label: 'Video\nClasses',
-                                    color: AppColors.warningOrange,
-                                    onTap: _navigateToVideoClasses,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildActionButton(
-                                    icon: Icons.description_rounded,
-                                    label: 'Notes',
-                                    color: AppColors.primaryYellow,
-                                    onTap: _navigateToNotes,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            // Second Row: Question Papers and Reference Videos
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildActionButton(
-                                    icon: Icons.quiz_rounded,
-                                    label: 'Question\nPapers',
-                                    color: AppColors.primaryBlue,
-                                    onTap: _navigateToQuestionPapers,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildActionButton(
-                                    icon: Icons.video_library_rounded,
-                                    label: 'Reference\nVideos',
-                                    color: AppColors.successGreen,
-                                    onTap: _navigateToReferenceVideos,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Scrollable Quick Access Cards
+                    SizedBox(
+                      height: 150,
+                      child: PageView(
+                        controller: _pageController,
+                        physics: const BouncingScrollPhysics(),
+                        onPageChanged: (index) {
+                          setState(() {
+                            _currentPage = index;
+                          });
+                        },
+                        children: [
+                          _buildQuickAccessCard(
+                            icon: Icons.description_rounded,
+                            title: 'Study Notes',
+                            subtitle: 'Comprehensive study materials',
+                            color1: AppColors.primaryYellow,
+                            color2: AppColors.primaryYellowLight,
+                            imagePath: "assets/images/notes.png",
+                            onTap: _navigateToNotes,
+                          ),
+                          _buildQuickAccessCard(
+                            icon: Icons.quiz_rounded,
+                            title: 'Question Papers',
+                            subtitle: 'Previous year papers',
+                            color1: AppColors.primaryBlue,
+                            color2: AppColors.primaryBlueLight,
+                            imagePath: "assets/images/question_papers.png",
+                            onTap: _navigateToQuestionPapers,
+                          ),
+                          _buildQuickAccessCard(
+                            icon: Icons.play_circle_filled_rounded,
+                            title: 'Video Classes',
+                            subtitle: 'Expert lectures and tutorials',
+                            color1: AppColors.warningOrange,
+                            color2: const Color(0xFFFFAB40),
+                            imagePath: "assets/images/video_classes.png",
+                            onTap: _navigateToVideoClasses,
+                          ),
+                          _buildQuickAccessCard(
+                            icon: Icons.assignment_rounded,
+                            title: 'Mock Tests',
+                            subtitle: 'Assess your preparation',
+                            color1: const Color(0xFFFFD54F),
+                            color2: const Color(0xFFFFE082),
+                            imagePath: "assets/images/mock_test.png",
+                            onTap: _navigateToMockTest,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Page Indicator Dots
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Center(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: List.generate(4, (index) {
+                            return Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              width: _currentPage == index ? 10 : 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _currentPage == index
+                                    ? AppColors.primaryYellow
+                                    : AppColors.grey300,
+                              ),
+                            );
+                          }),
                         ),
                       ),
+                    ),
 
-                      // Profile Completion Reminder
-                      if (!profileCompleted)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  AppColors.warningOrange.withOpacity(0.08),
-                                  AppColors.warningOrange.withOpacity(0.04),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                color: AppColors.warningOrange.withOpacity(0.25),
-                                width: 1.5,
-                              ),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.warningOrange.withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Icon(
-                                      Icons.info_outline_rounded,
-                                      color: AppColors.warningOrange,
-                                      size: 24,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  const Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'Complete Your Profile',
-                                          style: TextStyle(
-                                            fontSize: 15,
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.warningOrange,
-                                          ),
-                                        ),
-                                         SizedBox(height: 4),
-                                        Text(
-                                          'Unlock all features by completing your profile information',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: AppColors.textGrey,
-                                            letterSpacing: 0.2,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                    // Main Action Buttons Section
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding:  EdgeInsets.only(bottom: 16),
+                            child: Text(
+                              'Your Learning Tools',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textDark,
+                                letterSpacing: -0.2,
                               ),
                             ),
                           ),
-                        ),
+                          // First Row: Video Classes and Notes
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildActionButton(
+                                  icon: Icons.play_circle_filled_rounded,
+                                  label: 'Video\nClasses',
+                                  color: AppColors.warningOrange,
+                                  onTap: _navigateToVideoClasses,
+                                  showBadge: true, // 🆕 Enable badge for Video Classes
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildActionButton(
+                                  icon: Icons.description_rounded,
+                                  label: 'Notes',
+                                  color: AppColors.primaryYellow,
+                                  onTap: _navigateToNotes,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Second Row: Question Papers and Reference Videos
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildActionButton(
+                                  icon: Icons.quiz_rounded,
+                                  label: 'Question\nPapers',
+                                  color: AppColors.primaryBlue,
+                                  onTap: _navigateToQuestionPapers,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildActionButton(
+                                  icon: Icons.video_library_rounded,
+                                  label: 'Reference\nVideos',
+                                  color: AppColors.successGreen,
+                                  onTap: _navigateToReferenceVideos,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
 
-                      const SizedBox(height: 20),
-                    ],
-                  ),
+                    // Profile Completion Reminder
+                    if (!profileCompleted && !isLoading)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                AppColors.warningOrange.withOpacity(0.08),
+                                AppColors.warningOrange.withOpacity(0.04),
+                            ],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: AppColors.warningOrange.withOpacity(0.25),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.warningOrange.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.info_outline_rounded,
+                                    color: AppColors.warningOrange,
+                                    size: 24,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Complete Your Profile',
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.bold,
+                                          color: AppColors.warningOrange,
+                                        ),
+                                      ),
+                                       SizedBox(height: 4),
+                                      Text(
+                                        'Unlock all features by completing your profile information',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: AppColors.textGrey,
+                                          letterSpacing: 0.2,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    const SizedBox(height: 20),
+                  ],
                 ),
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
       bottomNavigationBar: CommonBottomNavBar(
         currentIndex: _currentIndex,
@@ -1543,12 +1705,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Action Button Widget
+  // 🆕 Modified Action Button Widget with Badge Support
   Widget _buildActionButton({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
+    bool showBadge = false, // 🆕 Parameter to control badge visibility
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -1568,17 +1731,49 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              padding: const EdgeInsets.all(13),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 26,
-              ),
+            // 🆕 Stack for icon with badge
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(13),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: 26,
+                  ),
+                ),
+                // 🆕 Conditional badge display
+                if (showBadge)
+                  ValueListenableBuilder<Map<String, bool>>(
+                    valueListenable: NotificationService.badgeNotifier,
+                    builder: (context, badges, child) {
+                      final hasUnread = badges['hasUnreadVideoLectures'] ?? false;
+                      if (!hasUnread) return const SizedBox.shrink();
+                      
+                      return Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
             ),
             const SizedBox(height: 10),
             Text(

@@ -50,6 +50,10 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   bool _showSubscriptionMessage = false;
   bool _hasLockedVideos = false;
 
+  // Notification data
+  List<dynamic> _notificationData = [];
+  List<String> _idsToMarkRead = [];
+
   @override
   void initState() {
     super.initState();
@@ -113,6 +117,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   Future<void> _initializeData() async {
     await _getAccessToken();
     await _loadStudentType(); // Load student type first
+    await _loadNotificationData(); // Load notification data
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _loadDataFromSharedPreferences();
     } else {
@@ -132,6 +137,205 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     } catch (e) {
       debugPrint('Error loading student type: $e');
     }
+  }
+
+  // Load notification data from SharedPreferences
+  Future<void> _loadNotificationData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? notificationDataJson = prefs.getString('unread_notifications');
+      
+      if (notificationDataJson != null && notificationDataJson.isNotEmpty) {
+        final List<dynamic> notificationData = json.decode(notificationDataJson);
+        setState(() {
+          _notificationData = notificationData;
+        });
+        debugPrint('✅ Loaded ${_notificationData.length} notification items');
+        
+        // Load existing IDs to mark read
+        final String? idsJson = prefs.getString('ids_to_mark_read');
+        if (idsJson != null && idsJson.isNotEmpty) {
+          final List<dynamic> idsList = json.decode(idsJson);
+          setState(() {
+            _idsToMarkRead = idsList.map((id) => id.toString()).toList();
+          });
+          debugPrint('✅ Loaded ${_idsToMarkRead.length} IDs to mark read');
+        }
+      } else {
+        debugPrint('⚠️ No notification data found in SharedPreferences');
+        setState(() {
+          _notificationData = [];
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading notification data: $e');
+      setState(() {
+        _notificationData = [];
+      });
+    }
+  }
+
+  // Save IDs to mark read in SharedPreferences
+  Future<void> _saveIdsToMarkRead() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('ids_to_mark_read', json.encode(_idsToMarkRead));
+      debugPrint('💾 Saved ${_idsToMarkRead.length} IDs to mark read');
+    } catch (e) {
+      debugPrint('Error saving IDs to mark read: $e');
+    }
+  }
+
+  // Remove notification data for a specific video and add to IDs list
+  Future<void> _removeNotificationForVideo(String videoId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      List<dynamic> updatedNotifications = [];
+      bool found = false;
+
+      for (var notification in _notificationData) {
+        final data = notification['data'];
+        if (data != null && data['video_id']?.toString() == videoId) {
+          // Add the notification ID to the mark read list
+          final notificationId = notification['id']?.toString();
+          if (notificationId != null && !_idsToMarkRead.contains(notificationId)) {
+            _idsToMarkRead.add(notificationId);
+            found = true;
+            debugPrint('✅ Added notification ID $notificationId to mark read list for video $videoId');
+          }
+        } else {
+          updatedNotifications.add(notification);
+        }
+      }
+
+      if (found) {
+        // Save updated notification data
+        await prefs.setString('unread_notifications', json.encode(updatedNotifications));
+        
+        // Save IDs to mark read
+        await _saveIdsToMarkRead();
+        
+        setState(() {
+          _notificationData = updatedNotifications;
+        });
+        
+        debugPrint('✅ Removed notification for video $videoId and added to mark read list');
+      }
+    } catch (e) {
+      debugPrint('Error removing notification for video: $e');
+    }
+  }
+
+  // Send mark read API call
+  Future<void> _sendMarkReadApi() async {
+    if (_idsToMarkRead.isEmpty) {
+      debugPrint('📭 No IDs to mark as read');
+      return;
+    }
+
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      debugPrint('❌ No access token available for mark read API');
+      return;
+    }
+
+    try {
+      final apiUrl = '${ApiConfig.baseUrl}/api/notifications/mark_read/';
+      final requestBody = {
+        "ids": _idsToMarkRead,
+      };
+
+      debugPrint('📤 Sending mark read API request to: $apiUrl');
+      debugPrint('📦 Request body: ${json.encode(requestBody)}');
+
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {
+          'Authorization': 'Bearer $_accessToken',
+          'Content-Type': 'application/json',
+          ...ApiConfig.commonHeaders,
+        },
+        body: json.encode(requestBody),
+      ).timeout(const Duration(seconds: 30));
+
+      debugPrint('📬 Mark read response status: ${response.statusCode}');
+      debugPrint('📬 Mark read response body: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final responseJson = json.decode(response.body);
+        if (responseJson['success'] == true) {
+          debugPrint('✅ Successfully marked ${_idsToMarkRead.length} notifications as read');
+          
+          // Clear the IDs list from SharedPreferences
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('ids_to_mark_read');
+          
+          setState(() {
+            _idsToMarkRead.clear();
+          });
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Marked ${_idsToMarkRead.length} notifications as read'),
+                backgroundColor: AppColors.successGreen,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } else {
+          debugPrint('❌ Mark read API returned success: false');
+        }
+      } else {
+        debugPrint('❌ Failed to mark notifications as read: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error sending mark read API: $e');
+    }
+  }
+
+  // Check if subject has unread notifications
+  bool _hasUnreadSubjectNotifications(String subjectId) {
+    for (var notification in _notificationData) {
+      final data = notification['data'];
+      if (data != null && data['subject_id']?.toString() == subjectId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Check if unit has unread notifications
+  bool _hasUnreadUnitNotifications(String unitId) {
+    for (var notification in _notificationData) {
+      final data = notification['data'];
+      if (data != null && data['unit_id']?.toString() == unitId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Count unread chapter notifications
+  int _countUnreadChapterNotifications(String chapterId) {
+    int count = 0;
+    for (var notification in _notificationData) {
+      final data = notification['data'];
+      if (data != null && data['chapter_id']?.toString() == chapterId) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Check if video has unread notifications
+  bool _hasUnreadVideoNotifications(String videoId) {
+    for (var notification in _notificationData) {
+      final data = notification['data'];
+      if (data != null && data['video_id']?.toString() == videoId) {
+        return true;
+      }
+    }
+    return false;
   }
 
   Future<void> _getAccessToken() async {
@@ -167,6 +371,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       debugPrint('Subcourse ID: $_subcourseId');
       debugPrint('Student Type: $_studentType');
       debugPrint('Subjects Count: ${_subjects.length}');
+      debugPrint('Notification Data Count: ${_notificationData.length}');
       debugPrint('========================================');
 
     } catch (e) {
@@ -677,7 +882,10 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     }
   }
 
-  void _navigateBack() {
+  void _navigateBack() async {
+    // Reload notification data when navigating back to update badges
+    await _loadNotificationData();
+    
     setState(() {
       switch (_currentPage) {
         case 'subjects':
@@ -685,6 +893,10 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
           // Only for online students
           if (_studentType.toLowerCase() == 'online') {
             _sendStoredVideoEventsToAPI();
+          }
+          // Send mark read API when returning from videos section
+          if (_currentPage == 'videos') {
+            _sendMarkReadApi();
           }
           if (mounted) {
             Navigator.pop(context);
@@ -698,7 +910,6 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
           break;
         case 'chapters':
           _currentPage = 'units';
-         
           _selectedUnitId = null;
           _selectedUnitName = '';
           break;
@@ -707,6 +918,8 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
           _videos.clear(); 
           _selectedChapterId = null;
           _selectedChapterName = '';
+          // Send mark read API when returning from videos section
+          _sendMarkReadApi();
           break;
       }
     });
@@ -734,7 +947,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       // Allow normal back navigation
       return true;
     } else if (_currentPage == 'videos') {
-      // From videos page, go back to chapters page
+      // From videos page, go back to chapters page and send mark read API
       _navigateBack();
       // Prevent default back behavior
       return false;
@@ -908,6 +1121,10 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                                     if (hasData) {
                                       _sendStoredVideoEventsToAPI();
                                     }
+                                  }
+                                  // Send mark read API when returning from videos section
+                                  if (_currentPage == 'videos') {
+                                    _sendMarkReadApi();
                                   }
                                   if (mounted) {
                                     Navigator.pop(context);
@@ -1267,6 +1484,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                             subject['id']?.toString() ?? '',
                             subject['title']?.toString() ?? 'Unknown Subject',
                           ),
+                          showBadge: _hasUnreadSubjectNotifications(subject['id']?.toString() ?? ''),
                         ))
                     .toList(),
               ),
@@ -1400,6 +1618,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                             unit['id']?.toString() ?? '',
                             unit['title']?.toString() ?? 'Unknown Unit',
                           ),
+                          showBadge: _hasUnreadUnitNotifications(unit['id']?.toString() ?? ''),
                         ))
                     .toList(),
               ),
@@ -1533,6 +1752,8 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                             chapter['id']?.toString() ?? '',
                             chapter['title']?.toString() ?? 'Unknown Chapter',
                           ),
+                          showBadge: _countUnreadChapterNotifications(chapter['id']?.toString() ?? '') > 0,
+                          badgeCount: _countUnreadChapterNotifications(chapter['id']?.toString() ?? ''),
                         ))
                     .toList(),
               ),
@@ -1661,11 +1882,13 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                     .map((video) {
                       final videoUrl = video['video_url']?.toString() ?? '';
                       final isLocked = videoUrl.isEmpty || videoUrl == 'null';
+                      final videoId = video['id']?.toString() ?? '';
                       
                       return _buildVideoCard(
-                        videoId: video['id']?.toString() ?? '',
+                        videoId: videoId,
                         title: video['title']?.toString() ?? 'Untitled Video',
                         isLocked: isLocked,
+                        showBadge: _hasUnreadVideoNotifications(videoId),
                       );
                     })
                     .toList(),
@@ -1682,6 +1905,8 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
+    bool showBadge = false,
+    int badgeCount = 0,
   }) {
     return GestureDetector(
       onTap: onTap,
@@ -1744,18 +1969,47 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                 ),
               ),
               const SizedBox(width: 12),
-              Container(
-                height: 32,
-                width: 32,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.arrow_forward_ios_rounded,
-                  color: color,
-                  size: 14,
-                ),
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    height: 32,
+                    width: 32,
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.arrow_forward_ios_rounded,
+                      color: color,
+                      size: 14,
+                    ),
+                  ),
+                  if (showBadge)
+                    Positioned(
+                      top: -4,
+                      right: -4,
+                      child: Container(
+                        padding: badgeCount > 0 
+                            ? const EdgeInsets.symmetric(horizontal: 4, vertical: 2)
+                            : const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.red,
+                          shape: BoxShape.circle,
+                        ),
+                        child: badgeCount > 0
+                            ? Text(
+                                badgeCount > 9 ? '9+' : badgeCount.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                ],
               ),
             ],
           ),
@@ -1768,6 +2022,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     required String videoId,
     required String title,
     required bool isLocked,
+    bool showBadge = false,
   }) {
     return GestureDetector(
       onTap: () {
@@ -1785,6 +2040,9 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
           );
           return;
         }
+        
+        // Remove notification for this video and add to mark read list
+        _removeNotificationForVideo(videoId);
         
         // Send stored events for other videos before starting new video
         // Only for online students
@@ -1862,20 +2120,38 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
                     ),
                   ),
                   const SizedBox(width: 12),
-                  Container(
-                    height: 32,
-                    width: 32,
-                    decoration: BoxDecoration(
-                      color: isLocked 
-                          ? Colors.grey.withOpacity(0.1)
-                          : AppColors.primaryBlue.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
-                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                      size: 16,
-                    ),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        height: 32,
+                        width: 32,
+                        decoration: BoxDecoration(
+                          color: isLocked 
+                              ? Colors.grey.withOpacity(0.1)
+                              : AppColors.primaryBlue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
+                          color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                          size: 16,
+                        ),
+                      ),
+                      if (showBadge && !isLocked)
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),

@@ -1,6 +1,7 @@
 import 'package:coaching_institute_app/screens/home.dart';
 import 'package:coaching_institute_app/screens/view_profile.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,11 +10,12 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import '../service/api_config.dart';
-import '../service/auth_service.dart';
-import '../service/notification_service.dart';
+import 'service/api_config.dart'; // ✅ Corrected import path
+import 'service/auth_service.dart';
+import 'service/notification_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/getin_screen.dart';
 import 'screens/otp_verification_screen.dart';
 import 'screens/account_creation_screen.dart';
 import 'screens/profile_completion_page.dart';
@@ -30,6 +32,7 @@ import './screens/subscription/subscription.dart';
 import './screens/Academics/academics.dart';
 import './screens/settings/about_us.dart';
 import 'hive_model.dart';
+import './screens/video_stream/videos.dart';
 
 // 🔹 Global Navigator Key
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -51,6 +54,8 @@ void handleNotificationTap(Map<String, dynamic> data) {
       navigatorKey.currentState?.pushNamed('/exam_schedule', arguments: id);
     } else if (type == 'subscription') {
       navigatorKey.currentState?.pushNamed('/subscription');
+    } else if (type == 'video_class') {
+      navigatorKey.currentState?.pushNamed('/videos');
     } else {
       navigatorKey.currentState?.pushNamed('/home');
     }
@@ -59,18 +64,15 @@ void handleNotificationTap(Map<String, dynamic> data) {
   }
 }
 
-// 🔹 Background message handler (required) - CORRECTED VERSION
+// 🔹 Background message handler (required)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   debugPrint('📩 Background FCM Data: ${message.data}');
-  
-  // 🔥 CRITICAL: Directly handle the background message here
+
   final type = message.data['type']?.toString().toLowerCase();
   if (type == 'assignment') {
     debugPrint('🆕 Background assignment notification detected');
-    
-    // Save badge state directly to SharedPreferences
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_unread_assignments', true);
@@ -79,8 +81,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       debugPrint('❌ Error saving badge state from background: $e');
     }
   }
-  
-  // Show local notification
+
   final data = message.data;
   final title = data['title'] ?? 'New Notification';
   final body = data['body'] ?? 'You have a new notification';
@@ -107,7 +108,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
+  // ✅ Ensure Flutter bindings and system UI are ready
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
   // ✅ Initialize Firebase
   await Firebase.initializeApp();
@@ -141,6 +144,15 @@ Future<void> main() async {
     },
   );
 
+  // ✅ Initialize API Config before running app
+  await ApiConfig.initializeBaseUrl(printLogs: true);
+  ApiConfig.startAutoListen(updateImmediately: false);
+
+  // 🟩🟩 Print currently active API in debug console 🟩🟩
+  debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  debugPrint("🌐  ACTIVE API BASE URL → ${ApiConfig.currentBaseUrl}");
+  debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
   runApp(const CoachingInstituteApp());
 }
 
@@ -158,6 +170,12 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initNotificationService();
+
+    // ✅ Listen to API URL changes when network changes
+    ApiConfig.startAutoListen(updateImmediately: true);
+
+    // ✅ Print debug message whenever network switches
+    debugPrint('🔎 Listening for network changes...');
   }
 
   @override
@@ -166,12 +184,9 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     super.dispose();
   }
 
-  // ====== App Lifecycle Management ======
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     debugPrint('📱 App lifecycle changed: $state');
-    
-    // Handle attendance tracking (your existing code)
     final bool isOnlineStudent = await _isOnlineStudent();
     if (!isOnlineStudent) return;
 
@@ -181,19 +196,14 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
 
     if (state == AppLifecycleState.resumed) {
       _checkLastActiveTimeOnResume();
-      
-      // 🔄 RELOAD BADGE STATE WHEN APP COMES TO FOREGROUND
       await NotificationService.checkBadgeStateOnResume();
       debugPrint('🔄 Badge state reloaded on app resume');
     }
   }
 
-  // ✅ Initialize Notification Service
   Future<void> _initNotificationService() async {
-    // Pass global navigator key for handling background taps
     await NotificationService.init(navigatorKey);
 
-    // 🔹 Foreground notifications
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       debugPrint('📩 Foreground message: ${message.data}');
       final data = message.data;
@@ -215,13 +225,11 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       );
     });
 
-    // 🔹 Notification tap (background)
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       debugPrint('🚀 App opened via notification tap (background)');
       handleNotificationTap(message.data);
     });
 
-    // 🔹 Notification tap (terminated)
     RemoteMessage? initialMessage =
         await FirebaseMessaging.instance.getInitialMessage();
     if (initialMessage != null) {
@@ -293,43 +301,48 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   Future<void> _logoutUser() async {
     final prefs = await SharedPreferences.getInstance();
     final bool isOnlineStudent = await _isOnlineStudent();
+
     if (isOnlineStudent) {
       String? start = prefs.getString('start_time');
       String? end = prefs.getString('end_time');
+
       if (start != null && end != null) {
         final authService = AuthService();
         final accessToken = await authService.getAccessToken();
         String cleanStart = start.split('.')[0].replaceFirst('T', ' ');
         String cleanEnd = end.split('.')[0].replaceFirst('T', ' ');
+
         final body = {
           "records": [
             {"time_stamp": cleanStart, "is_checkin": 1},
             {"time_stamp": cleanEnd, "is_checkin": 0}
           ]
         };
+
         try {
           final response = await http.post(
-            Uri.parse(ApiConfig.buildUrl(
-                '/api/performance/add_onlineattendance/')),
+            Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
             headers: {
               ...ApiConfig.commonHeaders,
               'Authorization': 'Bearer $accessToken',
             },
             body: jsonEncode(body),
           );
+
           if (response.statusCode == 200 || response.statusCode == 201) {
             debugPrint('✅ Attendance sent successfully');
           }
         } catch (e) {
           debugPrint('❌ Exception while sending attendance: $e');
         }
+
         await prefs.remove('start_time');
         await prefs.remove('end_time');
         await prefs.remove('last_active_time');
       }
     }
-    await AuthService().logout();
-    navigatorKey.currentState?.pushReplacementNamed('/signup');
+
+    navigatorKey.currentState?.pushReplacementNamed('/getin');
   }
 
   @override
@@ -347,6 +360,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       routes: {
         '/splash': (context) => const SplashScreen(),
         '/signup': (context) => const LoginScreen(),
+        '/getin': (context) => const GetInScreen(),
         '/otp_verification': (context) => const OtpVerificationScreen(),
         '/account_creation': (context) => const AccountCreationScreen(),
         '/home': (context) => const HomeScreen(),
@@ -354,7 +368,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
             const ProfileCompletionPage(),
         '/notes': (context) => const NotesScreen(),
         '/question_papers': (context) => const QuestionPapersScreen(),
-        '/video_classes': (context) => const VideoClassesScreen(),
+        '/video_classes': (context) => const ReferenceClassesScreen(),
         '/forgot_password': (context) => const ForgotPasswordScreen(),
         '/forgot_otp_verification': (context) =>
             const ForgotOtpVerificationScreen(),
@@ -365,6 +379,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/subscription': (context) => const SubscriptionScreen(),
         '/academics': (context) => const AcademicsScreen(),
         '/about_us': (context) => const AboutUsScreen(),
+        '/videos': (context) => const VideosScreen(),
       },
     );
   }

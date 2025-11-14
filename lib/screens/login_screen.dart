@@ -7,6 +7,109 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 import 'dart:io';
+import '../screens/explore_student/explore.dart';
+
+// ============= RESPONSIVE UTILITY CLASS =============
+class ResponsiveUtils {
+  static bool isTablet(BuildContext context) {
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    return shortestSide >= 600;
+  }
+
+  static bool isLandscape(BuildContext context) {
+    return MediaQuery.of(context).orientation == Orientation.landscape;
+  }
+
+  static double getResponsiveWidth(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+
+    if (isTabletDevice || isLandscapeMode) {
+      return width * 0.5; // 50% width for tablets/landscape
+    }
+    return width * 0.9; // 90% width for phones in portrait
+  }
+
+  static double getMaxContainerWidth(BuildContext context) {
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+
+    if (isTabletDevice) {
+      return 500.0;
+    } else if (isLandscapeMode) {
+      return 450.0; 
+    }
+    return double.infinity; 
+  }
+
+  static double getFontSize(BuildContext context, double baseSize) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return baseSize * 0.85; 
+    } else if (isTabletDevice) {
+      return baseSize * 1.2;
+    }
+    return (baseSize / 375) * width; 
+  }
+
+  static double getHeaderHeight(BuildContext context) {
+    final height = MediaQuery.of(context).size.height;
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return height * 0.25; 
+    }
+    return height * 0.35; 
+  }
+
+ static double getLogoSize(BuildContext context) {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final screenHeight = MediaQuery.of(context).size.height;
+  final isTabletDevice = isTablet(context);
+  final isLandscapeMode = isLandscape(context);
+  
+  
+  if (!isLandscapeMode) {
+    if (isTabletDevice) {
+      return screenWidth * 0.25;
+    } else {
+      return screenWidth * 0.22; 
+    }
+  }
+  
+  
+  if (isTabletDevice) {
+    
+    return screenHeight * 0.15; 
+  } else {
+    
+    return screenHeight * 0.12;
+  }
+}
+
+  static EdgeInsets getHorizontalPadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    
+    if (isTabletDevice) {
+      return EdgeInsets.symmetric(horizontal: width * 0.15);
+    }
+    return const EdgeInsets.symmetric(horizontal: 20);
+  }
+
+  static double getVerticalSpacing(BuildContext context, double baseSpacing) {
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return baseSpacing * 0.6; 
+    }
+    return baseSpacing;
+  }
+}
 
 // ============= PROVIDER CLASS =============
 class LoginProvider extends ChangeNotifier {
@@ -16,8 +119,6 @@ class LoginProvider extends ChangeNotifier {
   String? _passwordError;
   bool _isEmailValid = false;
   bool _isPasswordValid = false;
-  
-  // Email suggestions
   List<String> _savedEmails = [];
   List<String> _filteredEmails = [];
   bool _showSuggestions = false;
@@ -36,33 +137,8 @@ class LoginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setEmailError(String? error) {
-    _emailError = error;
-    notifyListeners();
-  }
-
-  void setPasswordError(String? error) {
-    _passwordError = error;
-    notifyListeners();
-  }
-
-  void setEmailValid(bool valid) {
-    _isEmailValid = valid;
-    notifyListeners();
-  }
-
-  void setPasswordValid(bool valid) {
-    _isPasswordValid = valid;
-    notifyListeners();
-  }
-
   void setShowSuggestions(bool show) {
     _showSuggestions = show;
-    notifyListeners();
-  }
-
-  void setFilteredEmails(List<String> emails) {
-    _filteredEmails = emails;
     notifyListeners();
   }
 
@@ -136,123 +212,136 @@ class LoginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
- Future<Map<String, dynamic>?> loginUser({
-  required String email,
-  required String password,
-}) async {
-  _isLoading = true;
-  notifyListeners();
+  Future<Map<String, dynamic>?> loginUser({
+    required String email,
+    required String password,
+  }) async {
+    _isLoading = true;
+    notifyListeners();
 
-  final username = email.trim();
-  
-  debugPrint('Login attempt with username: $username');
+    final username = email.trim();
+    
+    debugPrint('=== LOGIN REQUEST ===');
+    debugPrint('Login attempt with username: $username');
 
-  HttpClient? httpClient;
+    HttpClient? httpClient;
 
-  try {
-    httpClient = ApiConfig.createHttpClient();
-    
-    final request = await httpClient.postUrl(
-      Uri.parse('${ApiConfig.baseUrl}/api/students/student_login/'),
-    );
-    
-    ApiConfig.commonHeaders.forEach((key, value) {
-      request.headers.set(key, value);
-    });
-    
-    final body = jsonEncode({
-      'username': username,
-      'password': password,
-    });
-    request.contentLength = body.length;
-    request.write(body);
-    
-    final httpResponse = await request.close().timeout(
-      ApiConfig.requestTimeout,
-      onTimeout: () {
-        throw Exception('Request timeout');
-      },
-    );
-    
-    final responseBody = await httpResponse.transform(utf8.decoder).join();
-    
-    debugPrint('Response status: ${httpResponse.statusCode}');
-    debugPrint('Response body: $responseBody');
-
-    if (httpResponse.statusCode == 200) {
-      final Map<String, dynamic> responseData = jsonDecode(responseBody);
+    try {
+      httpClient = ApiConfig.createHttpClient();
       
-      if (responseData['success'] == true) {
-        await saveEmail(username);
-        final prefs = await SharedPreferences.getInstance();
+      final request = await httpClient.postUrl(
+        Uri.parse('${ApiConfig.baseUrl}/api/students/student_login/'),
+      );
+      
+      ApiConfig.commonHeaders.forEach((key, value) {
+        request.headers.set(key, value);
+      });
+      
+      final body = jsonEncode({
+        'username': username,
+        'password': password,
+      });
+      request.contentLength = body.length;
+      request.write(body);
+      
+      final httpResponse = await request.close().timeout(
+        ApiConfig.requestTimeout,
+        onTimeout: () {
+          throw Exception('Request timeout');
+        },
+      );
+      
+      final responseBody = await httpResponse.transform(utf8.decoder).join();
+      
+      debugPrint('=== LOGIN RESPONSE ===');
+      debugPrint('Response status: ${httpResponse.statusCode}');
+      debugPrint('Response body: $responseBody');
+
+      if (httpResponse.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(responseBody);
         
-        await prefs.setString('accessToken', responseData['access'] ?? '');
-        await prefs.setString('studentType', responseData['student_type'] ?? '');
-        await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
-        await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
-        await prefs.setString('username', username);
-        
-        debugPrint('Verification - Stored accessToken: ${prefs.getString('accessToken')}');
-        debugPrint('Verification - Stored studentType: ${prefs.getString('studentType')}');
-        
-        return {
-          'success': true,
-          'message': 'Login successful!',
-          'profile_completed': responseData['profile_completed'] ?? false,
-          'response_data': responseData,
-        };
-      } else {
+        if (responseData['success'] == true) {
+          await saveEmail(username);
+          final prefs = await SharedPreferences.getInstance();
+          
+          await prefs.setString('accessToken', responseData['access'] ?? '');
+          await prefs.setString('studentType', responseData['student_type'] ?? '');
+          await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
+          await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
+          await prefs.setString('username', username);
+          
+          debugPrint('=== STORED IN SHARED PREFERENCES ===');
+          debugPrint('Stored accessToken: ${prefs.getString('accessToken')}');
+          debugPrint('Stored studentType: ${prefs.getString('studentType')}');
+          debugPrint('Stored phoneNumber: ${prefs.getString('phoneNumber')}');
+          debugPrint('Stored profileCompleted: ${prefs.getBool('profileCompleted')}');
+          debugPrint('Stored username: ${prefs.getString('username')}');
+          
+          return {
+            'success': true,
+            'message': 'Login successful!',
+            'profile_completed': responseData['profile_completed'] ?? false,
+            'response_data': responseData,
+          };
+        } else {
+          debugPrint('Login failed: ${responseData['message']}');
+          return {
+            'success': false,
+            'message': responseData['message'] ?? 'Invalid credentials',
+          };
+        }
+      } else if (httpResponse.statusCode == 401) {
+        debugPrint('Authentication failed: 401 Unauthorized');
         return {
           'success': false,
-          'message': responseData['message'] ?? 'Invalid credentials',
+          'message': 'Invalid email or password',
+        };
+      } else if (httpResponse.statusCode == 404) {
+        debugPrint('API endpoint not found: 404');
+        return {
+          'success': false,
+          'message': 'API endpoint not found',
+        };
+      } else {
+        debugPrint('Server error: ${httpResponse.statusCode}');
+        return {
+          'success': false,
+          'message': 'Server error: ${httpResponse.statusCode}',
         };
       }
-    } else if (httpResponse.statusCode == 401) {
+      
+    } on TimeoutException catch (e) {
+      debugPrint('Timeout Error: $e');
       return {
         'success': false,
-        'message': 'Invalid email or password',
+        'message': 'Request timeout. Please check your connection.',
       };
-    } else if (httpResponse.statusCode == 404) {
+    } on FormatException catch (e) {
+      debugPrint('JSON Format Error: $e');
       return {
         'success': false,
-        'message': 'API endpoint not found',
+        'message': 'Invalid response format from server.',
       };
-    } else {
+    } catch (e) {
+      String errorMessage = 'Network error: ${e.toString()}';
+      if (e.toString().contains('SocketException')) {
+        errorMessage = 'No internet connection. Please check your network.';
+      }
+      debugPrint('API Error: $e');
+      debugPrint('Error Stack Trace: ${StackTrace.current}');
       return {
         'success': false,
-        'message': 'Server error: ${httpResponse.statusCode}',
+        'message': errorMessage,
       };
+    } finally {
+      httpClient?.close();
+      _isLoading = false;
+      notifyListeners();
+      debugPrint('=== LOGIN REQUEST COMPLETED ===');
     }
-    
-  } on TimeoutException catch (e) {
-    debugPrint('Timeout Error: $e');
-    return {
-      'success': false,
-      'message': 'Request timeout. Please check your connection.',
-    };
-  } on FormatException catch (e) {
-    debugPrint('JSON Format Error: $e');
-    return {
-      'success': false,
-      'message': 'Invalid response format from server.',
-    };
-  } catch (e) {
-    String errorMessage = 'Network error: ${e.toString()}';
-    if (e.toString().contains('SocketException')) {
-      errorMessage = 'No internet connection. Please check your network.';
-    }
-    debugPrint('API Error: $e');
-    return {
-      'success': false,
-      'message': errorMessage,
-    };
-  } finally {
-    httpClient?.close();
-    _isLoading = false;
-    notifyListeners();
   }
 }
-}
+
 // ============= SCREEN CLASS =============
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -264,30 +353,20 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  
-  // Create the provider instance here
   late final LoginProvider _loginProvider;
-  
   AnimationController? _fadeController;
   AnimationController? _slideController;
   Animation<double>? _fadeAnimation;
   Animation<Offset>? _slideAnimation;
-  
   OverlayEntry? _overlayEntry;
   final LayerLink _layerLink = LayerLink();
 
   @override
   void initState() {
     super.initState();
-    
-    // Initialize provider
     _loginProvider = LoginProvider();
-    
     _initializeAnimations();
-    
-    // Load saved emails
     _loginProvider.loadSavedEmails();
-    
     emailController.addListener(_onEmailChanged);
     passwordController.addListener(_onPasswordChanged);
   }
@@ -337,14 +416,23 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   OverlayEntry _createOverlayEntry() {
     RenderBox renderBox = context.findRenderObject() as RenderBox;
     var size = renderBox.size;
+    final maxWidth = ResponsiveUtils.getMaxContainerWidth(context);
+    final overlayWidth = maxWidth == double.infinity 
+        ? size.width - 80 
+        : maxWidth - 40;
 
     return OverlayEntry(
       builder: (context) => Positioned(
-        width: size.width - 80,
+        width: overlayWidth,
         child: CompositedTransformFollower(
           link: _layerLink,
           showWhenUnlinked: false,
-          offset: const Offset(40, 60),
+          offset: Offset(
+            ResponsiveUtils.isTablet(context) || ResponsiveUtils.isLandscape(context) 
+                ? 20 
+                : 40, 
+            60
+          ),
           child: Material(
             elevation: 8,
             borderRadius: BorderRadius.circular(12),
@@ -394,8 +482,8 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                           Expanded(
                             child: Text(
                               _loginProvider.filteredEmails[index],
-                              style: const TextStyle(
-                                fontSize: 14,
+                              style: TextStyle(
+                                fontSize: ResponsiveUtils.getFontSize(context, 14),
                                 color: AppColors.grey800,
                               ),
                             ),
@@ -420,21 +508,15 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _fadeController?.dispose();
     _slideController?.dispose();
     _removeOverlay();
-    _loginProvider.dispose(); 
+    _loginProvider.dispose();
     super.dispose();
   }
 
   Future<void> _loginUser() async {
-    debugPrint('=== _loginUser CALLED ===');
-    
     _loginProvider.validateEmail(emailController.text);
     _loginProvider.validatePassword(passwordController.text);
     
-    debugPrint('Email valid: ${_loginProvider.isEmailValid}');
-    debugPrint('Password valid: ${_loginProvider.isPasswordValid}');
-    
     if (!_loginProvider.isEmailValid || !_loginProvider.isPasswordValid) {
-      debugPrint('Validation failed - showing error');
       if (emailController.text.trim().isEmpty) {
         _showSnackBar('Please enter your email', AppColors.errorRed);
       } else if (passwordController.text.isEmpty) {
@@ -443,98 +525,64 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       return;
     }
 
-    debugPrint('Calling provider.loginUser...');
-    
     final result = await _loginProvider.loginUser(
       email: emailController.text,
       password: passwordController.text,
     );
 
-    debugPrint('Result received: $result');
-
-    if (!mounted) {
-      debugPrint('Widget not mounted, returning');
-      return;
-    }
+    if (!mounted) return;
 
     if (result != null && result['success'] == true) {
-      debugPrint('Login SUCCESS - showing snackbar');
       _showSnackBar(result['message'] ?? 'Login successful!', AppColors.successGreen);
       
-      debugPrint('Scheduling navigation after 800ms delay...');
-      debugPrint('Profile completed: ${result['profile_completed']}');
-      
-      // Navigate based on profile completion status
       Future.delayed(const Duration(milliseconds: 800), () {
-        debugPrint('Delay completed, checking mounted state...');
-        if (!mounted) {
-          debugPrint('Widget not mounted after delay, returning');
-          return;
-        }
-        
-        debugPrint('Attempting navigation...');
+        if (!mounted) return;
         
         if (result['profile_completed'] == false) {
-          debugPrint('Navigating to /profile_completion_page');
           Navigator.pushReplacementNamed(
-            context, 
+            context,
             '/profile_completion_page',
             arguments: result['response_data'],
           );
         } else {
-          debugPrint('Navigating to /home');
           Navigator.pushReplacementNamed(
-            context, 
+            context,
             '/home',
             arguments: result['response_data'],
           );
         }
       });
     } else {
-      debugPrint('Login FAILED');
       _showSnackBar(
         result?['message'] ?? 'Login failed',
         AppColors.errorRed,
       );
     }
-    
-    debugPrint('=== _loginUser COMPLETED ===');
   }
 
   void _navigateToSignup() {
-    debugPrint('Navigating to signup screen...');
     _removeOverlay();
-    
-    try {
-      Navigator.pushNamed(context, '/account_creation').then((result) {
-        debugPrint('Signup navigation successful: $result');
-      }).catchError((error) {
-        debugPrint('Signup navigation failed: $error');
-        _showSnackBar('Navigation error. Please try again.', AppColors.errorRed);
-      });
-    } catch (e) {
-      debugPrint('Navigation error: $e');
-      _showSnackBar('Navigation system error. Please restart the app.', AppColors.errorRed);
-    }
+    Navigator.pushNamed(context, '/account_creation').catchError((error) {
+      _showSnackBar('Navigation error. Please try again.', AppColors.errorRed);
+    });
   }
 
   void _navigateToForgotPassword() {
-    debugPrint('Navigating to forgot password screen...');
     _removeOverlay();
-    
-    try {
-      Navigator.pushNamed(context, '/forgot_password').then((result) {
-        debugPrint('Forgot password navigation successful: $result');
-      }).catchError((error) {
-        debugPrint('Forgot password navigation failed: $error');
-        _showSnackBar('Navigation error. Please try again.', AppColors.errorRed);
-      });
-    } catch (e) {
-      debugPrint('Navigation error: $e');
-      _showSnackBar('Navigation system error. Please restart the app.', AppColors.errorRed);
-    }
+    Navigator.pushNamed(context, '/forgot_password').catchError((error) {
+      _showSnackBar('Navigation error. Please try again.', AppColors.errorRed);
+    });
   }
 
+ void _navigateToExplore() {
+  _removeOverlay();
+  Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => const ExploreScreen()),
+  ).catchError((error) {
+    _showSnackBar('Navigation error. Please try again.', AppColors.errorRed);
+  });
+}
   void _showSnackBar(String message, Color color) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -552,496 +600,601 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     }
   }
 
-
-  Widget _buildHeader() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-    
-    return Container(
-      width: double.infinity,
-      height: screenHeight * 0.35,
-      decoration: BoxDecoration(
-        gradient: AppGradients.background,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(35),
-          bottomRight: Radius.circular(35),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowYellow,
-            spreadRadius: 0,
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+Widget _buildHeader() {
+  final screenWidth = MediaQuery.of(context).size.width;
+  final screenHeight = MediaQuery.of(context).size.height;
+  final isLandscape = ResponsiveUtils.isLandscape(context);
+  final isTabletDevice = ResponsiveUtils.isTablet(context);
+  
+  final headerHeight = isLandscape ? screenHeight * 0.25 : screenHeight * 0.35;
+  
+  double logoSize;
+  if (!isLandscape) {
+    if (isTabletDevice) {
+      logoSize = screenWidth * 0.25; 
+    } else {
+      logoSize = screenWidth * 0.22; 
+    }
+  } else {
+    if (isTabletDevice) {
+      logoSize = screenWidth * 0.06; 
+    } else {
+      logoSize = screenWidth * 0.08; 
+    }
+  }
+  
+  double logoBottomPosition;
+  if (isLandscape) {
+    logoBottomPosition = headerHeight * 0.20;
+  } else {
+    logoBottomPosition = screenHeight * 0.08; 
+  }
+  
+  return Container(
+    width: double.infinity,
+    height: headerHeight,
+    decoration: BoxDecoration(
+      gradient: AppGradients.background,
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(35),
+        bottomRight: Radius.circular(35),
       ),
-      child: Stack(
-        children: [
-          // Decorative circles
-          Positioned(
-            top: -30,
-            right: -20,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.grey300.withOpacity(0.1),
-              ),
+      boxShadow: [
+        BoxShadow(
+          color: AppColors.shadowYellow,
+          spreadRadius: 0,
+          blurRadius: 20,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Stack(
+      children: [
+        // Decorative circles
+        Positioned(
+          top: -30,
+          right: -20,
+          child: Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.grey300.withOpacity(0.1),
             ),
           ),
-          Positioned(
-            top: 10,
-            left: -25,
-            child: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.grey400.withOpacity(0.08),
-              ),
+        ),
+        Positioned(
+          top: 10,
+          left: -25,
+          child: Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.grey400.withOpacity(0.08),
             ),
           ),
-          Positioned(
-            bottom: 30,
-            left: 30,
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.white.withOpacity(0.06),
-              ),
+        ),
+        Positioned(
+          bottom: 30,
+          left: 30,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.white.withOpacity(0.06),
             ),
           ),
-          
-          // Main content - Logo
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: screenHeight * 0.08,
-            child: _fadeAnimation != null 
+        ),
+        
+        // Explore Button
+        Positioned(
+          top: 16,
+          right: 16,
+          child: _fadeAnimation != null
+              ? FadeTransition(
+                  opacity: _fadeAnimation!,
+                  child: _buildExploreButton(),
+                )
+              : _buildExploreButton(),
+        ),
+        
+        // Logo
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: logoBottomPosition, 
+          child: _fadeAnimation != null
               ? FadeTransition(
                   opacity: _fadeAnimation!,
                   child: Image.asset(
                     "assets/images/signature_logo.png",
-                    width: screenWidth * 0.20,
-                    height: screenWidth * 0.20,
+                    width: logoSize,
+                    height: logoSize,
                     fit: BoxFit.contain,
                   ),
                 )
               : Image.asset(
                   "assets/images/signature_logo.png",
-                  width: screenWidth * 0.20,
-                  height: screenWidth * 0.20,
+                  width: logoSize,
+                  height: logoSize,
                   fit: BoxFit.contain,
                 ),
-          ),
-        ],
-      ),
-    );
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _buildExploreButton() {
+  final fontSize = ResponsiveUtils.getFontSize(context, 13);
+  final isLandscape = ResponsiveUtils.isLandscape(context);
+  final isTabletDevice = ResponsiveUtils.isTablet(context);
+  
+  double horizontalPadding;
+  double verticalPadding;
+  
+  if (isLandscape) {
+    horizontalPadding = 12;
+    verticalPadding = 6;
+  } else if (isTabletDevice) {
+    horizontalPadding = 16;
+    verticalPadding = 8;
+  } else {
+    horizontalPadding = 14;
+    verticalPadding = 7;
   }
-
- Widget _buildLoginContainer(double screenWidth) {
-    return CompositedTransformTarget(
-      link: _layerLink,
-      child: ListenableBuilder(
-        listenable: _loginProvider,
-        builder: (context, child) {
-          // Show overlay when suggestions are available
-          if (_loginProvider.showSuggestions && _overlayEntry == null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _showOverlay());
-          } else if (!_loginProvider.showSuggestions && _overlayEntry != null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _removeOverlay());
-          }
-
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
+  
+  return Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: _loginProvider.isLoading ? null : _navigateToExplore,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: verticalPadding,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.primaryBlue,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryBlue.withOpacity(0.3),
+              spreadRadius: 0,
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.explore_outlined,
               color: AppColors.white,
-              borderRadius: BorderRadius.circular(25),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.shadowGrey,
-                  spreadRadius: 0,
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
-                ),
-                BoxShadow(
-                  color: AppColors.shadowYellow,
-                  spreadRadius: 0,
-                  blurRadius: 20,
-                  offset: const Offset(0, 5),
-                ),
-              ],
+              size: fontSize * 1.1,
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Email field
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(5),
-                      decoration: BoxDecoration(
-                        gradient: AppGradients.primaryYellow,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.email_outlined,
-                        color: AppColors.white,
-                        size: screenWidth * 0.038,
-                      ),
+            const SizedBox(width: 6),
+            Text(
+              "Explore",
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w600,
+                color: AppColors.white,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+  Widget _buildLoginContainer() {
+    final maxWidth = ResponsiveUtils.getMaxContainerWidth(context);
+    final horizontalPadding = ResponsiveUtils.getHorizontalPadding(context);
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    
+    // Adjust container padding based on orientation
+    final containerPadding = EdgeInsets.symmetric(
+      horizontal: (isTabletDevice && !isLandscape) ? 24 : (isLandscape ? 16 : 20),
+      vertical: (isTabletDevice && !isLandscape) ? 20 : (isLandscape ? 12 : 16),
+    );
+    
+    return Center(
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        padding: horizontalPadding,
+        child: CompositedTransformTarget(
+          link: _layerLink,
+          child: ListenableBuilder(
+            listenable: _loginProvider,
+            builder: (context, child) {
+              if (_loginProvider.showSuggestions && _overlayEntry == null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => _showOverlay());
+              } else if (!_loginProvider.showSuggestions && _overlayEntry != null) {
+                WidgetsBinding.instance.addPostFrameCallback((_) => _removeOverlay());
+              }
+
+              return Container(
+                padding: containerPadding,
+                decoration: BoxDecoration(
+                  color: AppColors.white,
+                  borderRadius: BorderRadius.circular(25),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.shadowGrey,
+                      spreadRadius: 0,
+                      blurRadius: 30,
+                      offset: const Offset(0, 10),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      "Email",
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.038,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textDark,
-                        letterSpacing: 0.2,
-                      ),
+                    BoxShadow(
+                      color: AppColors.shadowYellow,
+                      spreadRadius: 0,
+                      blurRadius: 20,
+                      offset: const Offset(0, 5),
                     ),
                   ],
                 ),
-                
-                const SizedBox(height: 12),
-                
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.grey50,
-                        AppColors.grey100,
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _loginProvider.isEmailValid 
-                        ? AppColors.successGreen.withOpacity(0.6)
-                        : _loginProvider.emailError != null
-                          ? AppColors.errorRed.withOpacity(0.6)
-                          : AppColors.grey300,
-                      width: 1.5,
-                    ),
-                    boxShadow: _loginProvider.isEmailValid ? [
-                      BoxShadow(
-                        color: AppColors.successGreen.withOpacity(0.1),
-                        spreadRadius: 0,
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ] : _loginProvider.emailError != null ? [
-                      BoxShadow(
-                        color: AppColors.errorRed.withOpacity(0.1),
-                        spreadRadius: 0,
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ] : [],
-                  ),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.04,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.grey800,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: "Enter your email",
-                          hintStyle: TextStyle(
-                            color: AppColors.grey500,
-                            fontSize: screenWidth * 0.037,
-                            fontWeight: FontWeight.w400,
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          suffixIcon: _loginProvider.isEmailValid
-                            ? Icon(
-                                Icons.check_circle,
-                                color: AppColors.successGreen,
-                                size: screenWidth * 0.05,
-                              )
-                            : _loginProvider.emailError != null
-                              ? Icon(
-                                  Icons.error,
-                                  color: AppColors.errorRed,
-                                  size: screenWidth * 0.05,
-                                )
-                              : null,
-                        ),
-                        onChanged: (value) {
-                          _loginProvider.validateEmail(value);
-                          _loginProvider.filterEmails(value);
-                        },
-                        onTap: () {
-                          if (emailController.text.isNotEmpty) {
-                            _loginProvider.filterEmails(emailController.text);
-                          }
-                        },
-                      ),
-                      
-                      if (_loginProvider.emailError != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: AppColors.errorRed,
-                                size: screenWidth * 0.035,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  _loginProvider.emailError!,
-                                  style: TextStyle(
-                                    color: AppColors.errorRed,
-                                    fontSize: screenWidth * 0.032,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 18),
-                
-                // Password field
-                Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(5),
-                      decoration: BoxDecoration(
-                        gradient: AppGradients.primaryYellow,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        Icons.lock_outline,
-                        color: AppColors.white,
-                        size: screenWidth * 0.038,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      "Password",
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.038,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textDark,
-                        letterSpacing: 0.2,
-                      ),
-                    ),
+                    _buildEmailField(),
+                    SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 18)),
+                    _buildPasswordField(),
+                    SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 12)),
+                    _buildForgotPasswordButton(),
+                    SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 12)),
+                    _buildLoginButton(),
                   ],
                 ),
-                
-                const SizedBox(height: 12),
-                
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        AppColors.grey50,
-                        AppColors.grey100,
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _loginProvider.isPasswordValid 
-                        ? AppColors.successGreen.withOpacity(0.6)
-                        : _loginProvider.passwordError != null
-                          ? AppColors.errorRed.withOpacity(0.6)
-                          : AppColors.grey300,
-                      width: 1.5,
-                    ),
-                    boxShadow: _loginProvider.isPasswordValid ? [
-                      BoxShadow(
-                        color: AppColors.successGreen.withOpacity(0.1),
-                        spreadRadius: 0,
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ] : _loginProvider.passwordError != null ? [
-                      BoxShadow(
-                        color: AppColors.errorRed.withOpacity(0.1),
-                        spreadRadius: 0,
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ] : [],
-                  ),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: passwordController,
-                        obscureText: _loginProvider.obscurePassword,
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.04,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.grey800,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: "Enter your password",
-                          hintStyle: TextStyle(
-                            color: AppColors.grey500,
-                            fontSize: screenWidth * 0.037,
-                            fontWeight: FontWeight.w400,
-                          ),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _loginProvider.obscurePassword 
-                                ? Icons.visibility_off_outlined 
-                                : Icons.visibility_outlined,
-                              color: AppColors.grey600,
-                              size: screenWidth * 0.05,
-                            ),
-                            onPressed: _loginProvider.togglePasswordVisibility,
-                          ),
-                        ),
-                        onChanged: (value) {
-                          _loginProvider.validatePassword(value);
-                        },
-                      ),
-                      
-                      if (_loginProvider.passwordError != null)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: AppColors.errorRed,
-                                size: screenWidth * 0.035,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  _loginProvider.passwordError!,
-                                  style: TextStyle(
-                                    color: AppColors.errorRed,
-                                    fontSize: screenWidth * 0.032,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 12),
-
-                // Forgot Password Button
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: _loginProvider.isLoading ? null : _navigateToForgotPassword,
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      "Forgot Password?",
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.035,
-                        color: AppColors.primaryBlue,
-                        fontWeight: FontWeight.w600,
-                        decoration: TextDecoration.underline,
-                      ),
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 12),
-
-                // Login button
-                _buildLoginButton(screenWidth),
-              ],
-            ),
-          );
-        },
+              );
+            },
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildSignupOption() {
-    final screenWidth = MediaQuery.of(context).size.width;
+  Widget _buildEmailField() {
+    final fontSize = ResponsiveUtils.getFontSize(context, 14);
+    final iconSize = ResponsiveUtils.getFontSize(context, 16);
     
-    return ListenableBuilder(
-      listenable: _loginProvider,
-      builder: (context, child) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                "Don't have an account? ",
-                style: TextStyle(
-                  fontSize: screenWidth * 0.037,
-                  color: AppColors.grey600,
-                  fontWeight: FontWeight.w400,
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                gradient: AppGradients.primaryYellow,
+                borderRadius: BorderRadius.circular(8),
               ),
-              GestureDetector(
-                onTap: _loginProvider.isLoading ? null : _navigateToSignup,
-                child: Text(
-                  "Sign Up",
-                  style: TextStyle(
-                    fontSize: screenWidth * 0.037,
-                    color: AppColors.primaryBlue,
-                    fontWeight: FontWeight.w700,
-                    decoration: TextDecoration.underline,
+              child: Icon(
+                Icons.email_outlined,
+                color: AppColors.white,
+                size: iconSize,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "Email",
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.grey50, AppColors.grey100],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _loginProvider.isEmailValid
+                  ? AppColors.successGreen.withOpacity(0.6)
+                  : _loginProvider.emailError != null
+                      ? AppColors.errorRed.withOpacity(0.6)
+                      : AppColors.grey300,
+              width: 1.5,
+            ),
+            boxShadow: _loginProvider.isEmailValid
+                ? [
+                    BoxShadow(
+                      color: AppColors.successGreen.withOpacity(0.1),
+                      spreadRadius: 0,
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : _loginProvider.emailError != null
+                    ? [
+                        BoxShadow(
+                          color: AppColors.errorRed.withOpacity(0.1),
+                          spreadRadius: 0,
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : [],
+          ),
+          child: Column(
+            children: [
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.grey800,
+                ),
+                decoration: InputDecoration(
+                  hintText: "Enter your email",
+                  hintStyle: TextStyle(
+                    color: AppColors.grey500,
+                    fontSize: fontSize * 0.95,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  suffixIcon: _loginProvider.isEmailValid
+                      ? Icon(
+                          Icons.check_circle,
+                          color: AppColors.successGreen,
+                          size: iconSize * 1.2,
+                        )
+                      : _loginProvider.emailError != null
+                          ? Icon(
+                              Icons.error,
+                              color: AppColors.errorRed,
+                              size: iconSize * 1.2,
+                            )
+                          : null,
+                ),
+                onChanged: (value) {
+                  _loginProvider.validateEmail(value);
+                  _loginProvider.filterEmails(value);
+                },
+                onTap: () {
+                  if (emailController.text.isNotEmpty) {
+                    _loginProvider.filterEmails(emailController.text);
+                  }
+                },
+              ),
+              if (_loginProvider.emailError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: AppColors.errorRed,
+                        size: fontSize * 0.9,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _loginProvider.emailError!,
+                          style: TextStyle(
+                            color: AppColors.errorRed,
+                            fontSize: fontSize * 0.85,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
             ],
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
-  Widget _buildLoginButton(double screenWidth) {
-    bool isEnabled = _loginProvider.isEmailValid && _loginProvider.isPasswordValid;
+  Widget _buildPasswordField() {
+    final fontSize = ResponsiveUtils.getFontSize(context, 14);
+    final iconSize = ResponsiveUtils.getFontSize(context, 16);
     
-    debugPrint('Login button build - isEnabled: $isEnabled, isLoading: ${_loginProvider.isLoading}');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                gradient: AppGradients.primaryYellow,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.lock_outline,
+                color: AppColors.white,
+                size: iconSize,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              "Password",
+              style: TextStyle(
+                fontSize: fontSize,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [AppColors.grey50, AppColors.grey100],
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _loginProvider.isPasswordValid
+                  ? AppColors.successGreen.withOpacity(0.6)
+                  : _loginProvider.passwordError != null
+                      ? AppColors.errorRed.withOpacity(0.6)
+                      : AppColors.grey300,
+              width: 1.5,
+            ),
+            boxShadow: _loginProvider.isPasswordValid
+                ? [
+                    BoxShadow(
+                      color: AppColors.successGreen.withOpacity(0.1),
+                      spreadRadius: 0,
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : _loginProvider.passwordError != null
+                    ? [
+                        BoxShadow(
+                          color: AppColors.errorRed.withOpacity(0.1),
+                          spreadRadius: 0,
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ]
+                    : [],
+          ),
+          child: Column(
+            children: [
+              TextField(
+                controller: passwordController,
+                obscureText: _loginProvider.obscurePassword,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.grey800,
+                ),
+                decoration: InputDecoration(
+                  hintText: "Enter your password",
+                  hintStyle: TextStyle(
+                    color: AppColors.grey500,
+                    fontSize: fontSize * 0.95,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _loginProvider.obscurePassword
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      color: AppColors.grey600,
+                      size: iconSize * 1.2,
+                    ),
+                    onPressed: _loginProvider.togglePasswordVisibility,
+                  ),
+                ),
+                onChanged: (value) {
+                  _loginProvider.validatePassword(value);
+                },
+              ),
+              if (_loginProvider.passwordError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: AppColors.errorRed,
+                        size: fontSize * 0.9,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          _loginProvider.passwordError!,
+                          style: TextStyle(
+                            color: AppColors.errorRed,
+                            fontSize: fontSize * 0.85,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildForgotPasswordButton() {
+    final fontSize = ResponsiveUtils.getFontSize(context, 13);
+    
+    return Align(
+      alignment: Alignment.centerRight,
+      child: TextButton(
+        onPressed: _loginProvider.isLoading ? null : _navigateToForgotPassword,
+        style: TextButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(
+          "Forgot Password?",
+          style: TextStyle(
+            fontSize: fontSize,
+            color: AppColors.primaryBlue,
+            fontWeight: FontWeight.w600,
+            decoration: TextDecoration.underline,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoginButton() {
+    final fontSize = ResponsiveUtils.getFontSize(context, 16);
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    
+    double buttonHeight;
+    if (isLandscape) {
+      buttonHeight = 48.0; 
+    } else if (isTabletDevice) {
+      buttonHeight = 60.0;
+    } else {
+      buttonHeight = 56.0;
+    }
+    
+    final isEnabled = _loginProvider.isEmailValid && _loginProvider.isPasswordValid;
     
     return Container(
       width: double.infinity,
-      height: 56,
+      height: buttonHeight,
       decoration: BoxDecoration(
         gradient: isEnabled
             ? AppGradients.primaryYellow
             : const LinearGradient(
-                colors: [
-                  AppColors.grey300,
-                  AppColors.grey400,
-                ],
+                colors: [AppColors.grey300, AppColors.grey400],
               ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: isEnabled
@@ -1056,12 +1209,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             : [],
       ),
       child: ElevatedButton(
-        onPressed: isEnabled && !_loginProvider.isLoading 
-          ? () {
-              debugPrint('LOGIN BUTTON PRESSED!');
-              _loginUser();
-            }
-          : null,
+        onPressed: isEnabled && !_loginProvider.isLoading ? _loginUser : null,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -1071,10 +1219,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           padding: EdgeInsets.zero,
         ),
         child: _loginProvider.isLoading
-            ? const SizedBox(
-                height: 24,
-                width: 24,
-                child: CircularProgressIndicator(
+            ? SizedBox(
+                height: isLandscape ? 20 : 24,
+                width: isLandscape ? 20 : 24,
+                child: const CircularProgressIndicator(
                   valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
                   strokeWidth: 2.5,
                 ),
@@ -1082,7 +1230,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             : Text(
                 "Login",
                 style: TextStyle(
-                  fontSize: screenWidth * 0.042,
+                  fontSize: fontSize,
                   fontWeight: FontWeight.w700,
                   color: isEnabled ? AppColors.white : AppColors.grey600,
                   letterSpacing: 0.5,
@@ -1092,8 +1240,56 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     );
   }
 
+  Widget _buildSignupOption() {
+    final fontSize = ResponsiveUtils.getFontSize(context, 14);
+    
+    return ListenableBuilder(
+      listenable: _loginProvider,
+      builder: (context, child) {
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: ResponsiveUtils.getVerticalSpacing(context, 20),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  "Don't have an account? ",
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    color: AppColors.grey600,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              GestureDetector(
+                onTap: _loginProvider.isLoading ? null : _navigateToSignup,
+                child: Text(
+                  "Sign Up",
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    color: AppColors.primaryBlue,
+                    fontWeight: FontWeight.w700,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final verticalSpacing = ResponsiveUtils.getVerticalSpacing(context, 25);
+    
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       body: GestureDetector(
@@ -1101,15 +1297,63 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           FocusScope.of(context).unfocus();
           _removeOverlay();
         },
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              _buildHeader(),
-              const SizedBox(height: 25),
-              _buildLoginContainer(MediaQuery.of(context).size.width),
-              _buildSignupOption(),
-              SizedBox(height: MediaQuery.of(context).viewInsets.bottom + 20),
-            ],
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              if (isLandscape) {
+                // Landscape layout - side by side
+                return Row(
+                  children: [
+                    Expanded(
+                      flex: 2,
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            _buildHeader(),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 3,
+                      child: Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildLoginContainer(),
+                                _buildSignupOption(),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              
+              // Portrait layout - stacked
+              return SingleChildScrollView(
+                child: Column(
+                  children: [
+                    _buildHeader(),
+                    SizedBox(height: verticalSpacing),
+                    _buildLoginContainer(),
+                    _buildSignupOption(),
+                    SizedBox(
+                      height: MediaQuery.of(context).viewInsets.bottom + 20,
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),

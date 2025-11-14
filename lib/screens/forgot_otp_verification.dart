@@ -7,7 +7,131 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
-import 'package:coaching_institute_app/common/continue_button.dart';
+
+// ============= RESPONSIVE UTILITY CLASS =============
+class ResponsiveUtils {
+  static bool isTablet(BuildContext context) {
+    final shortestSide = MediaQuery.of(context).size.shortestSide;
+    return shortestSide >= 600;
+  }
+
+  static bool isLandscape(BuildContext context) {
+    return MediaQuery.of(context).orientation == Orientation.landscape;
+  }
+
+  static double getResponsiveWidth(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+
+    if (isTabletDevice || isLandscapeMode) {
+      return width * 0.5;
+    }
+    return width * 0.9;
+  }
+
+  static double getMaxContainerWidth(BuildContext context) {
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+
+    if (isTabletDevice) {
+      return 500.0;
+    } else if (isLandscapeMode) {
+      return 450.0;
+    }
+    return double.infinity;
+  }
+
+  static double getFontSize(BuildContext context, double baseSize) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return baseSize * 0.85;
+    } else if (isTabletDevice) {
+      return baseSize * 1.2;
+    }
+    return (baseSize / 375) * width;
+  }
+
+  static double getHeaderHeight(BuildContext context) {
+    final height = MediaQuery.of(context).size.height;
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return height * 0.85;
+    }
+    return height * 0.35;
+  }
+
+  static double getIconSize(BuildContext context, double baseSize) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isTabletDevice = isTablet(context);
+    final isLandscapeMode = isLandscape(context);
+    
+    if (!isLandscapeMode) {
+      if (isTabletDevice) {
+        return screenWidth * (baseSize / 375) * 1.2;
+      } else {
+        return screenWidth * (baseSize / 375);
+      }
+    }
+    
+    if (isTabletDevice) {
+      return screenHeight * (baseSize / 667) * 0.8;
+    } else {
+      return screenHeight * (baseSize / 667) * 0.7;
+    }
+  }
+
+  static EdgeInsets getHorizontalPadding(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final isTabletDevice = isTablet(context);
+    
+    if (isTabletDevice) {
+      return EdgeInsets.symmetric(horizontal: width * 0.15);
+    }
+    return const EdgeInsets.symmetric(horizontal: 20);
+  }
+
+  static double getVerticalSpacing(BuildContext context, double baseSpacing) {
+    final isLandscapeMode = isLandscape(context);
+    
+    if (isLandscapeMode) {
+      return baseSpacing * 0.6;
+    }
+    return baseSpacing;
+  }
+
+  static double getOtpBoxSize(BuildContext context) {
+  final width = MediaQuery.of(context).size.width;
+  final height = MediaQuery.of(context).size.height;
+  final isTabletDevice = isTablet(context);
+  final isLandscapeMode = isLandscape(context);
+  
+  if (isTabletDevice && !isLandscapeMode) {
+    return 60.0;
+  } else if (isLandscapeMode) {
+    final availableWidth = width * 0.4; // 40% of screen width for OTP boxes
+    final boxSize = (availableWidth / 6) - 8; // 6 boxes with spacing
+    return boxSize.clamp(45.0, 55.0); // Ensure minimum 45px, maximum 55px
+  }
+  return width * 0.11;
+}
+  static double getOtpSpacing(BuildContext context) {
+    final isLandscapeMode = isLandscape(context);
+    final isTabletDevice = isTablet(context);
+    
+    if (isLandscapeMode) {
+      return 6.0; // Reduced spacing in landscape
+    } else if (isTabletDevice) {
+      return 12.0;
+    }
+    return 10.0;
+  }
+}
 
 // ==================== PROVIDER CLASS ====================
 class ForgotOtpProvider extends ChangeNotifier {
@@ -37,7 +161,7 @@ class ForgotOtpProvider extends ChangeNotifier {
 
   // Initialize with route arguments
   void initialize(Map<String, dynamic>? args) {
-    if (_isInitialized) return; // Prevent re-initialization
+    if (_isInitialized) return;
     
     if (args != null) {
       _email = args['email'] ?? '';
@@ -481,32 +605,39 @@ class ForgotOtpProvider extends ChangeNotifier {
 }
 
 // ==================== SCREEN WIDGET ====================
-class ForgotOtpVerificationScreen extends StatelessWidget {
+class ForgotOtpVerificationScreen extends StatefulWidget {
   const ForgotOtpVerificationScreen({super.key});
 
-  void _showSnackBar(BuildContext context, String message, Color color) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: color,
-        duration: const Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+  @override
+  State<ForgotOtpVerificationScreen> createState() => _ForgotOtpVerificationScreenState();
+}
+
+class _ForgotOtpVerificationScreenState extends State<ForgotOtpVerificationScreen> {
+  void _showSnackBar(String message, Color color) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: color,
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   Future<void> _handleVerifyOtp(BuildContext context) async {
     final provider = context.read<ForgotOtpProvider>();
     final result = await provider.verifyOtp();
 
-    if (!context.mounted) return;
+    if (!mounted) return;
 
     if (result['success'] == true) {
-      _showSnackBar(context, result['message'], AppColors.successGreen);
+      _showSnackBar(result['message'], AppColors.successGreen);
 
       final navigationArgs = {
         'email': result['email'],
@@ -515,7 +646,7 @@ class ForgotOtpVerificationScreen extends StatelessWidget {
       };
 
       Future.delayed(const Duration(milliseconds: 800), () {
-        if (context.mounted) {
+        if (mounted) {
           debugPrint('🧭 Navigating to: /reset_password');
           Navigator.pushReplacementNamed(
             context,
@@ -525,7 +656,7 @@ class ForgotOtpVerificationScreen extends StatelessWidget {
         }
       });
     } else {
-      _showSnackBar(context, result['message'], AppColors.errorRed);
+      _showSnackBar(result['message'], AppColors.errorRed);
 
       if (result['navigate_back'] == true) {
         Navigator.pop(context);
@@ -537,278 +668,570 @@ class ForgotOtpVerificationScreen extends StatelessWidget {
     final provider = context.read<ForgotOtpProvider>();
     final result = await provider.resendOtp();
 
-    if (!context.mounted) return;
+    if (!mounted) return;
 
     if (result['success'] == true) {
-      _showSnackBar(context, result['message'], AppColors.successGreen);
+      _showSnackBar(result['message'], AppColors.successGreen);
     } else {
-      _showSnackBar(context, result['message'], AppColors.errorRed);
+      _showSnackBar(result['message'], AppColors.errorRed);
     }
+  }
+
+  Widget _buildHeader(BuildContext context) {
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    final headerHeight = ResponsiveUtils.getHeaderHeight(context);
+    
+    final iconSize = ResponsiveUtils.getIconSize(context, 45);
+    final titleFontSize = ResponsiveUtils.getFontSize(context, 24);
+    final subtitleFontSize = ResponsiveUtils.getFontSize(context, 14);
+
+    return Container(
+      width: double.infinity,
+      height: headerHeight,
+      decoration: BoxDecoration(
+        gradient: AppGradients.background,
+        borderRadius: isLandscape 
+            ? const BorderRadius.only(
+                topRight: Radius.circular(35),
+                bottomRight: Radius.circular(35),
+              )
+            : const BorderRadius.only(
+                bottomLeft: Radius.circular(35),
+                bottomRight: Radius.circular(35),
+              ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowYellow,
+            spreadRadius: 0,
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Decorative circles
+          Positioned(
+            top: -30,
+            right: -20,
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.grey300.withOpacity(0.1),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 10,
+            left: -25,
+            child: Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.grey400.withOpacity(0.08),
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 30,
+            right: 40,
+            child: Container(
+              width: 35,
+              height: 35,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.white.withOpacity(0.06),
+              ),
+            ),
+          ),
+
+          // Back button
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 16,
+            child: IconButton(
+              icon: Icon(
+                Icons.arrow_back_ios_new,
+                color: AppColors.primaryBlue,
+                size: ResponsiveUtils.getFontSize(context, 20),
+              ),
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+
+          // Title and Icon - Centered content with SingleChildScrollView for overflow protection
+          Center(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                vertical: isLandscape ? 16 : 20,
+                horizontal: 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(isLandscape ? 10 : 16),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: AppGradients.primaryYellow,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primaryYellow.withOpacity(0.4),
+                          spreadRadius: 5,
+                          blurRadius: 15,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      Icons.lock_reset,
+                      color: AppColors.white,
+                      size: iconSize * (isLandscape ? 0.8 : 1),
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 12)),
+                  Text(
+                    "Email Verification",
+                    style: TextStyle(
+                      fontSize: titleFontSize,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.primaryBlue,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 6)),
+                  Consumer<ForgotOtpProvider>(
+                    builder: (context, provider, child) {
+                      return Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isLandscape ? 10 : 40,
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              provider.email.isNotEmpty
+                                  ? 'Enter the 6-digit code sent to'
+                                  : 'Enter the 6-digit verification code',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: subtitleFontSize * 0.95,
+                                fontWeight: FontWeight.w400,
+                                color: AppColors.primaryBlue,
+                                height: 1.3,
+                              ),
+                            ),
+                            if (provider.email.isNotEmpty) ...[
+                              SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 4)),
+                              Text(
+                                provider.email,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: subtitleFontSize * 0.95,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primaryBlue,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOtpCard(BuildContext context) {
+    final maxWidth = ResponsiveUtils.getMaxContainerWidth(context);
+    final horizontalPadding = ResponsiveUtils.getHorizontalPadding(context);
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final isTabletDevice = ResponsiveUtils.isTablet(context);
+    
+    final containerPadding = EdgeInsets.symmetric(
+      horizontal: (isTabletDevice && !isLandscape) ? 24 : (isLandscape ? 12 : 20),
+      vertical: (isTabletDevice && !isLandscape) ? 24 : (isLandscape ? 12 : 20),
+    );
+    
+    return Center(
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        padding: horizontalPadding,
+        child: Container(
+          padding: containerPadding,
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(25),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadowGrey,
+                spreadRadius: 0,
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+              BoxShadow(
+                color: AppColors.shadowYellow,
+                spreadRadius: 0,
+                blurRadius: 20,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Consumer<ForgotOtpProvider>(
+            builder: (context, provider, child) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildTimerDisplay(context, provider),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
+                  _buildOtpInputFields(context, provider),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
+                  _buildVerifyButton(context, provider),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 12 : 20)),
+                  _buildResendSection(context, provider),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimerDisplay(BuildContext context, ForgotOtpProvider provider) {
+    final fontSize = ResponsiveUtils.getFontSize(context, 12);
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.primaryBlue.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.timer_outlined,
+            color: AppColors.primaryBlue,
+            size: fontSize * 1.3,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '${provider.countdown} seconds',
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+Widget _buildOtpInputFields(BuildContext context, ForgotOtpProvider provider) {
+  final otpBoxSize = ResponsiveUtils.getOtpBoxSize(context);
+  final otpSpacing = ResponsiveUtils.getOtpSpacing(context);
+  final fontSize = ResponsiveUtils.getFontSize(context, 18);
+  final isLandscape = ResponsiveUtils.isLandscape(context);
+  
+  // Use Row with Center for both landscape and portrait to ensure single line
+  return Center(
+    child: SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(6, (index) {
+          return Padding(
+            padding: EdgeInsets.only(
+              right: index < 5 ? otpSpacing : 0,
+            ),
+            child: _buildOtpBox(context, provider, index, otpBoxSize, fontSize),
+          );
+        }),
+      ),
+    ),
+  );
+}
+
+  
+Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index, double size, double fontSize) {
+  final isLandscape = ResponsiveUtils.isLandscape(context);
+  
+  // Ensure minimum font size in landscape mode
+  final adjustedFontSize = isLandscape ? fontSize.clamp(14.0, 18.0) : fontSize;
+  
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      borderRadius: BorderRadius.circular(14),
+      boxShadow: [
+        BoxShadow(
+          color: AppColors.shadowGrey,
+          blurRadius: 6,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: TextField(
+      controller: provider.otpControllers[index],
+      focusNode: provider.focusNodes[index],
+      keyboardType: TextInputType.number,
+      textAlign: TextAlign.center,
+      textAlignVertical: TextAlignVertical.center, // Added for better vertical alignment
+      maxLength: 1,
+      enabled: !provider.isLoading,
+      style: TextStyle(
+        fontSize: adjustedFontSize,
+        fontWeight: FontWeight.w700,
+        color: AppColors.textDark,
+        height: 1.2, // Added to control line height
+      ),
+      decoration: InputDecoration(
+        counterText: '',
+        filled: true,
+        fillColor: provider.isLoading
+            ? AppColors.grey200
+            : AppColors.white,
+        contentPadding: EdgeInsets.zero, // Remove default padding
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(
+            color: AppColors.primaryYellow,
+            width: 2,
+          ),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(
+            color: AppColors.grey300,
+            width: 1,
+          ),
+        ),
+      ),
+      onChanged: (value) {
+        provider.onOtpDigitChanged(value, index);
+        // Auto-verify when all 6 digits are entered
+        if (value.isNotEmpty && index == 5) {
+          String otp = provider.getOtp();
+          if (otp.length == 6) {
+            _handleVerifyOtp(context);
+          }
+        }
+      },
+    ),
+  );
+}
+
+ Widget _buildVerifyButton(BuildContext context, ForgotOtpProvider provider) {
+  final fontSize = ResponsiveUtils.getFontSize(context, 16);
+  final isLandscape = ResponsiveUtils.isLandscape(context);
+  final isTabletDevice = ResponsiveUtils.isTablet(context);
+  
+  double buttonHeight;
+  if (isLandscape) {
+    buttonHeight = 42.0; // Reduced from 48.0
+  } else if (isTabletDevice) {
+    buttonHeight = 60.0;
+  } else {
+    buttonHeight = 56.0;
+  }
+  
+  bool isEnabled = !provider.isLoading;
+
+  return Center(
+    child: Container(
+      width: isLandscape ? 250.0 : double.infinity, // Limited width for landscape
+      height: buttonHeight,
+      decoration: BoxDecoration(
+        gradient: isEnabled
+            ? AppGradients.primaryYellow
+            : const LinearGradient(
+                colors: [
+                  AppColors.grey300,
+                  AppColors.grey400,
+                ],
+              ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: isEnabled
+            ? [
+                BoxShadow(
+                  color: AppColors.shadowYellow,
+                  spreadRadius: 0,
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ]
+            : [],
+      ),
+      child: ElevatedButton(
+        onPressed: isEnabled ? () => _handleVerifyOtp(context) : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          padding: EdgeInsets.zero,
+          minimumSize: Size.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: provider.isLoading
+            ? SizedBox(
+                height: isLandscape ? 16 : 20,
+                width: isLandscape ? 16 : 20,
+                child: const CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
+                  strokeWidth: 2.5,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    "Verify OTP",
+                    style: TextStyle(
+                      fontSize: isLandscape ? fontSize * 0.85 : fontSize * 0.9,
+                      fontWeight: FontWeight.w700,
+                      color: isEnabled ? AppColors.white : AppColors.grey600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  SizedBox(width: isLandscape ? 4 : 6),
+                  Icon(
+                    Icons.check_circle_outline,
+                    color: isEnabled ? AppColors.white : AppColors.grey600,
+                    size: isLandscape ? fontSize * 0.9 : fontSize,
+                  ),
+                ],
+              ),
+      ),
+    ),
+  );
+}
+  Widget _buildResendSection(BuildContext context, ForgotOtpProvider provider) {
+    final fontSize = ResponsiveUtils.getFontSize(context, 13);
+    final smallFontSize = ResponsiveUtils.getFontSize(context, 12);
+    
+    return Column(
+      children: [
+        Text(
+          "Didn't receive the code?",
+          style: TextStyle(
+            fontSize: smallFontSize,
+            color: AppColors.textLightGrey,
+            fontWeight: FontWeight.w400,
+          ),
+        ),
+        const SizedBox(height: 6),
+        TextButton(
+          onPressed: provider.canResend && !provider.isLoading
+              ? () => _handleResendOtp(context)
+              : null,
+          style: TextButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            minimumSize: const Size(0, 0),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: Text(
+            provider.canResend
+                ? 'Resend OTP'
+                : 'Resend OTP in ${provider.countdown}s',
+            style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w600,
+              color: provider.canResend && !provider.isLoading
+                  ? AppColors.primaryBlue
+                  : AppColors.grey500,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-
-    // Get route arguments
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    final isLandscape = ResponsiveUtils.isLandscape(context);
+    final verticalSpacing = ResponsiveUtils.getVerticalSpacing(context, 40);
 
     return ChangeNotifierProvider(
       create: (_) => ForgotOtpProvider()..initialize(args),
-      child: Scaffold(
-        backgroundColor: AppColors.backgroundGrey,
-        resizeToAvoidBottomInset: true,
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: Icon(Icons.arrow_back_ios, color: AppColors.textDark, size: screenWidth * 0.05),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
-        body: SafeArea(
-          child: Consumer<ForgotOtpProvider>(
-            builder: (context, provider, child) {
-              return SingleChildScrollView(
-                padding: EdgeInsets.symmetric(horizontal: screenWidth * 0.06),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: screenHeight -
-                        MediaQuery.of(context).padding.top -
-                        kToolbarHeight,
-                  ),
-                  child: Column(
-                    children: [
-                      SizedBox(height: screenHeight * 0.03),
-
-                      // Header Icon
-                      Container(
-                        width: screenWidth * 0.15,
-                        height: screenWidth * 0.15,
-                        decoration: BoxDecoration(
-                          gradient: AppGradients.primaryYellow,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppColors.shadowYellow,
-                              blurRadius: 12,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
+      child: Builder(
+        builder: (context) => Scaffold(
+          backgroundColor: const Color(0xFFF5F5F5),
+          body: GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (isLandscape) {
+                    // Landscape layout - side by side with proper flex
+                    return Row(
+                      children: [
+                        // Header section - takes less space
+                        Flexible(
+                          flex: 2,
+                          child: _buildHeader(context),
                         ),
-                        child: Icon(
-                          Icons.lock_reset,
-                          color: AppColors.white,
-                          size: screenWidth * 0.07,
-                        ),
-                      ),
-
-                      SizedBox(height: screenHeight * 0.025),
-
-                      // Title
-                      Text(
-                        'Email Verification',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.06,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textDark,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-
-                      SizedBox(height: screenHeight * 0.012),
-
-                      // Description
-                      Text(
-                        provider.email.isNotEmpty
-                            ? 'Enter the 6-digit code sent to'
-                            : 'Enter the 6-digit verification code',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.035,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-
-                      SizedBox(height: screenHeight * 0.006),
-
-                      // Email Display
-                      if (provider.email.isNotEmpty)
-                        Text(
-                          provider.email,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: screenWidth * 0.038,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primaryBlue,
-                          ),
-                        ),
-
-                      SizedBox(height: screenHeight * 0.035),
-
-                      // Timer Display
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryBlue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.timer_outlined,
-                              color: AppColors.primaryBlue,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              '${provider.countdown} seconds',
-                              style: TextStyle(
-                                fontSize: screenWidth * 0.03,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.primaryBlue,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      SizedBox(height: screenHeight * 0.04),
-
-                      // OTP Input Fields
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: List.generate(6, (index) {
-                            return Container(
-                              width: screenWidth * 0.11,
-                              height: screenWidth * 0.11,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.shadowGrey,
-                                    blurRadius: 6,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: TextField(
-                                controller: provider.otpControllers[index],
-                                focusNode: provider.focusNodes[index],
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                maxLength: 1,
-                                enabled: !provider.isLoading,
-                                style: TextStyle(
-                                  fontSize: screenWidth * 0.05,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.textDark,
-                                ),
-                                decoration: InputDecoration(
-                                  counterText: '',
-                                  filled: true,
-                                  fillColor: provider.isLoading
-                                      ? AppColors.grey200
-                                      : AppColors.white,
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                    borderSide: BorderSide.none,
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                    borderSide: const BorderSide(
-                                      color: AppColors.primaryYellow,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                    borderSide: const BorderSide(
-                                      color: AppColors.grey300,
-                                      width: 1,
-                                    ),
-                                  ),
-                                ),
-                                onChanged: (value) {
-                                  provider.onOtpDigitChanged(value, index);
-                                  // Auto-verify when all 6 digits are entered
-                                  if (value.isNotEmpty && index == 5) {
-                                    String otp = provider.getOtp();
-                                    if (otp.length == 6) {
-                                      _handleVerifyOtp(context);
-                                    }
-                                  }
-                                },
-                              ),
-                            );
-                          }),
-                        ),
-                      ),
-
-                      SizedBox(height: screenHeight * 0.05),
-
-                      // Verify Button
-                      ContinueButton(
-                        isEnabled: !provider.isLoading,
-                        isLoading: provider.isLoading,
-                        onPressed: () => _handleVerifyOtp(context),
-                        screenWidth: screenWidth,
-                      ),
-
-                      SizedBox(height: screenHeight * 0.025),
-
-                      // Resend OTP Section
-                      Column(
-                        children: [
-                          Text(
-                            "Didn't receive the code?",
-                            style: TextStyle(
-                              fontSize: screenWidth * 0.032,
-                              color: AppColors.textLightGrey,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          TextButton(
-                            onPressed: provider.canResend && !provider.isLoading
-                                ? () => _handleResendOtp(context)
-                                : null,
-                            style: TextButton.styleFrom(
+                        // Content section - takes more space
+                        Flexible(
+                          flex: 3,
+                          child: Center(
+                            child: SingleChildScrollView(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 6),
-                            ),
-                            child: Text(
-                              provider.canResend
-                                  ? 'Resend OTP'
-                                  : 'Resend OTP in ${provider.countdown} seconds',
-                              style: TextStyle(
-                                fontSize: screenWidth * 0.034,
-                                fontWeight: FontWeight.w600,
-                                color: provider.canResend && !provider.isLoading
-                                    ? AppColors.primaryBlue
-                                    : AppColors.grey500,
+                                vertical: 16,
+                                horizontal: 16,
+                              ),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
+                                ),
+                                child: _buildOtpCard(context),
                               ),
                             ),
                           ),
-                        ],
-                      ),
-
-                      // Extra space for keyboard
-                      SizedBox(
-                        height: MediaQuery.of(context).viewInsets.bottom > 0
-                            ? MediaQuery.of(context).viewInsets.bottom + 16
-                            : screenHeight * 0.04,
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
+                        ),
+                      ],
+                    );
+                  }
+                  
+                  // Portrait layout - stacked
+                  return SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        _buildHeader(context),
+                        SizedBox(height: verticalSpacing),
+                        _buildOtpCard(context),
+                        SizedBox(
+                          height: MediaQuery.of(context).viewInsets.bottom + 20,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
+          resizeToAvoidBottomInset: true,
         ),
       ),
     );
