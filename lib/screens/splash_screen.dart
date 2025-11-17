@@ -173,6 +173,12 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+    final isLandscape = screenWidth > screenHeight;
+    
+    // Responsive sizing based on orientation
+    final logoSize = isLandscape 
+        ? screenHeight * 0.55  // Use height for landscape - increased size
+        : screenWidth * 0.7;    // Use width for portrait
     
     return Scaffold(
       body: Container(
@@ -183,6 +189,7 @@ class _SplashScreenState extends State<SplashScreen> {
         ),
         child: Stack(
           children: [
+            // Background decorative circles
             Positioned(
               top: -30,
               right: -20,
@@ -232,55 +239,123 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
             ),
             
-            Align(
-              alignment: const Alignment(0, 0.15),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.asset(
-                    'assets/images/signature_logo.png',
-                    width: screenWidth * 0.7,  
-                    height: screenWidth * 0.7, 
-                    fit: BoxFit.contain,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        width: screenWidth * 0.7,
-                        height: screenWidth * 0.7,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
+            // Main content - centered for both orientations
+            Center(
+              child: isLandscape
+                  ? // Landscape: Just show logo centered, loading indicator at bottom
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/images/signature_logo.png',
+                          width: logoSize,
+                          height: logoSize,
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: logoSize,
+                              height: logoSize,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Icon(
+                                Icons.image_not_supported,
+                                size: logoSize * 0.4,
+                                color: AppColors.white.withOpacity(0.5),
+                              ),
+                            );
+                          },
                         ),
-                        child: Icon(
-                          Icons.image_not_supported,
-                          size: 80,
-                          color: AppColors.white.withOpacity(0.5),
+                      ],
+                    )
+                  : // Portrait: Show all content with scroll fallback
+                    SingleChildScrollView(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: screenHeight * 0.05,
+                          horizontal: 20,
                         ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 40),
-                  
-                  // Loading indicator
-                  const CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
-                    strokeWidth: 3,
-                  ),
-                  const SizedBox(height: 20),
-                  
-                  // Loading text
-                  Text(
-                    'Loading...',
-                    style: TextStyle(
-                      color: AppColors.white,
-                      fontSize: screenWidth * 0.045,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.5,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // Logo with responsive sizing
+                            Image.asset(
+                              'assets/images/signature_logo.png',
+                              width: logoSize,
+                              height: logoSize,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  width: logoSize,
+                                  height: logoSize,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Icon(
+                                    Icons.image_not_supported,
+                                    size: logoSize * 0.4,
+                                    color: AppColors.white.withOpacity(0.5),
+                                  ),
+                                );
+                              },
+                            ),
+                            
+                            const SizedBox(height: 40),
+                            
+                            // Loading indicator
+                            const CircularProgressIndicator(
+                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
+                              strokeWidth: 3,
+                            ),
+                            
+                            const SizedBox(height: 20),
+                            
+                            // Loading text
+                            Text(
+                              'Loading...',
+                              style: TextStyle(
+                                color: AppColors.white,
+                                fontSize: screenWidth * 0.045,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  ),
-                ],
-              ),
             ),
+            
+            // Loading indicator fixed at bottom for landscape
+            if (isLandscape)
+              const Positioned(
+                bottom: 30,
+                left: 0,
+                right: 0,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                     CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
+                      strokeWidth: 3,
+                    ),
+                     SizedBox(height: 10),
+                    Text(
+                      'Loading...',
+                      style: TextStyle(
+                        color: AppColors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

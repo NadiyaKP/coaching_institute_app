@@ -56,8 +56,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
       // Show popup if there's an active subscription
       if (activeSubscriptions.isNotEmpty) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _showActivePlanPopup = true;
-          setState(() {});
+          setState(() {
+            _showActivePlanPopup = true;
+          });
         });
       }
     });
@@ -443,6 +444,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
+  // Check if subscription is active (not expired)
+  bool _isSubscriptionActive(StudentSubscription subscription) {
+    return _calculateDaysLeft(subscription.endDate) > 0;
+  }
+
   // Check subscription status and return appropriate message
   String _getSubscriptionStatusMessage(StudentSubscription subscription) {
     final daysLeft = _calculateDaysLeft(subscription.endDate);
@@ -473,6 +479,32 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   String _getStatusText(StudentSubscription subscription) {
     final daysLeft = _calculateDaysLeft(subscription.endDate);
     return daysLeft == 0 ? 'Inactive' : 'Active';
+  }
+
+  // Get current active subscription (only one should be active at a time)
+  StudentSubscription? get _currentActiveSubscription {
+    if (activeSubscriptions.isEmpty) return null;
+    
+    // Return the first subscription (assuming only one active subscription)
+    return activeSubscriptions.first;
+  }
+
+  // Check if device is in landscape mode
+  bool get _isLandscape {
+    final mediaQuery = MediaQuery.of(context);
+    return mediaQuery.orientation == Orientation.landscape;
+  }
+
+  // Get popup width based on orientation
+  double get _popupWidth {
+    if (_isLandscape) {
+      final mediaQuery = MediaQuery.of(context);
+      // For landscape mode, use a smaller percentage of screen width
+      // and set a maximum width to prevent it from being too wide
+      return mediaQuery.size.width * 0.6 > 500 ? 500 : mediaQuery.size.width * 0.6;
+    }
+    // For portrait mode, maintain original behavior
+    return MediaQuery.of(context).size.width * 0.85;
   }
 
   // Mark subscription notifications as read
@@ -744,227 +776,295 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
-// Active Plan Popup
-void _showActivePlanDialog() {
-  if (activeSubscriptions.isEmpty) return;
+// Active Plan Popup Widget
+Widget _buildActivePlanPopup() {
+  final currentSubscription = _currentActiveSubscription;
+  if (currentSubscription == null) return const SizedBox.shrink();
   
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext context) {
-      final subscription = activeSubscriptions.first;
-      final daysLeft = _calculateDaysLeft(subscription.endDate);
-      final statusMessage = _getSubscriptionStatusMessage(subscription);
-      final statusColor = _getStatusColor(subscription);
-      
-      return Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryYellow.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.verified_rounded,
-                      color: AppColors.primaryYellow,
-                      size: 24,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Active Subscription',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 16),
-              
-              // Course Name
-              Text(
-                subscription.course,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textDark,
-                ),
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Plan Details
-              _buildPlanDetailRow('Plan', subscription.plan),
-              _buildPlanDetailRow('Price', '₹${subscription.planAmount.toStringAsFixed(0)}'),
-              _buildPlanDetailRow('Valid Until', _formatDate(subscription.endDate)),
-              _buildPlanDetailRow('Days Left', '$daysLeft days'),
-              
-              const SizedBox(height: 16),
-              
-              // Status Alert
-              if (statusMessage.isNotEmpty)
+  final daysLeft = _calculateDaysLeft(currentSubscription.endDate);
+  final statusMessage = _getSubscriptionStatusMessage(currentSubscription);
+  final statusColor = _getStatusColor(currentSubscription);
+  
+  return Dialog(
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Container(
+      width: _popupWidth, // Use responsive width
+      constraints: BoxConstraints(
+        maxWidth: _isLandscape ? 500 : double.infinity, // Limit max width in landscape
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with close button
+            Row(
+              children: [
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
+                    color: AppColors.primaryYellow.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: statusColor.withOpacity(0.3),
+                  ),
+                  child: Icon(
+                    _isSubscriptionActive(currentSubscription) 
+                        ? Icons.verified_rounded 
+                        : Icons.error_outline_rounded,
+                    color: _isSubscriptionActive(currentSubscription) 
+                        ? AppColors.primaryYellow 
+                        : AppColors.errorRed,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    'Current Plan',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textDark,
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        daysLeft == 0 ? Icons.error_rounded : Icons.warning_rounded,
-                        color: statusColor,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          statusMessage,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: statusColor,
-                            fontWeight: FontWeight.w500,
-                          ),
+                ),
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _showActivePlanPopup = false;
+                    });
+                  },
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: AppColors.textGrey,
+                    size: 20,
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // Course Name
+            Text(
+              currentSubscription.course,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textDark,
+              ),
+            ),
+            
+            const SizedBox(height: 12),
+            
+            // Plan Details
+            _buildPlanDetailRow('Plan', currentSubscription.plan),
+            _buildPlanDetailRow('Price', '₹${currentSubscription.planAmount.toStringAsFixed(0)}'),
+            _buildPlanDetailRow('Valid Until', _formatDate(currentSubscription.endDate)),
+            _buildDaysLeftRow(daysLeft),
+            _buildPlanDetailRow('Status', _getStatusText(currentSubscription)),
+            
+            const SizedBox(height: 16),
+            
+            // Status Alert
+            if (statusMessage.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: statusColor.withOpacity(0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      daysLeft == 0 ? Icons.error_rounded : Icons.warning_rounded,
+                      color: statusColor,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        statusMessage,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: statusColor,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+            
+            const SizedBox(height: 20),
+            
+            // Explore Plans Button
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _showActivePlanPopup = false;
+                  });
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primaryYellow,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
                   ),
                 ),
-              
-              const SizedBox(height: 20),
-              
-              // Explore Plans Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryYellow,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text(
-                    'Explore Plans',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
+                child: const Text(
+                  'Explore Plans',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      );
-    },
+      ),
+    ),
   );
 }
 
+// New method for Days Left row with conditional color
+Widget _buildDaysLeftRow(int daysLeft) {
+  Color daysLeftColor = daysLeft > 3 ? AppColors.successGreen : AppColors.errorRed;
+  
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        const Text(
+          'Days Left',
+          style: TextStyle(
+            fontSize: 12,
+            color: AppColors.textGrey,
+          ),
+        ),
+        Text(
+          '$daysLeft days',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: daysLeftColor,
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
-  Widget _buildPlanDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: AppColors.textGrey,
-            ),
+Widget _buildPlanDetailRow(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textGrey,
           ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textDark,
-            ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: AppColors.textDark,
           ),
-        ],
+        ),
+      ],
+    ),
+  );
+}
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: AppColors.backgroundLight,
+      endDrawer: CommonProfileDrawer(
+        name: _userName,
+        email: _userEmail,
+        course: _courseName,
+        subcourse: _subcourseName,
+        profileCompleted: _profileCompleted,
+        onViewProfile: () {
+          Navigator.of(context).pop(); 
+          _navigateToViewProfile();
+        },
+        onSettings: () {
+          Navigator.of(context).pop(); 
+          _navigateToSettings();
+        },
+ 
+        onClose: () {
+          Navigator.of(context).pop();
+        },
+      ),
+      body: PopScope(
+        canPop: false,
+        onPopInvoked: (bool didPop) async {
+          if (didPop) {
+            return;
+          }
+          
+          await _handleDeviceBackButton();
+        },
+        child: Stack(
+          children: [
+            // Main Content
+            errorMessage != null
+                ? _buildErrorState()
+                : isLoading
+                    ? _buildSkeletonLoading()
+                    : plans.isEmpty
+                        ? _buildEmptyState()
+                        : _buildPlansContent(),
+            
+            // Active Plan Popup - Show as overlay
+            if (_showActivePlanPopup && _currentActiveSubscription != null)
+              const ModalBarrier(
+                color: Colors.black54,
+                dismissible: false,
+              ),
+            
+            if (_showActivePlanPopup && _currentActiveSubscription != null)
+              Center(
+                child: SingleChildScrollView( // Added to prevent overflow
+                  child: _buildActivePlanPopup(),
+                ),
+              ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: CommonBottomNavBar(
+        currentIndex: _currentIndex,
+        onTabSelected: _onTabTapped,
+        studentType: _studentType,
+        scaffoldKey: _scaffoldKey,
       ),
     );
   }
-
-@override
-Widget build(BuildContext context) {
-  return Scaffold(
-    key: _scaffoldKey,
-    backgroundColor: AppColors.backgroundLight,
-    endDrawer: CommonProfileDrawer(
-      name: _userName,
-      email: _userEmail,
-      course: _courseName,
-      subcourse: _subcourseName,
-      profileCompleted: _profileCompleted,
-      onViewProfile: () {
-        Navigator.of(context).pop(); 
-        _navigateToViewProfile();
-      },
-      onSettings: () {
-        Navigator.of(context).pop(); 
-        _navigateToSettings();
-      },
-      onLogout: () {
-        Navigator.of(context).pop(); 
-        _showLogoutDialog();
-      },
-      onClose: () {
-        Navigator.of(context).pop();
-      },
-    ),
-    body: PopScope(
-      canPop: false,
-      onPopInvoked: (bool didPop) async {
-        if (didPop) {
-          return;
-        }
-        
-        await _handleDeviceBackButton();
-      },
-      child: errorMessage != null
-          ? _buildErrorState()
-          : isLoading
-              ? _buildSkeletonLoading()
-              : plans.isEmpty
-                  ? _buildEmptyState()
-                  : _buildPlansContent(),
-    ),
-    bottomNavigationBar: CommonBottomNavBar(
-      currentIndex: _currentIndex,
-      onTabSelected: _onTabTapped,
-      studentType: _studentType,
-      scaffoldKey: _scaffoldKey,
-    ),
-  );
-}
 
   // Skeleton Loading Widget
   Widget _buildSkeletonLoading() {
@@ -1044,27 +1144,36 @@ Widget build(BuildContext context) {
 
         // Skeleton Content
         Expanded(
-          child: SingleChildScrollView(
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-            child: Column(
-              children: [
-                // Skeleton Active Plan Section
-                _buildSkeletonActivePlanSection(),
-                const SizedBox(height: 16),
-                
-                // Skeleton Plan Cards
-                _buildSkeletonPlanCard(),
-                const SizedBox(height: 12),
-                _buildSkeletonPlanCard(),
-                const SizedBox(height: 12),
-                _buildSkeletonPlanCard(),
-                const SizedBox(height: 16),
-                
-                // Skeleton Features Section
-                _buildSkeletonFeaturesSection(),
-              ],
-            ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  16, 
+                  20, 
+                  16, 
+                  _isLandscape ? 100 : 20, // Extra bottom padding in landscape
+                ),
+                child: Column(
+                  children: [
+                    // Skeleton Active Plan Section
+                    _buildSkeletonActivePlanSection(),
+                    const SizedBox(height: 16),
+                    
+                    // Skeleton Plan Cards
+                    _buildSkeletonPlanCard(),
+                    const SizedBox(height: 12),
+                    _buildSkeletonPlanCard(),
+                    const SizedBox(height: 12),
+                    _buildSkeletonPlanCard(),
+                    const SizedBox(height: 16),
+                    
+                    // Skeleton Features Section
+                    _buildSkeletonFeaturesSection(),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -1517,126 +1626,143 @@ Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: _fetchStudentSubscriptions,
       color: AppColors.primaryYellow,
-      child: Column(
-        children: [
-          // Header Section with Curved Bottom
-          ClipPath(
-            clipper: CurvedHeaderClipper(),
-            child: Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppColors.primaryYellow,
-                    AppColors.primaryYellowDark,
-                  ],
-                ),
-              ),
-              padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Column(
+            children: [
+              // Header Section with Curved Bottom
+              ClipPath(
+                clipper: CurvedHeaderClipper(),
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primaryYellow,
+                        AppColors.primaryYellowDark,
+                      ],
+                    ),
+                  ),
+                  padding: EdgeInsets.fromLTRB(
+                    20, 
+                    60, 
+                    20, 
+                    _isLandscape ? 20 : 32,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      GestureDetector(
-                        onTap: () async {
-                          await _handleDeviceBackButton();
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.arrow_back_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Subscription Plans',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
+                      Row(
+                        children: [
+                          GestureDetector(
+                            onTap: () async {
+                              await _handleDeviceBackButton();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.arrow_back_rounded,
                                 color: Colors.white,
-                                letterSpacing: -0.3,
+                                size: 22,
                               ),
                             ),
-                            SizedBox(height: 3),
-                            Text(
-                              'Choose the plan that works best for you',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.1,
-                              ),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Subscription Plans',
+                                  style: TextStyle(
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                                SizedBox(height: 3),
+                                Text(
+                                  'Choose the plan that works best for you',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                    letterSpacing: 0.1,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
-          ),
 
-          // Scrollable Content
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Active Subscriptions Section - Collapsible
-                  if (activeSubscriptions.isNotEmpty) ...[
-                    _buildCollapsibleActivePlanSection(),
-                    const SizedBox(height: 20),
-                  ],
-
-                  // Plans List
-                  ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: plans.length,
-                    itemBuilder: (context, index) {
-                      final plan = plans[index];
-                      final bool isSelected = selectedPlanIndex == index;
-                      
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _buildPlanCard(plan, index, isSelected),
-                      );
-                    },
+              // Scrollable Content
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    16, 
+                    20, 
+                    16, 
+                    _isLandscape ? 100 : 20,
                   ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Active Subscriptions Section - Collapsible (Show only current active plan)
+                      if (_currentActiveSubscription != null) ...[
+                        _buildCollapsibleActivePlanSection(),
+                        const SizedBox(height: 20),
+                      ],
 
-                  const SizedBox(height: 16),
+                      // Plans List - Always use list view (no grid)
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: plans.length,
+                        itemBuilder: (context, index) {
+                          final plan = plans[index];
+                          final bool isSelected = selectedPlanIndex == index;
+                          
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildPlanCard(plan, index, isSelected),
+                          );
+                        },
+                      ),
 
-                  // Features Section
-                  _buildFeaturesSection(),
+                      const SizedBox(height: 16),
 
-                  const SizedBox(height: 20),
-                ],
+                      // Features Section
+                      _buildFeaturesSection(),
+
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
 
   Widget _buildCollapsibleActivePlanSection() {
+    final currentSubscription = _currentActiveSubscription;
+    if (currentSubscription == null) return const SizedBox.shrink();
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -1666,7 +1792,7 @@ Widget build(BuildContext context) {
                     width: 3,
                     height: 20,
                     decoration: BoxDecoration(
-                      color: AppColors.successGreen,
+                      color: _getStatusColor(currentSubscription),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -1699,11 +1825,7 @@ Widget build(BuildContext context) {
             const Divider(height: 1),
             Padding(
               padding: const EdgeInsets.all(16),
-              child: Column(
-                children: activeSubscriptions.map((subscription) => 
-                  _buildActiveSubscriptionCard(subscription)
-                ).toList(),
-              ),
+              child: _buildActiveSubscriptionCard(currentSubscription),
             ),
           ],
         ],
@@ -1716,11 +1838,11 @@ Widget build(BuildContext context) {
     final statusMessage = _getSubscriptionStatusMessage(subscription);
     final statusColor = _getStatusColor(subscription);
     final statusText = _getStatusText(subscription);
+    final isActive = _isSubscriptionActive(subscription);
     
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
-      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: statusColor.withOpacity(0.05),
         borderRadius: BorderRadius.circular(12),
@@ -1741,7 +1863,7 @@ Widget build(BuildContext context) {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
-                  daysLeft == 0 ? Icons.error_outline_rounded : Icons.check_circle_rounded,
+                  isActive ? Icons.check_circle_rounded : Icons.error_outline_rounded,
                   color: statusColor,
                   size: 24,
                 ),
@@ -2382,3 +2504,4 @@ class _SlidingGradientTransform extends GradientTransform {
     );
   }
 }
+

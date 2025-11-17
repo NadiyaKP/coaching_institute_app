@@ -8,8 +8,8 @@ import 'package:http/http.dart' as http;
 
 class ApiConfig {
   // --- Base URLs ---
-  static const String _coremicronUrl = 'http://192.168.20.100:8000';
-  static const String _defaultUrl = 'https://bm844296-8000.inc1.devtunnels.ms';
+  static const String _coremicronUrl = 'http://192.168.20.4';
+  static const String _defaultUrl = 'http://117.241.73.134';
 
   // Current runtime base URL (auto-determined)
   static String _currentBaseUrl = _coremicronUrl;
@@ -54,9 +54,7 @@ class ApiConfig {
     return httpClient;
   }
 
-  // -------------------------------------------------------------------
-  // INITIALIZATION
-  // -------------------------------------------------------------------
+ 
   static Future<void> initializeBaseUrl({bool printLogs = true}) async {
     try {
       // Request permission (needed to read Wi-Fi SSID)

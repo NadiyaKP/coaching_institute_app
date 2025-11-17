@@ -1266,8 +1266,6 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                         color: AppColors.textDark,
                         letterSpacing: -0.1,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -1447,8 +1445,6 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                             color: isLocked ? Colors.grey : AppColors.textDark,
                             letterSpacing: -0.1,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         if (uploadedAt.isNotEmpty) ...[
                           const SizedBox(height: 4),

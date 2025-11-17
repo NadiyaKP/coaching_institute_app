@@ -26,7 +26,7 @@ class MockTestResultScreen extends StatelessWidget {
   
 
   @override
-  Widget build(BuildContext context) {
+ Widget build(BuildContext context) {
     final success = resultData['success'] ?? false;
     final summary = resultData['summary'] ?? {};
     final answers = resultData['answers'] ?? [];
@@ -405,7 +405,7 @@ class MockTestResultScreen extends StatelessWidget {
                             Navigator.pop(context);
                           },
                           style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             side: const BorderSide(color: AppColors.primaryBlue, width: 2),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -414,7 +414,7 @@ class MockTestResultScreen extends StatelessWidget {
                           child: const Text(
                             'Back to Units',
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: AppColors.primaryBlue,
                             ),
@@ -429,7 +429,7 @@ class MockTestResultScreen extends StatelessWidget {
                             Navigator.pop(context);
                           },
                           style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
                             backgroundColor: AppColors.primaryYellow,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -439,7 +439,7 @@ class MockTestResultScreen extends StatelessWidget {
                           child: const Text(
                             'Try Again',
                             style: TextStyle(
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: FontWeight.bold,
                               color: Colors.white,
                             ),

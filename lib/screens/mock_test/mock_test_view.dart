@@ -1256,7 +1256,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           ),
         ),
         
-        // Question content
+        // Question content - Made scrollable
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -1317,7 +1317,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Options
+                // Options - Made scrollable
                 ...List.generate(options.length, (index) {
                   final option = options[index];
                   final optionId = option['id'];
@@ -1408,141 +1408,154 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                   );
                 }),
                 
-                const SizedBox(height: 16),
+                // Add extra space at the bottom to ensure buttons are visible
+                const SizedBox(height: 80), // Increased space for buttons
               ],
             ),
           ),
         ),
         
-        // Navigation buttons
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 8,
-                offset: const Offset(0, -2),
+        // Navigation buttons - Lifted significantly upward with SafeArea
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16), // Increased padding on all sides
+            margin: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom > 0 
+                  ? MediaQuery.of(context).viewInsets.bottom 
+                  : 16, // Extra margin to avoid device buttons
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 12,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
               ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    GestureDetector(
-                      onTapDown: (_) => _startSkipTimer(),
-                      onTapUp: (_) => _cancelSkipTimer(),
-                      onTapCancel: _cancelSkipTimer,
-                      child: Container(
-                        height: 44, // Reduced height
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: Colors.grey[400]!,
-                            width: 1.5,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      GestureDetector(
+                        onTapDown: (_) => _startSkipTimer(),
+                        onTapUp: (_) => _cancelSkipTimer(),
+                        onTapCancel: _cancelSkipTimer,
+                        child: Container(
+                          height: 50, // Slightly increased height for better touch
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.grey[400]!,
+                              width: 1.5,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
                           ),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Stack(
-                          children: [
-                            // Progress indicator
-                            if (_isSkipHolding)
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 50),
-                                width: MediaQuery.of(context).size.width * 0.4 * _skipProgress,
-                                decoration: BoxDecoration(
-                                  color: AppColors.warningOrange.withOpacity(0.3),
-                                  borderRadius: BorderRadius.circular(10),
+                          child: Stack(
+                            children: [
+                              // Progress indicator
+                              if (_isSkipHolding)
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 50),
+                                  width: MediaQuery.of(context).size.width * 0.4 * _skipProgress,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.warningOrange.withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              
+                              // Button content
+                              Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.skip_next, 
+                                      color: _isSkipHolding ? Colors.white : Colors.grey[700], 
+                                      size: 20
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Skip',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: _isSkipHolding ? Colors.white : Colors.grey[700],
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            
-                            // Button content
-                            Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.skip_next, 
-                                    color: _isSkipHolding ? Colors.white : Colors.grey[700], 
-                                    size: 18
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Skip',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w600,
-                                      color: _isSkipHolding ? Colors.white : Colors.grey[700],
-                                    ),
-                                  ),
-                                ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      
+                      // Hold to skip message
+                      if (_isSkipHolding)
+                        Positioned(
+                          top: -25,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppColors.warningOrange,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Text(
+                              'Hold to skip',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    
-                    // Hold to skip message
-                    if (_isSkipHolding)
-                      Positioned(
-                        top: -20,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: AppColors.warningOrange,
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            'Hold to skip',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _nextQuestion,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    backgroundColor: AppColors.primaryYellow,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    elevation: 3,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        isLastQuestion ? 'Submit' : 'Next',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(
-                        isLastQuestion ? Icons.done_all : Icons.arrow_forward, 
-                        color: Colors.white, 
-                        size: 18
-                      ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _nextQuestion,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      backgroundColor: AppColors.primaryYellow,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 4,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          isLastQuestion ? 'Submit' : 'Next',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          isLastQuestion ? Icons.done_all : Icons.arrow_forward, 
+                          color: Colors.white, 
+                          size: 20
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],

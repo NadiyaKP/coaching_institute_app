@@ -26,6 +26,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   final GlobalKey<RefreshIndicatorState> _refreshIndicatorKey = GlobalKey<RefreshIndicatorState>();
+  final ScrollController _scrollController = ScrollController();
   
   String phoneNumber = '';
   String countryCode = '+91';
@@ -50,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int longestStreak = 0;
 
   // PageView and Auto-scroll variables
-  PageController _pageController = PageController(viewportFraction: 0.75);
+  late PageController _pageController;
   int _currentPage = 0;
   Timer? _autoScrollTimer;
 
@@ -79,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(viewportFraction: 0.75);
     _startAutoScroll();
   }
 
@@ -86,7 +88,24 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _autoScrollTimer?.cancel();
     _pageController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  // Helper method to capitalize first letter of each word
+  String _capitalizeFirstLetter(String text) {
+    if (text.isEmpty) return text;
+    return text.split(' ').map((word) {
+      if (word.isEmpty) return word;
+      return word[0].toUpperCase() + word.substring(1).toLowerCase();
+    }).join(' ');
+  }
+
+  // Get first name with proper capitalization
+  String _getFormattedFirstName() {
+    if (name.isEmpty) return 'Student';
+    final firstName = name.split(' ').first;
+    return _capitalizeFirstLetter(firstName);
   }
 
   // 🆕 Manual refresh trigger
@@ -138,6 +157,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
    void didChangeDependencies() {
     super.didChangeDependencies();
+    
+    // Update page controller based on orientation
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final newViewportFraction = isLandscape ? 0.45 : 0.75;
+    
+    if (_pageController.viewportFraction != newViewportFraction) {
+      _pageController.dispose();
+      _pageController = PageController(viewportFraction: newViewportFraction);
+      _startAutoScroll();
+    }
     
     final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     
@@ -733,7 +762,7 @@ class _HomeScreenState extends State<HomeScreen> {
     bool hasAssignment = false;
     bool hasExam = false;
     bool hasSubscription = false;
-    bool hasVideoLecture = false; // 🆕 Track video lectures
+    bool hasVideoLecture = false;
 
     for (var notification in notifications) {
       if (notification['data'] != null) {
@@ -745,7 +774,7 @@ class _HomeScreenState extends State<HomeScreen> {
           hasExam = true;
         } else if (type == 'subscription') {
           hasSubscription = true;
-        } else if (type == 'video_lecture') { // 🆕 Check for video_lecture type
+        } else if (type == 'video_lecture') {
           hasVideoLecture = true;
         }
       }
@@ -755,13 +784,13 @@ class _HomeScreenState extends State<HomeScreen> {
     debugPrint('   - Assignment: $hasAssignment');
     debugPrint('   - Exam: $hasExam');
     debugPrint('   - Subscription: $hasSubscription');
-    debugPrint('   - Video Lecture: $hasVideoLecture'); // 🆕 Log video lecture status
+    debugPrint('   - Video Lecture: $hasVideoLecture');
 
     // Update the notification service
     NotificationService.updateBadges(
       hasUnreadAssignments: hasAssignment || hasExam,
       hasUnreadSubscription: hasSubscription,
-      hasUnreadVideoLectures: hasVideoLecture, // 🆕 Pass video lecture status
+      hasUnreadVideoLectures: hasVideoLecture,
     );
   }
 
@@ -814,229 +843,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _performLogout() async {
-    String? accessToken;
-    
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Text('Logging out...'),
-              ],
-            ),
-          );
-        },
-      );
-
-      accessToken = await _authService.getAccessToken();
-      
-      String endTime = DateTime.now().toIso8601String();
-      
-      await _sendAttendanceData(accessToken, endTime);
-      
-      final client = _createHttpClientWithCustomCert();
-      
-      try {
-        final response = await client.post(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
-          },
-        ).timeout(ApiConfig.requestTimeout);
-
-        debugPrint('Logout response status: ${response.statusCode}');
-        debugPrint('Logout response body: ${response.body}');
-      } finally {
-        client.close();
-      }
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      await _clearLogoutData();
-      
-    } on HandshakeException catch (e) {
-      debugPrint('SSL Handshake error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      await _clearLogoutData();
-      
-    } on SocketException catch (e) {
-      debugPrint('Network error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      await _clearLogoutData();
-      
-    } catch (e) {
-      debugPrint('Logout error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      await _clearLogoutData();
-    }
-  }
-
-  Future<void> _sendAttendanceData(String? accessToken, String endTime) async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    
-    // Check student type dynamically
-    final studentType = prefs.getString('profile_student_type') ?? '';
-    final bool isOnlineStudent = studentType.toUpperCase() == 'ONLINE';
-    
-    if (!isOnlineStudent) {
-      debugPrint('🎯 Skipping attendance data for non-online student during logout');
-      return;
-    }
-    
-    String? startTime = prefs.getString('start_time');
-
-    if (startTime != null && accessToken != null && accessToken.isNotEmpty) {
-      debugPrint('📤 Preparing API request with timestamps:');
-      debugPrint('Start: $startTime, End: $endTime');
-
-      String cleanStart = startTime.split('.')[0].replaceFirst('T', ' ');
-      String cleanEnd = endTime.split('.')[0].replaceFirst('T', ' ');
-
-      final body = {
-        "records": [
-          {"time_stamp": cleanStart, "is_checkin": 1},
-          {"time_stamp": cleanEnd, "is_checkin": 0}
-        ]
-      };
-
-      debugPrint('📦 API request payload: ${jsonEncode(body)}');
-
-      try {
-        final response = await http.post(
-          Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
-          },
-          body: jsonEncode(body),
-        ).timeout(const Duration(seconds: 10));
-
-        debugPrint('🌐 API response status: ${response.statusCode}');
-        debugPrint('🌐 API response body: ${response.body}');
-
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          debugPrint('✅ Attendance sent successfully');
-        } else {
-          debugPrint('⚠️ Error sending attendance: ${response.statusCode}');
-        }
-      } catch (e) {
-        debugPrint('❌ Exception while sending attendance: $e');
-      }
-    } else {
-      debugPrint('⚠️ Missing data: startTime=$startTime, accessToken=$accessToken');
-    }
-  } catch (e) {
-    debugPrint('❌ Error in _sendAttendanceData: $e');
-  }
-}
-
-  Future<void> _clearLogoutData() async {
-    try {
-      await _authService.logout();
-      await _clearCachedProfileData();
-      
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('start_time');
-      await prefs.remove('end_time');
-      await prefs.remove('last_active_time');
-      debugPrint('🗑️ SharedPreferences timestamps cleared');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logged out successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error in _clearLogoutData: $e');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logout completed (Error: ${e.toString()})'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
-    }
-  }
-
-  void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Logout'),
-          content: const Text('Are you sure you want to logout?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _performLogout();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF4B400),
-              ),
-              child: const Text(
-                'Logout',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   // Navigation methods
   void _navigateToStudyMaterials() {
     Navigator.pushNamed(context, '/study_materials');
@@ -1056,7 +862,7 @@ class _HomeScreenState extends State<HomeScreen> {
    }
 
   void _navigateToVideoClasses() {
-    // 🆕 Clear video lecture badge when user navigates to video classes
+    // Clear video lecture badge when user navigates to video classes
     NotificationService.clearVideoLectureBadge();
     
     Navigator.push(
@@ -1094,7 +900,7 @@ class _HomeScreenState extends State<HomeScreen> {
       index, 
       context, 
       studentType,
-      _scaffoldKey, // Pass scaffold key instead of function
+      _scaffoldKey,
     );
   }
 
@@ -1116,7 +922,7 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (context) => ViewProfileScreen(
           onProfileUpdated: (Map<String, String> updatedData) {
-            _fetchProfileData(); // Refresh data from API
+            _fetchProfileData();
             
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -1132,6 +938,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    
+    // Responsive sizing calculations
+    double getResponsiveSize(double portraitSize) {
+      if (isLandscape) {
+        return portraitSize * 0.7;
+      }
+      return portraitSize;
+    }
+
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.backgroundLight,
@@ -1151,10 +969,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
-        onLogout: () {
-          Navigator.of(context).pop();
-          _showLogoutDialog();
-        },
         onClose: () {
           Navigator.of(context).pop(); 
         },
@@ -1167,304 +981,141 @@ class _HomeScreenState extends State<HomeScreen> {
         displacement: 40,
         strokeWidth: 2.5,
         triggerMode: RefreshIndicatorTriggerMode.onEdge,
-        child: Column(
-          children: [
-            // Non-scrollable Header Section with Curved Bottom
-            ClipPath(
-              clipper: CurvedHeaderClipper(),
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.primaryYellow,
-                      AppColors.primaryYellowDark,
-                    ],
+        child: CustomScrollView(
+          controller: _scrollController,
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            // Scrollable Header Section
+            SliverToBoxAdapter(
+              child: _buildHeaderSection(isLandscape, getResponsiveSize),
+            ),
+            
+            // Scrollable Content
+            SliverToBoxAdapter(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Quick Access Section
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      getResponsiveSize(20),
+                      isLandscape ? getResponsiveSize(20) : getResponsiveSize(28),
+                      getResponsiveSize(20),
+                      getResponsiveSize(14),
+                    ),
+                    child: _buildSectionHeader('Quick Access', getResponsiveSize),
                   ),
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 60, 20, 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 0),
-                    // Welcome Text with Streak
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
+
+                  // Quick Access Cards
+                  SizedBox(
+                    height: isLandscape ? getResponsiveSize(150) : 150,
+                    child: PageView(
+                      controller: _pageController,
+                      physics: const BouncingScrollPhysics(),
+                      onPageChanged: (index) {
+                        setState(() {
+                          _currentPage = index;
+                        });
+                      },
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              RichText(
-                                text: TextSpan(
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                    letterSpacing: -0.3,
-                                  ),
-                                  children: [
-                                    const TextSpan(text: 'Welcome, '),
-                                    TextSpan(
-                                      text: name.isNotEmpty 
-                                        ? name.split(' ').first 
-                                        : 'Student',
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Everything you need to learn in one place',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.white.withOpacity(0.88),
-                                  fontWeight: FontWeight.w500,
-                                  letterSpacing: 0.1,
-                                ),
-                              ),
-                            ],
-                          ),
+                        _buildQuickAccessCard(
+                          icon: Icons.description_rounded,
+                          title: 'Study Notes',
+                          subtitle: 'Comprehensive study materials',
+                          color1: AppColors.primaryYellow,
+                          color2: AppColors.primaryYellowLight,
+                          imagePath: "assets/images/notes.png",
+                          onTap: _navigateToNotes,
+                          getResponsiveSize: getResponsiveSize,
+                          isLandscape: isLandscape,
                         ),
-                        const SizedBox(width: 16),
-                        // Streak Display 
-                        GestureDetector(
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (context) => StreakChallengeSheet(
-                                currentStreak: currentStreak,
-                                longestStreak: longestStreak,
-                              ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Text(
-                                  '🔥',
-                                  style: TextStyle(fontSize: 20),
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  '$currentStreak',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                        _buildQuickAccessCard(
+                          icon: Icons.quiz_rounded,
+                          title: 'Question Papers',
+                          subtitle: 'Previous year papers',
+                          color1: AppColors.primaryBlue,
+                          color2: AppColors.primaryBlueLight,
+                          imagePath: "assets/images/question_papers.png",
+                          onTap: _navigateToQuestionPapers,
+                          getResponsiveSize: getResponsiveSize,
+                          isLandscape: isLandscape,
+                        ),
+                        _buildQuickAccessCard(
+                          icon: Icons.play_circle_filled_rounded,
+                          title: 'Video Classes',
+                          subtitle: 'Expert lectures and tutorials',
+                          color1: AppColors.warningOrange,
+                          color2: const Color(0xFFFFAB40),
+                          imagePath: "assets/images/video_classes.png",
+                          onTap: _navigateToVideoClasses,
+                          getResponsiveSize: getResponsiveSize,
+                          isLandscape: isLandscape,
+                        ),
+                        _buildQuickAccessCard(
+                          icon: Icons.assignment_rounded,
+                          title: 'Mock Tests',
+                          subtitle: 'Assess your preparation',
+                          color1: const Color(0xFFFFD54F),
+                          color2: const Color(0xFFFFE082),
+                          imagePath: "assets/images/mock_test.png",
+                          onTap: _navigateToMockTest,
+                          getResponsiveSize: getResponsiveSize,
+                          isLandscape: isLandscape,
                         ),
                       ],
                     ),
+                  ),
 
-                    const SizedBox(height: 18),
-
-                    // Course and Subcourse Info 
-                    if (course.isNotEmpty || subcourse.isNotEmpty)
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(4),
-                            child: const Icon(
-                              Icons.school_rounded,
-                              color: Colors.white,
-                              size: 20,
+                  // Page Indicator Dots
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: getResponsiveSize(16)),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(4, (index) {
+                          return Container(
+                            margin: const EdgeInsets.symmetric(horizontal: 4),
+                            width: _currentPage == index ? 10 : 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _currentPage == index
+                                  ? AppColors.primaryYellow
+                                  : AppColors.grey300,
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: RichText(
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              text: TextSpan(
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white,
-                                  letterSpacing: -0.1,
-                                ),
-                                children: [
-                                  if (course.isNotEmpty)
-                                    TextSpan(
-                                      text: course,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  if (course.isNotEmpty && subcourse.isNotEmpty)
-                                    const TextSpan(
-                                      text: ' • ',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  if (subcourse.isNotEmpty)
-                                    TextSpan(
-                                      text: subcourse,
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.85),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
-            // Scrollable Content
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Quick Access Section
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 28, 20, 14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 4,
-                                height: 26,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryYellow,
-                                  borderRadius: BorderRadius.circular(2),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              const Text(
-                                'Quick Access',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textDark,
-                                  letterSpacing: -0.3,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                          );
+                        }),
                       ),
                     ),
+                  ),
 
-                    // Scrollable Quick Access Cards
-                    SizedBox(
-                      height: 150,
-                      child: PageView(
-                        controller: _pageController,
-                        physics: const BouncingScrollPhysics(),
-                        onPageChanged: (index) {
-                          setState(() {
-                            _currentPage = index;
-                          });
-                        },
-                        children: [
-                          _buildQuickAccessCard(
-                            icon: Icons.description_rounded,
-                            title: 'Study Notes',
-                            subtitle: 'Comprehensive study materials',
-                            color1: AppColors.primaryYellow,
-                            color2: AppColors.primaryYellowLight,
-                            imagePath: "assets/images/notes.png",
-                            onTap: _navigateToNotes,
-                          ),
-                          _buildQuickAccessCard(
-                            icon: Icons.quiz_rounded,
-                            title: 'Question Papers',
-                            subtitle: 'Previous year papers',
-                            color1: AppColors.primaryBlue,
-                            color2: AppColors.primaryBlueLight,
-                            imagePath: "assets/images/question_papers.png",
-                            onTap: _navigateToQuestionPapers,
-                          ),
-                          _buildQuickAccessCard(
-                            icon: Icons.play_circle_filled_rounded,
-                            title: 'Video Classes',
-                            subtitle: 'Expert lectures and tutorials',
-                            color1: AppColors.warningOrange,
-                            color2: const Color(0xFFFFAB40),
-                            imagePath: "assets/images/video_classes.png",
-                            onTap: _navigateToVideoClasses,
-                          ),
-                          _buildQuickAccessCard(
-                            icon: Icons.assignment_rounded,
-                            title: 'Mock Tests',
-                            subtitle: 'Assess your preparation',
-                            color1: const Color(0xFFFFD54F),
-                            color2: const Color(0xFFFFE082),
-                            imagePath: "assets/images/mock_test.png",
-                            onTap: _navigateToMockTest,
-                          ),
-                        ],
-                      ),
+                  // Main Action Buttons Section
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      getResponsiveSize(20),
+                      getResponsiveSize(8),
+                      getResponsiveSize(20),
+                      getResponsiveSize(20),
                     ),
-
-                    // Page Indicator Dots
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Center(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: List.generate(4, (index) {
-                            return Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              width: _currentPage == index ? 10 : 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: _currentPage == index
-                                    ? AppColors.primaryYellow
-                                    : AppColors.grey300,
-                              ),
-                            );
-                          }),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: EdgeInsets.only(bottom: getResponsiveSize(16)),
+                          child: Text(
+                            'Your Learning Tools',
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(18),
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-
-                    // Main Action Buttons Section
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Padding(
-                            padding:  EdgeInsets.only(bottom: 16),
-                            child: Text(
-                              'Your Learning Tools',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.textDark,
-                                letterSpacing: -0.2,
-                              ),
-                            ),
-                          ),
-                          // First Row: Video Classes and Notes
+                        
+                        // Action buttons in responsive grid
+                        if (isLandscape)
+                          // Landscape: 4 columns
                           Row(
                             children: [
                               Expanded(
@@ -1473,117 +1124,182 @@ class _HomeScreenState extends State<HomeScreen> {
                                   label: 'Video\nClasses',
                                   color: AppColors.warningOrange,
                                   onTap: _navigateToVideoClasses,
-                                  showBadge: true, // 🆕 Enable badge for Video Classes
+                                  showBadge: true,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              SizedBox(width: getResponsiveSize(12)),
                               Expanded(
                                 child: _buildActionButton(
                                   icon: Icons.description_rounded,
                                   label: 'Notes',
                                   color: AppColors.primaryYellow,
                                   onTap: _navigateToNotes,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
                                 ),
                               ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          // Second Row: Question Papers and Reference Videos
-                          Row(
-                            children: [
+                              SizedBox(width: getResponsiveSize(12)),
                               Expanded(
                                 child: _buildActionButton(
                                   icon: Icons.quiz_rounded,
                                   label: 'Question\nPapers',
                                   color: AppColors.primaryBlue,
                                   onTap: _navigateToQuestionPapers,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
                                 ),
                               ),
-                              const SizedBox(width: 12),
+                              SizedBox(width: getResponsiveSize(12)),
                               Expanded(
                                 child: _buildActionButton(
                                   icon: Icons.video_library_rounded,
                                   label: 'Reference\nVideos',
                                   color: AppColors.successGreen,
                                   onTap: _navigateToReferenceVideos,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
+                                ),
+                              ),
+                            ],
+                          )
+                        else
+                          // Portrait: 2 columns
+                          Column(
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.play_circle_filled_rounded,
+                                      label: 'Video\nClasses',
+                                      color: AppColors.warningOrange,
+                                      onTap: _navigateToVideoClasses,
+                                      showBadge: true,
+                                      getResponsiveSize: getResponsiveSize,
+                                      isLandscape: isLandscape,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.description_rounded,
+                                      label: 'Notes',
+                                      color: AppColors.primaryYellow,
+                                      onTap: _navigateToNotes,
+                                      getResponsiveSize: getResponsiveSize,
+                                      isLandscape: isLandscape,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.quiz_rounded,
+                                      label: 'Question\nPapers',
+                                      color: AppColors.primaryBlue,
+                                      onTap: _navigateToQuestionPapers,
+                                      getResponsiveSize: getResponsiveSize,
+                                      isLandscape: isLandscape,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _buildActionButton(
+                                      icon: Icons.video_library_rounded,
+                                      label: 'Reference\nVideos',
+                                      color: AppColors.successGreen,
+                                      onTap: _navigateToReferenceVideos,
+                                      getResponsiveSize: getResponsiveSize,
+                                      isLandscape: isLandscape,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Profile Completion Reminder
+                  if (!profileCompleted && !isLoading)
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        getResponsiveSize(20),
+                        getResponsiveSize(10),
+                        getResponsiveSize(20),
+                        getResponsiveSize(30),
+                      ),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppColors.warningOrange.withOpacity(0.08),
+                              AppColors.warningOrange.withOpacity(0.04),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(getResponsiveSize(16)),
+                          border: Border.all(
+                            color: AppColors.warningOrange.withOpacity(0.25),
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: EdgeInsets.all(getResponsiveSize(16)),
+                          child: Row(
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(getResponsiveSize(10)),
+                                decoration: BoxDecoration(
+                                  color: AppColors.warningOrange.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                                ),
+                                child: Icon(
+                                  Icons.info_outline_rounded,
+                                  color: AppColors.warningOrange,
+                                  size: getResponsiveSize(24),
+                                ),
+                              ),
+                              SizedBox(width: getResponsiveSize(12)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Complete Your Profile',
+                                      style: TextStyle(
+                                        fontSize: getResponsiveSize(15),
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.warningOrange,
+                                      ),
+                                    ),
+                                    SizedBox(height: getResponsiveSize(4)),
+                                    Text(
+                                      'Unlock all features by completing your profile information',
+                                      style: TextStyle(
+                                        fontSize: getResponsiveSize(12),
+                                        color: AppColors.textGrey,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
 
-                    // Profile Completion Reminder
-                    if (!profileCompleted && !isLoading)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppColors.warningOrange.withOpacity(0.08),
-                                AppColors.warningOrange.withOpacity(0.04),
-                            ],
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: AppColors.warningOrange.withOpacity(0.25),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.warningOrange.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Icon(
-                                    Icons.info_outline_rounded,
-                                    color: AppColors.warningOrange,
-                                    size: 24,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                const Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Complete Your Profile',
-                                        style: TextStyle(
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.bold,
-                                          color: AppColors.warningOrange,
-                                        ),
-                                      ),
-                                       SizedBox(height: 4),
-                                      Text(
-                                        'Unlock all features by completing your profile information',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: AppColors.textGrey,
-                                          letterSpacing: 0.2,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 20),
-                  ],
-                ),
+                  SizedBox(height: getResponsiveSize(20)),
+                ],
               ),
             ),
           ],
@@ -1598,6 +1314,208 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Build Section Header
+  Widget _buildSectionHeader(String title, double Function(double) getResponsiveSize) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 4,
+              height: getResponsiveSize(26),
+              decoration: BoxDecoration(
+                color: AppColors.primaryYellow,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            SizedBox(width: getResponsiveSize(12)),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: getResponsiveSize(22),
+                fontWeight: FontWeight.bold,
+                color: AppColors.textDark,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // Build Header Section
+  Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
+    return ClipPath(
+      clipper: isLandscape ? null : CurvedHeaderClipper(),
+      child: Container(
+        width: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.primaryYellow,
+              AppColors.primaryYellowDark,
+            ],
+          ),
+        ),
+        padding: EdgeInsets.fromLTRB(
+          getResponsiveSize(20),
+          isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
+          getResponsiveSize(20),
+          getResponsiveSize(32),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!isLandscape) const SizedBox(height: 0),
+            // Welcome Text with Streak
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      RichText(
+                        text: TextSpan(
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(24),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: -0.3,
+                          ),
+                          children: [
+                            const TextSpan(text: 'Welcome, '),
+                            TextSpan(
+                              text: _getFormattedFirstName(),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: getResponsiveSize(4)),
+                      Text(
+                        'Everything you need to learn in one place',
+                        style: TextStyle(
+                          fontSize: getResponsiveSize(13),
+                          color: Colors.white.withOpacity(0.88),
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: getResponsiveSize(16)),
+                // Streak Display 
+                GestureDetector(
+                  onTap: () {
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (context) => StreakChallengeSheet(
+                        currentStreak: currentStreak,
+                        longestStreak: longestStreak,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: getResponsiveSize(12),
+                      vertical: getResponsiveSize(8),
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '🔥',
+                          style: TextStyle(fontSize: getResponsiveSize(20)),
+                        ),
+                        SizedBox(width: getResponsiveSize(6)),
+                        Text(
+                          '$currentStreak',
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(16),
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            SizedBox(height: getResponsiveSize(18)),
+
+            // Course and Subcourse Info 
+            if (course.isNotEmpty || subcourse.isNotEmpty)
+              Row(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(getResponsiveSize(4)),
+                    child: Icon(
+                      Icons.school_rounded,
+                      color: Colors.white,
+                      size: getResponsiveSize(20),
+                    ),
+                  ),
+                  SizedBox(width: getResponsiveSize(8)),
+                  Expanded(
+                    child: RichText(
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      text: TextSpan(
+                        style: TextStyle(
+                          fontSize: getResponsiveSize(18),
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white,
+                          letterSpacing: -0.1,
+                        ),
+                        children: [
+                          if (course.isNotEmpty)
+                            TextSpan(
+                              text: course,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          if (course.isNotEmpty && subcourse.isNotEmpty)
+                            const TextSpan(
+                              text: ' • ',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          if (subcourse.isNotEmpty)
+                            TextSpan(
+                              text: subcourse,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.85),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // Quick Access Card Widget
   Widget _buildQuickAccessCard({
     required IconData icon,
@@ -1607,9 +1525,11 @@ class _HomeScreenState extends State<HomeScreen> {
     required Color color2,
     required VoidCallback onTap,
     required String imagePath,
+    required double Function(double) getResponsiveSize,
+    required bool isLandscape,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(8)),
       child: GestureDetector(
         onTap: onTap,
         child: Container(
@@ -1619,45 +1539,50 @@ class _HomeScreenState extends State<HomeScreen> {
               end: Alignment.bottomRight,
               colors: [color1, color2],
             ),
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(getResponsiveSize(18)),
             boxShadow: [
               BoxShadow(
                 color: color1.withOpacity(0.25),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
+                blurRadius: getResponsiveSize(12),
+                offset: Offset(0, getResponsiveSize(6)),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(getResponsiveSize(18)),
             child: Row(
               children: [
                 // Left side content
                 Expanded(
                   flex: 55,
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+                    padding: EdgeInsets.fromLTRB(
+                      getResponsiveSize(14),
+                      getResponsiveSize(14),
+                      getResponsiveSize(6),
+                      getResponsiveSize(14),
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
-                          padding: const EdgeInsets.all(6),
+                          padding: EdgeInsets.all(getResponsiveSize(6)),
                           decoration: BoxDecoration(
                             color: Colors.white.withOpacity(0.25),
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(getResponsiveSize(8)),
                           ),
                           child: Icon(
                             icon,
                             color: Colors.white,
-                            size: 18,
+                            size: getResponsiveSize(18),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: getResponsiveSize(8)),
                         Text(
                           title,
-                          style: const TextStyle(
-                            fontSize: 14,
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(14),
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                             letterSpacing: -0.2,
@@ -1666,12 +1591,12 @@ class _HomeScreenState extends State<HomeScreen> {
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 4),
+                        SizedBox(height: getResponsiveSize(4)),
                         Flexible(
                           child: Text(
                             subtitle,
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: getResponsiveSize(10),
                               color: Colors.white.withOpacity(0.9),
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0.1,
@@ -1690,7 +1615,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   flex: 45,
                   child: Container(
                     height: double.infinity,
-                    padding: const EdgeInsets.all(6),
+                    padding: EdgeInsets.all(getResponsiveSize(6)),
                     child: Image.asset(
                       imagePath,
                       fit: BoxFit.contain,
@@ -1705,49 +1630,51 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 🆕 Modified Action Button Widget with Badge Support
+  // Action Button Widget with Badge Support and Responsive Sizing
   Widget _buildActionButton({
     required IconData icon,
     required String label,
     required Color color,
     required VoidCallback onTap,
-    bool showBadge = false, // 🆕 Parameter to control badge visibility
+    bool showBadge = false,
+    required double Function(double) getResponsiveSize,
+    required bool isLandscape,
   }) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 115,
+        height: isLandscape ? getResponsiveSize(115) : 115,
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(getResponsiveSize(16)),
           boxShadow: [
             BoxShadow(
               color: color.withOpacity(0.15),
-              blurRadius: 14,
-              offset: const Offset(0, 4),
+              blurRadius: getResponsiveSize(14),
+              offset: Offset(0, getResponsiveSize(4)),
             ),
           ],
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 🆕 Stack for icon with badge
+            // Stack for icon with badge
             Stack(
               clipBehavior: Clip.none,
               children: [
                 Container(
-                  padding: const EdgeInsets.all(13),
+                  padding: EdgeInsets.all(getResponsiveSize(13)),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(getResponsiveSize(14)),
                   ),
                   child: Icon(
                     icon,
                     color: color,
-                    size: 26,
+                    size: getResponsiveSize(26),
                   ),
                 ),
-                // 🆕 Conditional badge display
+                // Conditional badge display
                 if (showBadge)
                   ValueListenableBuilder<Map<String, bool>>(
                     valueListenable: NotificationService.badgeNotifier,
@@ -1756,11 +1683,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (!hasUnread) return const SizedBox.shrink();
                       
                       return Positioned(
-                        right: 8,
-                        top: 8,
+                        right: getResponsiveSize(8),
+                        top: getResponsiveSize(8),
                         child: Container(
-                          width: 10,
-                          height: 10,
+                          width: getResponsiveSize(10),
+                          height: getResponsiveSize(10),
                           decoration: BoxDecoration(
                             color: Colors.red,
                             shape: BoxShape.circle,
@@ -1775,12 +1702,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
               ],
             ),
-            const SizedBox(height: 10),
+            SizedBox(height: getResponsiveSize(10)),
             Text(
               label,
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12.5,
+              style: TextStyle(
+                fontSize: getResponsiveSize(12.5),
                 fontWeight: FontWeight.bold,
                 color: AppColors.textDark,
                 height: 1.2,

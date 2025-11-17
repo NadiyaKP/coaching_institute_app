@@ -599,7 +599,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
       );
     }
   }
-
 Widget _buildHeader() {
   final screenWidth = MediaQuery.of(context).size.width;
   final screenHeight = MediaQuery.of(context).size.height;
@@ -688,17 +687,18 @@ Widget _buildHeader() {
           ),
         ),
         
-        // Explore Button
-        Positioned(
-          top: 16,
-          right: 16,
-          child: _fadeAnimation != null
-              ? FadeTransition(
-                  opacity: _fadeAnimation!,
-                  child: _buildExploreButton(),
-                )
-              : _buildExploreButton(),
-        ),
+        // Explore Button - only shown in portrait mode (inside header)
+        if (!isLandscape)
+          Positioned(
+            top: 16,
+            right: 16,
+            child: _fadeAnimation != null
+                ? FadeTransition(
+                    opacity: _fadeAnimation!,
+                    child: _buildExploreButton(),
+                  )
+                : _buildExploreButton(),
+          ),
         
         // Logo
         Positioned(
@@ -792,7 +792,6 @@ Widget _buildExploreButton() {
     ),
   );
 }
-
   Widget _buildLoginContainer() {
     final maxWidth = ResponsiveUtils.getMaxContainerWidth(context);
     final horizontalPadding = ResponsiveUtils.getHorizontalPadding(context);

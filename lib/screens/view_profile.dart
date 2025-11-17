@@ -377,127 +377,138 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
   }
 
   Widget _buildProfileCard(ProfileProvider profileProvider) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16), // Reduced margin to increase width
-      padding: const EdgeInsets.all(24), // Increased padding
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20), // Slightly larger border radius
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryYellow.withOpacity(0.15),
-            blurRadius: 25, // Increased blur radius
-            offset: const Offset(0, 10), // Increased shadow offset
+  // Fixed square size - smaller
+  const cardSize = 240.0; // Reduced from 280 to 240
+  
+  return Container(
+    width: cardSize,
+    height: cardSize, // Make it square by setting equal width and height
+    margin: const EdgeInsets.symmetric(horizontal: 16),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: AppColors.primaryYellow.withOpacity(0.15),
+          blurRadius: 25,
+          offset: const Offset(0, 10),
+        ),
+      ],
+    ),
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center, // Center content vertically
+      children: [
+        // Profile Avatar - Reduced size
+        Container(
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primaryYellow,
+                AppColors.primaryYellowDark,
+              ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primaryYellow.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: const CircleAvatar(
+            radius: 30, // Reduced from 35 to 30
+            backgroundColor: Colors.white,
+            child: Icon(
+              Icons.person_rounded,
+              size: 35, // Reduced from 40 to 35
+              color: AppColors.primaryYellow,
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 10),
+        
+        // Name
+        Text(
+          profileProvider.nameController.text.isNotEmpty 
+              ? profileProvider.nameController.text 
+              : 'User Name',
+          style: const TextStyle(
+            fontSize: 16, // Reduced from 18 to 16
+            fontWeight: FontWeight.bold,
+            color: AppColors.textDark,
+            letterSpacing: -0.3,
+          ),
+          textAlign: TextAlign.center,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        
+        // Email
+        if (profileProvider.emailController.text.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(
+            profileProvider.emailController.text,
+            style: const TextStyle(
+              fontSize: 11, // Reduced from 12 to 11
+              color: AppColors.textGrey,
+              fontWeight: FontWeight.w500,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
-      ),
-      child: Column(
-        children: [
-          // Profile Avatar
+        
+        // Student Type Badge
+        if (profileProvider.studentType.isNotEmpty) ...[
+          const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+              gradient: LinearGradient(
                 colors: [
-                  AppColors.primaryYellow,
-                  AppColors.primaryYellowDark,
+                  AppColors.primaryYellow.withOpacity(0.2),
+                  AppColors.primaryYellow.withOpacity(0.1),
                 ],
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primaryYellow.withOpacity(0.3),
-                  blurRadius: 15, // Increased blur radius
-                  offset: const Offset(0, 6), // Increased shadow offset
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: AppColors.primaryYellow.withOpacity(0.3),
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.school_rounded,
+                  color: AppColors.primaryYellow,
+                  size: 13,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  profileProvider.studentType.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryYellow,
+                    letterSpacing: 0.5,
+                  ),
                 ),
               ],
             ),
-            child: const CircleAvatar(
-              radius: 50, // Increased radius
-              backgroundColor: Colors.white,
-              child: Icon(
-                Icons.person_rounded,
-                size: 55, // Increased icon size
-                color: AppColors.primaryYellow,
-              ),
-            ),
           ),
-          
-          const SizedBox(height: 20), // Increased spacing
-          
-          // Name
-          Text(
-            profileProvider.nameController.text.isNotEmpty ? profileProvider.nameController.text : 'User Name',
-            style: const TextStyle(
-              fontSize: 24, // Increased font size
-              fontWeight: FontWeight.bold,
-              color: AppColors.textDark,
-              letterSpacing: -0.3,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          
-          // Email
-          if (profileProvider.emailController.text.isNotEmpty) ...[
-            const SizedBox(height: 8), // Increased spacing
-            Text(
-              profileProvider.emailController.text,
-              style: const TextStyle(
-                fontSize: 14, // Slightly increased font size
-                color: AppColors.textGrey,
-                fontWeight: FontWeight.w500,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-          
-          // Student Type Badge
-          if (profileProvider.studentType.isNotEmpty) ...[
-            const SizedBox(height: 16), // Increased spacing
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), // Increased padding
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    AppColors.primaryYellow.withOpacity(0.2),
-                    AppColors.primaryYellow.withOpacity(0.1),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(25), // Slightly larger border radius
-                border: Border.all(
-                  color: AppColors.primaryYellow.withOpacity(0.3),
-                  width: 1.5,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.school_rounded,
-                    color: AppColors.primaryYellow,
-                    size: 18, // Slightly increased icon size
-                  ),
-                  const SizedBox(width: 8), // Increased spacing
-                  Text(
-                    profileProvider.studentType.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 13, // Slightly increased font size
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.primaryYellow,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
-      ),
-    );
-  }
-
+      ],
+    ),
+  );
+}
   Widget _buildPublicVisibilitySection(ProfileProvider profileProvider) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),

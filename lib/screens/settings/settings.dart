@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +20,12 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
+
+  // Create HTTP client with custom certificate handling
+  http.Client _createHttpClientWithCustomCert() {
+    final client = ApiConfig.createHttpClient();
+    return IOClient(client);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -324,6 +331,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                 ),
+                
+                const SizedBox(height: 32),
+                
+                // Logout Button Section
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: ElevatedButton.icon(
+                    onPressed: _showLogoutDialog,
+                    icon: const Icon(Icons.logout_rounded, size: 22),
+                    label: const Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 2,
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
               ],
             ),
           ),
@@ -958,7 +996,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         };
       }
 
-      final client = ApiConfig.createHttpClient();
+      final client = _createHttpClientWithCustomCert();
       
       try {
         final body = jsonEncode({
@@ -968,7 +1006,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         debugPrint('Change Password Request Body: $body');
 
-        final response = await http.put(
+        final response = await client.put(
           Uri.parse('${ApiConfig.currentBaseUrl}/api/students/password_change/'),
           headers: {
             ...ApiConfig.commonHeaders,
@@ -1039,6 +1077,298 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'success': false,
         'message': 'An error occurred. Please try again.'
       };
+    }
+  }
+
+  // ============== LOGOUT FUNCTIONALITY ==============
+  
+  // Show Logout Dialog
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.logout_rounded,
+                color: Colors.red,
+                size: 24,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Confirm Logout',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Are you sure you want to logout?',
+            style: TextStyle(
+              fontSize: 15,
+              color: AppColors.textDark,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppColors.textGrey,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _performLogout();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Logout',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // Perform Logout
+  Future<void> _performLogout() async {
+    String? accessToken;
+    
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 16),
+                Text('Logging out...'),
+              ],
+            ),
+          );
+        },
+      );
+
+      accessToken = await _authService.getAccessToken();
+      
+      String endTime = DateTime.now().toIso8601String();
+      
+      await _sendAttendanceData(accessToken, endTime);
+      
+      final client = _createHttpClientWithCustomCert();
+      
+      try {
+        final response = await client.post(
+          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
+          headers: {
+            ...ApiConfig.commonHeaders,
+            'Authorization': 'Bearer $accessToken',
+          },
+        ).timeout(ApiConfig.requestTimeout);
+
+        debugPrint('Logout response status: ${response.statusCode}');
+        debugPrint('Logout response body: ${response.body}');
+      } finally {
+        client.close();
+      }
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      await _clearLogoutData();
+      
+    } on HandshakeException catch (e) {
+      debugPrint('SSL Handshake error: $e');
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      String endTime = DateTime.now().toIso8601String();
+      await _sendAttendanceData(accessToken, endTime);
+      await _clearLogoutData();
+      
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      String endTime = DateTime.now().toIso8601String();
+      await _sendAttendanceData(accessToken, endTime);
+      await _clearLogoutData();
+      
+    } catch (e) {
+      debugPrint('Logout error: $e');
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      String endTime = DateTime.now().toIso8601String();
+      await _sendAttendanceData(accessToken, endTime);
+      await _clearLogoutData();
+    }
+  }
+
+  // Send Attendance Data
+  Future<void> _sendAttendanceData(String? accessToken, String endTime) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Check student type dynamically
+      final studentType = prefs.getString('profile_student_type') ?? '';
+      final bool isOnlineStudent = studentType.toUpperCase() == 'ONLINE';
+      
+      if (!isOnlineStudent) {
+        debugPrint('🎯 Skipping attendance data for non-online student during logout');
+        return;
+      }
+      
+      String? startTime = prefs.getString('start_time');
+
+      if (startTime != null && accessToken != null && accessToken.isNotEmpty) {
+        debugPrint('📤 Preparing API request with timestamps:');
+        debugPrint('Start: $startTime, End: $endTime');
+
+        String cleanStart = startTime.split('.')[0].replaceFirst('T', ' ');
+        String cleanEnd = endTime.split('.')[0].replaceFirst('T', ' ');
+
+        final body = {
+          "records": [
+            {"time_stamp": cleanStart, "is_checkin": 1},
+            {"time_stamp": cleanEnd, "is_checkin": 0}
+          ]
+        };
+
+        debugPrint('📦 API request payload: ${jsonEncode(body)}');
+
+        try {
+          final response = await http.post(
+            Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
+            headers: {
+              ...ApiConfig.commonHeaders,
+              'Authorization': 'Bearer $accessToken',
+            },
+            body: jsonEncode(body),
+          ).timeout(const Duration(seconds: 10));
+
+          debugPrint('🌐 API response status: ${response.statusCode}');
+          debugPrint('🌐 API response body: ${response.body}');
+
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            debugPrint('✅ Attendance sent successfully');
+          } else {
+            debugPrint('⚠️ Error sending attendance: ${response.statusCode}');
+          }
+        } catch (e) {
+          debugPrint('❌ Exception while sending attendance: $e');
+        }
+      } else {
+        debugPrint('⚠️ Missing data: startTime=$startTime, accessToken=$accessToken');
+      }
+    } catch (e) {
+      debugPrint('❌ Error in _sendAttendanceData: $e');
+    }
+  }
+
+  // Clear Logout Data
+  Future<void> _clearLogoutData() async {
+    try {
+      await _authService.logout();
+      await _clearCachedProfileData();
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('start_time');
+      await prefs.remove('end_time');
+      await prefs.remove('last_active_time');
+      debugPrint('🗑️ SharedPreferences timestamps cleared');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Logged out successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error in _clearLogoutData: $e');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout completed (Error: ${e.toString()})'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    }
+  }
+
+  // Clear Cached Profile Data
+  Future<void> _clearCachedProfileData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // List of profile-related keys to clear
+      final profileKeys = [
+        'profile_name',
+        'profile_email',
+        'profile_phone',
+        'profile_course',
+        'profile_subcourse',
+        'profile_student_type',
+        'profile_completed',
+        'profile_cache_time',
+      ];
+      
+      for (String key in profileKeys) {
+        await prefs.remove(key);
+      }
+      
+      debugPrint('✅ Cached profile data cleared');
+    } catch (e) {
+      debugPrint('❌ Error clearing cached profile data: $e');
     }
   }
 

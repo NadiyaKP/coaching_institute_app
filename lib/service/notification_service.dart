@@ -25,12 +25,14 @@ class NotificationService {
       ValueNotifier<Map<String, bool>>({
     'hasUnreadAssignments': false,
     'hasUnreadSubscription': false,
-    'hasUnreadVideoLectures': false, // 🆕 Added for video lectures
+    'hasUnreadVideoLectures': false,
+    'hasUnreadLeaveStatus': false, // 🆕 Added for leave status
   });
 
   // Backward compatibility getters
   static bool get hasUnreadAssignment => badgeNotifier.value['hasUnreadAssignments'] ?? false;
-  static bool get hasUnreadVideoLectures => badgeNotifier.value['hasUnreadVideoLectures'] ?? false; // 🆕 Getter for video lectures
+  static bool get hasUnreadVideoLectures => badgeNotifier.value['hasUnreadVideoLectures'] ?? false;
+  static bool get hasUnreadLeaveStatus => badgeNotifier.value['hasUnreadLeaveStatus'] ?? false; // 🆕 Getter for leave status
 
   static Future<void> init(GlobalKey<NavigatorState> navKey) async {
     navigatorKey = navKey;
@@ -100,15 +102,17 @@ class NotificationService {
       final prefs = await SharedPreferences.getInstance();
       bool hasUnreadAssignments = prefs.getBool('has_unread_assignments') ?? false;
       bool hasUnreadSubscription = prefs.getBool('has_unread_subscription') ?? false;
-      bool hasUnreadVideoLectures = prefs.getBool('has_unread_video_lectures') ?? false; // 🆕 Load video lectures badge
+      bool hasUnreadVideoLectures = prefs.getBool('has_unread_video_lectures') ?? false;
+      bool hasUnreadLeaveStatus = prefs.getBool('has_unread_leave_status') ?? false; // 🆕 Load leave status badge
       
       badgeNotifier.value = {
         'hasUnreadAssignments': hasUnreadAssignments,
         'hasUnreadSubscription': hasUnreadSubscription,
-        'hasUnreadVideoLectures': hasUnreadVideoLectures, // 🆕 Set video lectures badge
+        'hasUnreadVideoLectures': hasUnreadVideoLectures,
+        'hasUnreadLeaveStatus': hasUnreadLeaveStatus, // 🆕 Set leave status badge
       };
       
-      developer.log('📱 Loaded badge state - Assignments: $hasUnreadAssignments, Subscription: $hasUnreadSubscription, Video Lectures: $hasUnreadVideoLectures'); // ✅ Fixed log
+      developer.log('📱 Loaded badge state - Assignments: $hasUnreadAssignments, Subscription: $hasUnreadSubscription, Video Lectures: $hasUnreadVideoLectures, Leave Status: $hasUnreadLeaveStatus');
     } catch (e) {
       developer.log('❌ Error loading badge state: $e'); 
     }
@@ -150,13 +154,15 @@ class NotificationService {
     } else if (type == 'subscription_warning') {
       developer.log('🆕 Setting badge from background for subscription'); 
       await _saveBadgeState('has_unread_subscription', true);
-    }
-     else if (type == 'subscription_expired') {
+    } else if (type == 'subscription_expired') {
       developer.log('🆕 Setting badge from background for subscription'); 
       await _saveBadgeState('has_unread_subscription', true);
-    } else if (type == 'video_lecture') { // 🆕 Handle video_lecture type
+    } else if (type == 'video_lecture') {
       developer.log('🆕 Setting badge from background for video lecture'); 
       await _saveBadgeState('has_unread_video_lectures', true);
+    } else if (type == 'leave_status') { // 🆕 Handle leave_status type
+      developer.log('🆕 Setting badge from background for leave status'); 
+      await _saveBadgeState('has_unread_leave_status', true);
     }
   }
 
@@ -212,15 +218,18 @@ class NotificationService {
       clearSubscriptionBadge();
       developer.log('💳 Navigating to Subscription'); 
       navigatorKey.currentState?.pushNamed('/subscription');
-    }
-    else if (type == 'subscription_expired') {
+    } else if (type == 'subscription_expired') {
       clearSubscriptionBadge();
       developer.log('💳 Navigating to Subscription'); 
       navigatorKey.currentState?.pushNamed('/subscription');
-    } else if (type == 'video_lecture') { // 🆕 Handle video_lecture navigation
+    } else if (type == 'video_lecture') {
       clearVideoLectureBadge();
       developer.log('🎬 Navigating to Video Classes via notification');
       navigatorKey.currentState?.pushNamed('/videos');
+    } else if (type == 'leave_status') { // 🆕 Handle leave_status navigation
+      clearLeaveStatusBadge();
+      developer.log('📝 Navigating to Academics (Leave Application) via notification');
+      navigatorKey.currentState?.pushNamed('/academics');
     } else {
       developer.log('ℹ️ Unknown notification type: $type'); 
       navigatorKey.currentState?.pushNamed('/home');
@@ -242,19 +251,24 @@ class NotificationService {
       badgeNotifier.value = currentBadges;
       _saveBadgeState('has_unread_subscription', true);
       developer.log('🆕 Subscription badge activated in foreground'); 
-    } 
-    else if (type == 'subscription_expired') {
+    } else if (type == 'subscription_expired') {
       final currentBadges = Map<String, bool>.from(badgeNotifier.value);
       currentBadges['hasUnreadSubscription'] = true;
       badgeNotifier.value = currentBadges;
       _saveBadgeState('has_unread_subscription', true);
       developer.log('🆕 Subscription badge activated in foreground'); 
-    } else if (type == 'video_lecture') { // 🆕 Handle video_lecture badge
+    } else if (type == 'video_lecture') {
       final currentBadges = Map<String, bool>.from(badgeNotifier.value);
       currentBadges['hasUnreadVideoLectures'] = true;
       badgeNotifier.value = currentBadges;
       _saveBadgeState('has_unread_video_lectures', true);
       developer.log('🆕 Video lecture badge activated in foreground'); 
+    } else if (type == 'leave_status') { // 🆕 Handle leave_status badge
+      final currentBadges = Map<String, bool>.from(badgeNotifier.value);
+      currentBadges['hasUnreadLeaveStatus'] = true;
+      badgeNotifier.value = currentBadges;
+      _saveBadgeState('has_unread_leave_status', true);
+      developer.log('🆕 Leave status badge activated in foreground'); 
     }
   }
 
@@ -325,7 +339,8 @@ class NotificationService {
             developer.log('❌ Token refresh failed'); 
           }
         } else {
-          developer.log('❌ Failed to fetch unread notifications: ${response.statusCode}');         }
+          developer.log('❌ Failed to fetch unread notifications: ${response.statusCode}');
+        }
       } on TimeoutException {
         developer.log('⏰ Unread notifications request timed out'); 
       } on SocketException catch (e) {
@@ -381,7 +396,8 @@ class NotificationService {
     bool hasAssignment = false;
     bool hasExam = false;
     bool hasSubscription = false;
-    bool hasVideoLecture = false; // 🆕 Track video lectures
+    bool hasVideoLecture = false;
+    bool hasLeaveStatus = false; // 🆕 Track leave status
 
     for (var notification in notifications) {
       if (notification['data'] != null) {
@@ -393,11 +409,12 @@ class NotificationService {
           hasExam = true;
         } else if (type == 'subscription_warning') {
           hasSubscription = true;
-        }
-        else if (type == 'subscription_expired') {
+        } else if (type == 'subscription_expired') {
           hasSubscription = true;
-        }  else if (type == 'video_lecture') { // 🆕 Check for video_lecture type
+        } else if (type == 'video_lecture') { 
           hasVideoLecture = true;
+        } else if (type == 'leave_status') { // 🆕 Check for leave_status
+          hasLeaveStatus = true;
         }
       }
     }
@@ -407,13 +424,15 @@ class NotificationService {
     developer.log('   - Exam: $hasExam');
     developer.log('   - Subscription warning: $hasSubscription'); 
     developer.log('   - Subscription expired: $hasSubscription'); 
-    developer.log('   - Video Lecture: $hasVideoLecture'); // 🆕 Log video lecture status 
+    developer.log('   - Video Lecture: $hasVideoLecture');
+    developer.log('   - Leave Status: $hasLeaveStatus'); // 🆕 Log leave status
 
     // Update badges
     updateBadges(
       hasUnreadAssignments: hasAssignment || hasExam,
       hasUnreadSubscription: hasSubscription,
-      hasUnreadVideoLectures: hasVideoLecture, // 🆕 Pass video lecture status
+      hasUnreadVideoLectures: hasVideoLecture,
+      hasUnreadLeaveStatus: hasLeaveStatus, // 🆕 Pass leave status
     );
   }
 
@@ -421,20 +440,23 @@ class NotificationService {
   static void updateBadges({
     required bool hasUnreadAssignments,
     required bool hasUnreadSubscription,
-    bool hasUnreadVideoLectures = false, // 🆕 Added video lectures parameter
+    bool hasUnreadVideoLectures = false,
+    bool hasUnreadLeaveStatus = false, // 🆕 Added leave status parameter
   }) {
     final currentBadges = Map<String, bool>.from(badgeNotifier.value);
     currentBadges['hasUnreadAssignments'] = hasUnreadAssignments;
     currentBadges['hasUnreadSubscription'] = hasUnreadSubscription;
-    currentBadges['hasUnreadVideoLectures'] = hasUnreadVideoLectures; // 🆕 Set video lectures badge
+    currentBadges['hasUnreadVideoLectures'] = hasUnreadVideoLectures;
+    currentBadges['hasUnreadLeaveStatus'] = hasUnreadLeaveStatus; // 🆕 Set leave status badge
     badgeNotifier.value = currentBadges;
     
     // Save to SharedPreferences
     _saveBadgeState('has_unread_assignments', hasUnreadAssignments);
     _saveBadgeState('has_unread_subscription', hasUnreadSubscription);
-    _saveBadgeState('has_unread_video_lectures', hasUnreadVideoLectures); // 🆕 Save video lectures badge
+    _saveBadgeState('has_unread_video_lectures', hasUnreadVideoLectures);
+    _saveBadgeState('has_unread_leave_status', hasUnreadLeaveStatus); // 🆕 Save leave status badge
     
-    developer.log('🔔 Badges updated - Assignments: $hasUnreadAssignments, Subscription: $hasUnreadSubscription, Video Lectures: $hasUnreadVideoLectures'); // ✅ Fixed log
+    developer.log('🔔 Badges updated - Assignments: $hasUnreadAssignments, Subscription: $hasUnreadSubscription, Video Lectures: $hasUnreadVideoLectures, Leave Status: $hasUnreadLeaveStatus');
   }
 
   // 🔔 Clear assignment badge when user views assignments
@@ -462,6 +484,15 @@ class NotificationService {
     badgeNotifier.value = currentBadges;
     _saveBadgeState('has_unread_video_lectures', false);
     developer.log('✅ Video lecture badge cleared'); 
+  }
+
+  // 🆕 Clear leave status badge when user views leave application
+  static void clearLeaveStatusBadge() {
+    final currentBadges = Map<String, bool>.from(badgeNotifier.value);
+    currentBadges['hasUnreadLeaveStatus'] = false;
+    badgeNotifier.value = currentBadges;
+    _saveBadgeState('has_unread_leave_status', false);
+    developer.log('✅ Leave status badge cleared'); 
   }
 
   // 🔄 Check and reload badge state when app resumes

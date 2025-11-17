@@ -527,10 +527,6 @@ class _MockTestScreenState extends State<MockTestScreen> {
           Navigator.of(context).pop(); // Close drawer first
           _navigateToSettings();
         },
-        onLogout: () {
-          Navigator.of(context).pop(); // Close drawer first
-          _showLogoutDialog();
-        },
         onClose: () {
           Navigator.of(context).pop(); // Close drawer
         },

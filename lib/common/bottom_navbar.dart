@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:coaching_institute_app/service/notification_service.dart';
 import '../../screens/Academics/academics.dart';
 import '../screens/mock_test/mock_test.dart';
 import '../screens/subscription/subscription.dart';
 import '../screens/my_documents/my_documents.dart';
+import '../common/theme_color.dart';
 
 class CommonBottomNavBar extends StatefulWidget {
   final int currentIndex;
@@ -53,10 +53,7 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
     }
   }
 
-  // Handle tab selection WITHOUT clearing badge for Academics
   void _handleTabSelection(int index) {
-    // DON'T clear badge when Academics tab is selected
-    // The badge should only clear when Assignments screen is opened
     widget.onTabSelected(index);
   }
 
@@ -66,7 +63,7 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
       decoration: BoxDecoration(
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: AppColors.shadowGrey,
             blurRadius: 10,
             offset: const Offset(0, -2),
           ),
@@ -87,17 +84,15 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
               currentIndex: widget.currentIndex,
               onTap: (index) {
                 if (index == 3) {
-                  // Profile tab - open drawer
                   _openProfileDrawer();
                 } else {
-                  // Other tabs - normal navigation without badge clearing
                   _handleTabSelection(index);
                 }
               },
               type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.white,
-              selectedItemColor: const Color(0xFFF4B400),
-              unselectedItemColor: const Color(0xFF9E9E9E),
+              backgroundColor: AppColors.white,
+              selectedItemColor: AppColors.primaryYellow,
+              unselectedItemColor: AppColors.grey500,
               selectedLabelStyle: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -136,7 +131,6 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
     );
   }
 
-  // Widget to show badge on icon
   Widget _buildIconWithBadge({
     required Widget icon,
     required bool showBadge,
@@ -152,7 +146,7 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
             child: Container(
               padding: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: Colors.red,
+                color: AppColors.errorRed,
                 borderRadius: BorderRadius.circular(6),
               ),
               constraints: const BoxConstraints(
@@ -166,7 +160,6 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
   }
 }
 
-// Update the BottomNavBarHelper to NOT clear badge when navigating to Academics
 class BottomNavBarHelper {
   static void handleTabSelection(
     int index, 
@@ -175,16 +168,16 @@ class BottomNavBarHelper {
     GlobalKey<ScaffoldState>? scaffoldKey,
   ) {
     switch (index) {
-      case 0: // Home
+      case 0:
         _navigateToHome(context);
         break;
-      case 1: // Academics/Subscription based on student type
+      case 1:
         _handleSecondTab(context, studentType);
         break;
-      case 2: // Mock Test
+      case 2:
         _navigateToMockTest(context);
         break;
-      case 3: // Profile - open drawer if scaffoldKey is provided
+      case 3:
         if (scaffoldKey?.currentState != null) {
           scaffoldKey!.currentState!.openEndDrawer();
         }
@@ -197,8 +190,6 @@ class BottomNavBarHelper {
     if (studentTypeUpper == 'PUBLIC') {
       _navigateToSubscription(context);
     } else {
-      // For 'ONLINE' and all other student types, navigate to Academics
-      // DON'T clear badge here - only clear when Assignments screen is opened
       _navigateToAcademics(context);
     }
   }
@@ -215,7 +206,7 @@ class BottomNavBarHelper {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => SubscriptionScreen(),
+        builder: (context) => const SubscriptionScreen(),
         settings: const RouteSettings(name: '/subscription'),
       ),
     );
@@ -225,7 +216,7 @@ class BottomNavBarHelper {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => AcademicsScreen(),
+        builder: (context) => const AcademicsScreen(),
         settings: const RouteSettings(name: '/academics'),
       ),
     );
@@ -235,14 +226,14 @@ class BottomNavBarHelper {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => MockTestScreen(),
+        builder: (context) => const MockTestScreen(),
         settings: const RouteSettings(name: '/mock_test'),
       ),
     );
   }
 }
 
-// Common Profile Drawer Widget that can be used across screens
+// REDESIGNED Common Profile Drawer - Beautiful Yellow Theme
 class CommonProfileDrawer extends StatelessWidget {
   final String name;
   final String email;
@@ -251,7 +242,6 @@ class CommonProfileDrawer extends StatelessWidget {
   final bool profileCompleted;
   final VoidCallback onViewProfile;
   final VoidCallback onSettings;
-  final VoidCallback onLogout;
   final VoidCallback onClose;
 
   const CommonProfileDrawer({
@@ -263,251 +253,249 @@ class CommonProfileDrawer extends StatelessWidget {
     required this.profileCompleted,
     required this.onViewProfile,
     required this.onSettings,
-    required this.onLogout,
     required this.onClose,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
+    final orientation = MediaQuery.of(context).orientation;
+    final screenWidth = MediaQuery.of(context).size.width;
+    
+    // Adjust drawer width based on orientation
+    final drawerWidth = orientation == Orientation.landscape
+        ? screenWidth * 0.45  // 45% width in landscape
+        : screenWidth * 0.75; // 75% width in portrait (original)
+    
     return Drawer(
-      width: MediaQuery.of(context).size.width * 0.75,
+      width: drawerWidth,
       child: Container(
         decoration: const BoxDecoration(
-          color: Color(0xFFF4B400),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              AppColors.primaryYellow,
+              AppColors.primaryYellowDark,
+            ],
+          ),
         ),
         child: SafeArea(
-          child: Column(
-            children: [
-              // Profile Header with smaller icon
-              Container(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-                child: Column(
-                  children: [
-                    // Smaller profile icon
-                    Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const CircleAvatar(
-                        radius: 35,
-                        backgroundColor: Colors.white,
-                        child: Icon(
-                          Icons.person,
-                          size: 40,
-                          color: Color(0xFFF4B400),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Full Name
-                    Text(
-                      name.isNotEmpty ? name : 'User Name',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        letterSpacing: -0.3,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    // Email
-                    if (email.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        email,
-                        style: TextStyle(
-                          fontSize: 12.5,
-                          color: Colors.white.withOpacity(0.88),
-                          fontWeight: FontWeight.w500,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ],
-                ),
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
               ),
-
-              const SizedBox(height: 8),
-
-              // My Course Card - showing course and subcourse
-              if (course.isNotEmpty || subcourse.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
+              child: Column(
+                children: [
+                  // Profile Section
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(5),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.25),
-                                borderRadius: BorderRadius.circular(6),
+                        // Profile Avatar
+                        Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.white,
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.black.withOpacity(0.12),
+                                blurRadius: 16,
+                                spreadRadius: 1,
+                                offset: const Offset(0, 3),
                               ),
-                              child: const Icon(
-                                Icons.school_rounded,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'My Course',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                letterSpacing: 0.1,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        // Course information
-                        if (course.isNotEmpty) 
-                          _buildDrawerCourseInfo('Course', course),
-                        if (subcourse.isNotEmpty) 
-                          Column(
-                            children: [
-                              const SizedBox(height: 8),
-                              _buildDrawerCourseInfo('Subcourse', subcourse),
                             ],
                           ),
+                          child: const CircleAvatar(
+                            radius: 38,
+                            backgroundColor: AppColors.primaryBlue,
+                            child: Icon(
+                              Icons.person_rounded,
+                              size: 42,
+                              color: AppColors.white,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // User Name
+                        Text(
+                          name.isNotEmpty ? name : 'User Name',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryBlue,
+                            letterSpacing: -0.5,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+
+                        // Email
+                        if (email.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            email,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.primaryBlueDark.withOpacity(0.8),
+                              fontWeight: FontWeight.w500,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
                       ],
                     ),
                   ),
-                ),
 
-              const SizedBox(height: 16),
+                  // Course Information Card
+                  if (course.isNotEmpty || subcourse.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppColors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppColors.black.withOpacity(0.08),
+                              blurRadius: 10,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [
+                                        AppColors.primaryBlue,
+                                        AppColors.primaryBlueLight,
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: const Icon(
+                                    Icons.school_rounded,
+                                    color: AppColors.white,
+                                    size: 16,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                const Text(
+                                  'My Course',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primaryBlue,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (course.isNotEmpty) 
+                              _buildCourseInfo('Course', course),
+                            if (subcourse.isNotEmpty) ...[
+                              const SizedBox(height: 8),
+                              _buildCourseInfo('Subcourse', subcourse),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
 
-              // Menu Items
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    _buildDrawerItem(
-                      icon: Icons.person_outline_rounded,
-                      label: 'View Profile',
-                      onTap: onViewProfile,
-                    ),
-                    const Divider(height: 1, color: Colors.grey),
-                    _buildDrawerItem(
-                      icon: Icons.description_outlined,
-                      label: 'My Documents',
-                      onTap: () {
-                        // Close the drawer first
-                        Navigator.of(context).pop();
-                        // Navigate to My Documents page
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => MyDocumentsScreen(),
-                            settings: const RouteSettings(name: '/my_documents'),
-                          ),
-                        );
-                      },
-                    ),
-                    const Divider(height: 1, color: Colors.grey),
-                    _buildDrawerItem(
-                      icon: Icons.settings_outlined,
-                      label: 'Settings',
-                      onTap: onSettings,
-                    ),
-                  ],
-                ),
-              ),
+                  const SizedBox(height: 20),
 
-              const Spacer(),
-
-              // Logout Button
-              Container(
-                margin: const EdgeInsets.all(16),
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: onLogout,
-                  icon: const Icon(Icons.logout_rounded, size: 20),
-                  label: const Text(
-                    'Logout',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.2,
+                  // Menu Items
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        _buildMenuItem(
+                          icon: Icons.person_outline_rounded,
+                          label: 'View Profile',
+                          onTap: onViewProfile,
+                        ),
+                        const SizedBox(height: 8),
+                        _buildMenuItem(
+                          icon: Icons.description_outlined,
+                          label: 'My Documents',
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const MyDocumentsScreen(),
+                                settings: const RouteSettings(name: '/my_documents'),
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        _buildMenuItem(
+                          icon: Icons.settings_outlined,
+                          label: 'Settings',
+                          onTap: onSettings,
+                        ),
+                      ],
                     ),
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                ),
-              ),
 
-              const SizedBox(height: 8),
-            ],
+                  const SizedBox(height: 16),
+                ],
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  // Helper widget for course info in drawer
-  Widget _buildDrawerCourseInfo(String label, String value) {
+  Widget _buildCourseInfo(String label, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.25),
-            borderRadius: BorderRadius.circular(5),
+            color: AppColors.primaryBlue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: AppColors.primaryBlue.withOpacity(0.2),
+              width: 1,
+            ),
           ),
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withOpacity(0.85),
-              letterSpacing: 0.1,
+            style: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+              letterSpacing: 0.3,
             ),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             value,
             style: const TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Colors.white,
-              letterSpacing: -0.1,
+              color: AppColors.textDark,
+              height: 1.3,
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -517,34 +505,70 @@ class CommonProfileDrawer extends StatelessWidget {
     );
   }
 
-  // Drawer Item Widget
-  Widget _buildDrawerItem({
+  Widget _buildMenuItem({
     required IconData icon,
     required String label,
     required VoidCallback onTap,
   }) {
-    return ListTile(
-      leading: Icon(
-        icon,
-        color: const Color(0xFFF4B400),
-        size: 22,
-      ),
-      title: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-          color: Colors.black87,
-          letterSpacing: -0.1,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        splashColor: AppColors.white.withOpacity(0.3),
+        highlightColor: AppColors.white.withOpacity(0.2),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.black.withOpacity(0.06),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      AppColors.primaryBlue,
+                      AppColors.primaryBlueLight,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  icon,
+                  color: AppColors.white,
+                  size: 16,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textDark,
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 14,
+                color: AppColors.grey400,
+              ),
+            ],
+          ),
         ),
       ),
-      trailing: const Icon(
-        Icons.arrow_forward_ios_rounded,
-        size: 14,
-        color: Colors.grey,
-      ),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
     );
   }
 }

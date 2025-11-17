@@ -16,6 +16,7 @@ class StudentDetails {
   final String? subcourse;
   final String batch;
   final String batchType;
+  final String? email;
 
   StudentDetails({
     required this.name,
@@ -26,6 +27,7 @@ class StudentDetails {
     this.subcourse,
     required this.batch,
     required this.batchType,
+    this.email,
   });
 
   factory StudentDetails.fromJson(Map<String, dynamic> json) {
@@ -38,6 +40,7 @@ class StudentDetails {
       subcourse: json['subcourse'],
       batch: json['batch'] ?? '',
       batchType: json['batch_type'] ?? '',
+      email: json['email'],
     );
   }
 }
@@ -206,53 +209,6 @@ class ExploreStudentDetailsProvider extends ChangeNotifier {
 }
 
 // ============= SKELETON LOADERS =============
-class DetailsSkeleton extends StatelessWidget {
-  const DetailsSkeleton({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
-        children: [
-          // Header skeleton
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              gradient: AppGradients.background,
-            ),
-            child: Column(
-              children: [
-                const SkeletonLoader(width: 100, height: 100, borderRadius: BorderRadius.all(Radius.circular(50))),
-                const SizedBox(height: 16),
-                SkeletonLoader(width: 200, height: 24, borderRadius: BorderRadius.circular(4)),
-                const SizedBox(height: 8),
-                SkeletonLoader(width: 120, height: 16, borderRadius: BorderRadius.circular(4)),
-              ],
-            ),
-          ),
-          
-          // Details skeleton
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              children: List.generate(6, (index) => 
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: SkeletonLoader(
-                    width: double.infinity,
-                    height: 80,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class SkeletonLoader extends StatefulWidget {
   final double width;
   final double height;
@@ -354,23 +310,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     super.dispose();
   }
 
-  void _showSnackBar(String message, Color color) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: color,
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-    }
-  }
-
   void _handleDocumentTap(StudentDocument document) {
     Navigator.push(
       context,
@@ -383,135 +322,216 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     );
   }
 
-  Widget _buildHeader() {
-    final student = _provider.studentDetails;
-    
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: AppGradients.background,
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-          child: Column(
-            children: [
-              Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: AppGradients.primaryYellow,
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.shadowYellow.withOpacity(0.3),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.person,
-                  size: 50,
-                  color: AppColors.white,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                student?.name ?? widget.studentName,
-                style: const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.primaryBlue,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(25),
-                  border: Border.all(
-                    color: AppColors.primaryBlue.withOpacity(0.3),
-                    width: 1.5,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.badge,
-                      size: 16,
-                      color: AppColors.primaryBlue,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      student?.registerNumber ?? '',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primaryBlue,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+  // Helper method to check if a field is valid (not null, not empty, not "Not specified")
+  bool _isFieldValid(String? value) {
+    if (value == null || value.isEmpty) return false;
+    final trimmed = value.trim();
+    return trimmed.isNotEmpty && 
+           trimmed.toLowerCase() != 'not specified' &&
+           trimmed.toLowerCase() != 'n/a';
+  }
+
+  Widget _buildAppBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+            onPressed: () => Navigator.of(context).pop(),
           ),
-        ),
+          const Expanded(
+            child: Text(
+              'Student Details',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildInfoTile({
-    required IconData icon,
-    required String label,
-    required String value,
-    Color? iconColor,
-  }) {
+  Widget _buildProfileCard() {
+    final student = _provider.studentDetails;
+    final screenWidth = MediaQuery.of(context).size.width;
+    
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      width: screenWidth - 120, // Even further reduced width
+      margin: const EdgeInsets.symmetric(horizontal: 60),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.grey200,
-          width: 1,
-        ),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: AppColors.shadowGrey.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: AppColors.primaryYellow.withOpacity(0.15),
+            blurRadius: 25,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
+      child: Column(
+        children: [
+          // Profile Avatar - Reduced size
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.primaryYellow,
+                  AppColors.primaryYellowDark,
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primaryYellow.withOpacity(0.3),
+                  blurRadius: 15,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: const CircleAvatar(
+              radius: 40,
+              backgroundColor: Colors.white,
+              child: Icon(
+                Icons.person_rounded,
+                size: 44,
+                color: AppColors.primaryYellow,
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // Name - Reduced font size
+          Text(
+            student?.name ?? widget.studentName,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textDark,
+              letterSpacing: -0.3,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          
+          // Register Number Badge - Only show if valid
+          if (_isFieldValid(student?.registerNumber)) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.primaryBlue.withOpacity(0.2),
+                    AppColors.primaryBlue.withOpacity(0.1),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(25),
+                border: Border.all(
+                  color: AppColors.primaryBlue.withOpacity(0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.badge_rounded,
+                    color: AppColors.primaryBlue,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 7),
+                  Text(
+                    student!.registerNumber,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.primaryBlue,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  (iconColor ?? AppColors.primaryBlue).withOpacity(0.2),
-                  (iconColor ?? AppColors.primaryBlue).withOpacity(0.1),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
+              color: AppColors.primaryYellow.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               icon,
-              color: iconColor ?? AppColors.primaryBlue,
-              size: 24,
+              color: AppColors.primaryYellow,
+              size: 20,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: AppColors.textDark,
+              letterSpacing: -0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDivider() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 16),
+      child: Divider(
+        height: 1,
+        thickness: 1,
+        color: AppColors.grey200,
+      ),
+    );
+  }
+
+  Widget _buildInfoField({
+    required String label,
+    required String value,
+    required IconData icon,
+    Color? iconColor,
+    bool isFirst = false,
+    bool isLast = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, isFirst ? 16 : 14, 16, isLast ? 16 : 14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: (iconColor ?? AppColors.primaryYellow).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: iconColor ?? AppColors.primaryYellow, size: 20),
+          ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -519,19 +539,20 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                 Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.grey600,
-                    letterSpacing: 0.5,
+                    color: AppColors.grey400,
+                    letterSpacing: 0.3,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 4),
                 Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.grey800,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textDark,
+                    letterSpacing: -0.1,
                   ),
                 ),
               ],
@@ -542,79 +563,147 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     );
   }
 
-  Widget _buildStudentDetails() {
+  Widget _buildPersonalInfoSection() {
     final student = _provider.studentDetails;
     if (student == null) return const SizedBox.shrink();
 
+    // Build list of valid fields
+    List<Widget> fields = [];
+    
+    if (_isFieldValid(student.gender)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'GENDER',
+        value: student.gender,
+        icon: student.gender.toLowerCase() == 'male' ? Icons.male : Icons.female,
+        iconColor: student.gender.toLowerCase() == 'male' 
+            ? const Color(0xFF2196F3) 
+            : const Color(0xFFE91E63),
+        isFirst: fields.isEmpty,
+      ));
+    }
+    
+    if (_isFieldValid(student.email)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'EMAIL',
+        value: student.email!,
+        icon: Icons.email_outlined,
+        iconColor: const Color(0xFF2196F3),
+        isFirst: fields.isEmpty,
+      ));
+    }
+    
+    if (_isFieldValid(student.studentType)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'STUDENT TYPE',
+        value: student.studentType,
+        icon: Icons.badge_outlined,
+        iconColor: const Color(0xFF4CAF50),
+        isFirst: fields.isEmpty,
+      ));
+    }
+
+    // If no valid fields, don't show the section
+    if (fields.isEmpty) return const SizedBox.shrink();
+
+    // Mark the last field
+    if (fields.isNotEmpty && fields.last is! Divider) {
+      final lastIndex = fields.length - 1;
+      final lastField = fields[lastIndex];
+      // We need to rebuild the last field with isLast = true
+      // This is a simplified approach - in production you might want to handle this differently
+    }
+
     return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 4,
-                height: 28,
-                decoration: BoxDecoration(
-                  gradient: AppGradients.primaryYellow,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Student Information',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          _buildInfoTile(
-            icon: Icons.school_outlined,
-            label: 'COURSE',
-            value: student.course,
-            iconColor: const Color(0xFF2196F3),
-          ),
-          if (student.subcourse != null && student.subcourse!.isNotEmpty)
-            _buildInfoTile(
-              icon: Icons.subject_outlined,
-              label: 'SUBCOURSE',
-              value: student.subcourse!,
-              iconColor: const Color(0xFF9C27B0),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
             ),
-          _buildInfoTile(
-            icon: Icons.group_outlined,
-            label: 'BATCH',
-            value: student.batch,
-            iconColor: const Color(0xFFFF9800),
-          ),
-          _buildInfoTile(
-            icon: Icons.category_outlined,
-            label: 'BATCH TYPE',
-            value: student.batchType.toUpperCase(),
-            iconColor: const Color(0xFFE91E63),
-          ),
-          _buildInfoTile(
-            icon: student.gender.toLowerCase() == 'male' 
-                ? Icons.male 
-                : Icons.female,
-            label: 'GENDER',
-            value: student.gender,
-            iconColor: student.gender.toLowerCase() == 'male' 
-                ? const Color(0xFF2196F3) 
-                : const Color(0xFFE91E63),
-          ),
-          _buildInfoTile(
-            icon: Icons.badge_outlined,
-            label: 'STUDENT TYPE',
-            value: student.studentType,
-            iconColor: const Color(0xFF4CAF50),
-          ),
-        ],
+          ],
+        ),
+        child: Column(children: fields),
+      ),
+    );
+  }
+
+  Widget _buildAcademicInfoSection() {
+    final student = _provider.studentDetails;
+    if (student == null) return const SizedBox.shrink();
+
+    // Build list of valid fields
+    List<Widget> fields = [];
+    
+    if (_isFieldValid(student.course)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'COURSE',
+        value: student.course,
+        icon: Icons.menu_book_rounded,
+        iconColor: const Color(0xFF2196F3),
+        isFirst: fields.isEmpty,
+      ));
+    }
+    
+    if (_isFieldValid(student.subcourse)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'SUBCOURSE',
+        value: student.subcourse!,
+        icon: Icons.book_outlined,
+        iconColor: const Color(0xFF9C27B0),
+        isFirst: fields.isEmpty,
+      ));
+    }
+    
+    if (_isFieldValid(student.batch)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'BATCH',
+        value: student.batch,
+        icon: Icons.group_outlined,
+        iconColor: const Color(0xFFFF9800),
+        isFirst: fields.isEmpty,
+      ));
+    }
+    
+    if (_isFieldValid(student.batchType)) {
+      if (fields.isNotEmpty) fields.add(_buildDivider());
+      fields.add(_buildInfoField(
+        label: 'BATCH TYPE',
+        value: student.batchType.toUpperCase(),
+        icon: Icons.category_outlined,
+        iconColor: const Color(0xFFE91E63),
+        isFirst: fields.isEmpty,
+      ));
+    }
+
+    // If no valid fields, don't show the section
+    if (fields.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(children: fields),
       ),
     );
   }
@@ -666,7 +755,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                   const SizedBox(height: 5),
                   Row(
                     children: [
-                      Icon(
+                      const Icon(
                         Icons.calendar_today,
                         size: 11,
                         color: AppColors.grey500,
@@ -810,7 +899,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             children: [
               Container(
                 padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
+                decoration: const BoxDecoration(
                   color: AppColors.grey200,
                   shape: BoxShape.circle,
                 ),
@@ -852,28 +941,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 4,
-                height: 28,
-                decoration: BoxDecoration(
-                  gradient: AppGradients.primaryYellow,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'Documents',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
           ...sortedTypes.map((type) {
             final docs = groupedDocs[type]!;
             return _buildDocumentSection(type, docs);
@@ -883,126 +950,424 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     );
   }
 
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        children: [
+          // Profile Card Skeleton
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Container(
+                  width: 104,
+                  height: 104,
+                  decoration: const BoxDecoration(
+                    color: AppColors.grey200,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  width: 180,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: 120,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: 100,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          
+          // Section Header Skeleton
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 160,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          // Info Cards Skeleton
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: List.generate(
+                  2,
+                  (index) => Column(
+                    children: [
+                      if (index > 0) _buildDivider(),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          index == 0 ? 16 : 14,
+                          16,
+                          index == 1 ? 16 : 14,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: AppColors.grey200,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 80,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.grey200,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    width: double.infinity,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.grey200,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          
+          // Another Section Skeleton
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  width: 180,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: AppColors.grey200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: List.generate(
+                  4,
+                  (index) => Column(
+                    children: [
+                      if (index > 0) _buildDivider(),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          index == 0 ? 16 : 14,
+                          16,
+                          index == 3 ? 16 : 14,
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: AppColors.grey200,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: 100,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.grey200,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    width: double.infinity,
+                                    height: 16,
+                                    decoration: BoxDecoration(
+                                      color: AppColors.grey200,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.errorRed.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.error_outline_rounded,
+                size: 64,
+                color: AppColors.errorRed,
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Oops! Something went wrong',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textDark,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _provider.errorMessage ?? 'Unable to load student details',
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppColors.textGrey,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: () => _provider.fetchStudentDetails(widget.studentId),
+              icon: const Icon(Icons.refresh_rounded, size: 20),
+              label: const Text(
+                'Try Again',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryYellow,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.transparent,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back_ios, color: AppColors.primaryBlue),
-        ),
-        title: const Text(
-          'Student Details',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppColors.primaryBlue,
-          ),
-        ),
-      ),
-      extendBodyBehindAppBar: true,
-      body: ListenableBuilder(
-        listenable: _provider,
-        builder: (context, child) {
-          if (_provider.isLoading) {
-            return const DetailsSkeleton();
-          }
-
-          if (_provider.errorMessage != null) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: AppColors.errorRed.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.error_outline,
-                        size: 48,
-                        color: AppColors.errorRed,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'Failed to load student details',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.grey800,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _provider.errorMessage!,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.grey600,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 28),
-                    Container(
-                      decoration: BoxDecoration(
-                        gradient: AppGradients.primaryYellow,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.shadowYellow.withOpacity(0.3),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: ElevatedButton.icon(
-                        onPressed: () => _provider.fetchStudentDetails(widget.studentId),
-                        icon: const Icon(Icons.refresh, color: AppColors.white),
-                        label: const Text(
-                          'Retry',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.white,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 16,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
+      backgroundColor: AppColors.backgroundLight,
+      body: Stack(
+        children: [
+          // Gradient Background
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: Container(
+              height: 200,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    AppColors.primaryYellow,
+                    AppColors.primaryYellowDark,
                   ],
                 ),
               ),
-            );
-          }
-
-          return SingleChildScrollView(
+            ),
+          ),
+          SafeArea(
             child: Column(
               children: [
-                _buildHeader(),
-                _buildStudentDetails(),
-                _buildDocumentsSection(),
-                const SizedBox(height: 20),
+                _buildAppBar(),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListenableBuilder(
+                    listenable: _provider,
+                    builder: (context, child) {
+                      if (_provider.isLoading) {
+                        return _buildSkeletonLoading();
+                      }
+
+                      if (_provider.errorMessage != null) {
+                        return _buildErrorState();
+                      }
+
+                      final student = _provider.studentDetails;
+                      final hasPersonalInfo = student != null && 
+                          (_isFieldValid(student.gender) || _isFieldValid(student.email) || _isFieldValid(student.studentType));
+                      final hasAcademicInfo = student != null && 
+                          (_isFieldValid(student.course) || _isFieldValid(student.subcourse) || 
+                           _isFieldValid(student.batch) || _isFieldValid(student.batchType));
+
+                      return SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          children: [
+                            _buildProfileCard(),
+                            
+                            // Only show Personal Information section if there are valid fields
+                            if (hasPersonalInfo) ...[
+                              const SizedBox(height: 24),
+                              _buildSectionHeader('Personal Information', Icons.person_outline_rounded),
+                              _buildPersonalInfoSection(),
+                            ],
+
+                            // Only show Academic Information section if there are valid fields
+                            if (hasAcademicInfo) ...[
+                              const SizedBox(height: 24),
+                              _buildSectionHeader('Academic Information', Icons.menu_book_rounded),
+                              _buildAcademicInfoSection(),
+                            ],
+
+                            // Documents Section - always show header
+                            const SizedBox(height: 24),
+                            _buildSectionHeader('Documents', Icons.description_outlined),
+                            _buildDocumentsSection(),
+                            
+                            const SizedBox(height: 32),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ],
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

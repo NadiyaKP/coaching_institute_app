@@ -8,6 +8,7 @@ import 'package:coaching_institute_app/service/api_config.dart';
 import '../../common/theme_color.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io'; 
 
 class VideoStreamScreen extends StatefulWidget {
   final String videoId;
@@ -138,10 +139,13 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
       if (response.statusCode != 200) {
         throw Exception('Failed to fetch video URL. Status: ${response.statusCode}');
       }
-
+      
       final data = jsonDecode(response.body);
       final presignedUrl = data['url'];
-      debugPrint('🎬 Presigned video URL received');
+
+      // Method 1: Use stderr (most reliable)
+      stderr.writeln('🔗 COMPLETE URL:');
+      stderr.writeln(presignedUrl);
 
       _videoPlayerController = VideoPlayerController.network(presignedUrl);
       await _videoPlayerController!.initialize();

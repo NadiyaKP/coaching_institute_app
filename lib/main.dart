@@ -1,8 +1,6 @@
 import 'package:coaching_institute_app/screens/home.dart';
-import 'package:coaching_institute_app/screens/view_profile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -10,7 +8,7 @@ import 'dart:convert';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'service/api_config.dart'; // ✅ Corrected import path
+import 'service/api_config.dart'; 
 import 'service/auth_service.dart';
 import 'service/notification_service.dart';
 import 'screens/splash_screen.dart';
@@ -108,15 +106,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> main() async {
-  // ✅ Ensure Flutter bindings and system UI are ready
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  // ✅ Initialize Firebase
+  // Initialize Firebase
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  // ✅ Initialize Hive
+  // Initialize Hive
   await Hive.initFlutter();
   if (!Hive.isAdapterRegistered(0)) {
     Hive.registerAdapter(PdfReadingRecordAdapter());
@@ -128,7 +125,7 @@ Future<void> main() async {
     debugPrint('❌ Error opening Hive box: $e');
   }
 
-  // ✅ Initialize Local Notifications
+  // Initialize Local Notifications
   const AndroidInitializationSettings androidInitSettings =
       AndroidInitializationSettings('@mipmap/ic_launcher');
   const InitializationSettings initSettings =
@@ -144,11 +141,11 @@ Future<void> main() async {
     },
   );
 
-  // ✅ Initialize API Config before running app
+  // Initialize API Config before running app
   await ApiConfig.initializeBaseUrl(printLogs: true);
   ApiConfig.startAutoListen(updateImmediately: false);
 
-  // 🟩🟩 Print currently active API in debug console 🟩🟩
+  // Print currently active API in debug console 
   debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   debugPrint("🌐  ACTIVE API BASE URL → ${ApiConfig.currentBaseUrl}");
   debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -171,10 +168,10 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     WidgetsBinding.instance.addObserver(this);
     _initNotificationService();
 
-    // ✅ Listen to API URL changes when network changes
+    // Listen to API URL changes when network changes
     ApiConfig.startAutoListen(updateImmediately: true);
 
-    // ✅ Print debug message whenever network switches
+    // Print debug message whenever network switches
     debugPrint('🔎 Listening for network changes...');
   }
 
@@ -261,11 +258,15 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     if (endTimeStr != null) _showContinueDialog();
   }
 
+  // ✅ Fixed method - no more BuildContext warnings
   void _showContinueDialog() {
+    final dialogContext = navigatorKey.currentContext;
+    if (dialogContext == null) return;
+    
     showDialog(
-      context: navigatorKey.currentContext!,
+      context: dialogContext,
       barrierDismissible: false,
-      builder: (context) {
+      builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Continue'),
           content: const Text('Continue using the app'),
@@ -273,21 +274,31 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
             TextButton(
               onPressed: () async {
                 final prefs = await SharedPreferences.getInstance();
-                DateTime okClickTime = DateTime.now();
-                String? endTimeStr = prefs.getString('end_time');
+                final okClickTime = DateTime.now();
+                final endTimeStr = prefs.getString('end_time');
+                
+                // ✅ Do all async work first
+                bool shouldLogout = false;
+                
                 if (endTimeStr != null) {
-                  DateTime endTime = DateTime.parse(endTimeStr);
-                  Duration elapsed = okClickTime.difference(endTime);
+                  final endTime = DateTime.parse(endTimeStr);
+                  final elapsed = okClickTime.difference(endTime);
+                  
                   if (elapsed.inSeconds <= 120) {
                     await prefs.remove('end_time');
                     await prefs.remove('last_active_time');
-                    Navigator.of(context).pop();
                   } else {
-                    Navigator.of(context).pop();
-                    await _logoutUser();
+                    shouldLogout = true;
                   }
-                } else {
-                  Navigator.of(context).pop();
+                }
+                
+                // Then use context after checking if mounted
+                if (!context.mounted) return;
+                
+                Navigator.of(context).pop();
+                
+                if (shouldLogout) {
+                  await _logoutUser();
                 }
               },
               child: const Text('Ok'),
@@ -298,6 +309,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     );
   }
 
+  // Fixed method with safety check
   Future<void> _logoutUser() async {
     final prefs = await SharedPreferences.getInstance();
     final bool isOnlineStudent = await _isOnlineStudent();
@@ -342,7 +354,10 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       }
     }
 
-    navigatorKey.currentState?.pushReplacementNamed('/getin');
+    // Safe navigation using global key with mounted check
+    if (navigatorKey.currentState?.mounted ?? false) {
+      navigatorKey.currentState?.pushReplacementNamed('/getin');
+    }
   }
 
   @override
