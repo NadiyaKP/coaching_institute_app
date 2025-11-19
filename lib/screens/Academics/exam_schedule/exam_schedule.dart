@@ -12,6 +12,7 @@ import '../exam_schedule/start_exam.dart';
 import '../../mock_test/mock_test.dart';
 import 'dart:ui' show FontFeature;
 import 'dart:async';
+import '../../../service/http_interceptor.dart';
 
 class ExamScheduleScreen extends StatefulWidget {
   const ExamScheduleScreen({super.key});
@@ -199,7 +200,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       
       try {
         debugPrint('📡 Sending POST request to mark exams as read...');
-        final response = await client.post(
+        final response = await globalHttpClient.post(
           Uri.parse(apiUrl),
           headers: {
             'Authorization': 'Bearer $accessToken',
@@ -751,7 +752,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       final client = _createHttpClientWithCustomCert();
 
       try {
-        final response = await client.get(
+        final response = await globalHttpClient.get(
           Uri.parse('${ApiConfig.currentBaseUrl}/api/attendance/listexam_file/?exam_id=$encodedId'),
           headers: {
             ...ApiConfig.commonHeaders,
@@ -1257,7 +1258,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
   Widget _buildExamCard(Map<String, dynamic> exam) {
     DateTime examDate = DateTime.parse(exam['date']);
     String formattedDate = DateFormat('MMM dd, yyyy').format(examDate);
-    String? startTime = exam['Start_time'];
+    String? startTime = exam['start_time'];
     String? endTime = exam['end_time'];
     bool isActive = _isExamActive(exam['date'], startTime, endTime);
     bool isPast = _isExamPast(exam['date'], endTime);

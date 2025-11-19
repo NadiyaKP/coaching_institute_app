@@ -5,10 +5,13 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'service/api_config.dart'; 
+import 'package:permission_handler/permission_handler.dart';
+import 'package:geolocator/geolocator.dart';
+import 'service/api_config.dart';
 import 'service/auth_service.dart';
 import 'service/notification_service.dart';
 import 'screens/splash_screen.dart';
@@ -34,6 +37,10 @@ import './screens/video_stream/videos.dart';
 
 // 🔹 Global Navigator Key
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+// 🔹 Global Scaffold Messenger Key for SnackBar
+final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
 // 🔹 Local notification instance
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -109,6 +116,9 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
+  // ✅ Request location permission FIRST before anything else
+  await _requestLocationPermission();
+
   // Initialize Firebase
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -143,14 +153,52 @@ Future<void> main() async {
 
   // Initialize API Config before running app
   await ApiConfig.initializeBaseUrl(printLogs: true);
-  ApiConfig.startAutoListen(updateImmediately: false);
 
-  // Print currently active API in debug console 
+  // Print currently active API in debug console
   debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
   debugPrint("🌐  ACTIVE API BASE URL → ${ApiConfig.currentBaseUrl}");
   debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
   runApp(const CoachingInstituteApp());
+}
+
+// ✅ Request location permission at app startup
+Future<void> _requestLocationPermission() async {
+  try {
+    // Check if location services are enabled on device using Geolocator
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    debugPrint('📍 Location services enabled on device: $serviceEnabled');
+
+    if (!serviceEnabled) {
+      debugPrint('⚠️ Location services are disabled on device');
+      // We'll handle this in ApiConfig when detecting Coremicron WiFi
+    }
+
+    // Check permission status
+    final status = await Permission.locationWhenInUse.status;
+    debugPrint('📍 Initial location permission status: $status');
+
+    if (!status.isGranted) {
+      final result = await Permission.locationWhenInUse.request();
+      debugPrint('📍 Location permission request result: $result');
+      
+      if (result.isDenied || result.isPermanentlyDenied) {
+        debugPrint('⚠️ Location permission denied by user');
+      } else if (result.isGranted) {
+        debugPrint('✅ Location permission granted');
+        
+        // Check again if location services are enabled after permission granted
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          debugPrint('⚠️ Permission granted but location services still disabled');
+        }
+      }
+    } else {
+      debugPrint('✅ Location permission already granted');
+    }
+  } catch (e) {
+    debugPrint('❌ Error requesting location permission: $e');
+  }
 }
 
 class CoachingInstituteApp extends StatefulWidget {
@@ -162,28 +210,267 @@ class CoachingInstituteApp extends StatefulWidget {
 
 class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     with WidgetsBindingObserver {
+  Timer? _locationCheckTimer;
+  StreamSubscription? _locationServiceSubscription;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initNotificationService();
 
+    // ✅ Setup API Config callbacks for UI notifications
+    _setupApiConfigCallbacks();
+
     // Listen to API URL changes when network changes
-    ApiConfig.startAutoListen(updateImmediately: true);
+    ApiConfig.startAutoListen(updateImmediately: false);
+
+    // ✅ Start listening to location service status changes
+    _startLocationServiceListener();
+
+    // ✅ Start periodic location check when on Coremicron Wi-Fi
+    _startPeriodicLocationCheck();
 
     // Print debug message whenever network switches
     debugPrint('🔎 Listening for network changes...');
   }
 
+  // ✅ Real-time listener for location service status changes
+  void _startLocationServiceListener() {
+    _locationServiceSubscription = Geolocator.getServiceStatusStream().listen(
+      (status) async {
+        debugPrint('📍 Location service status changed: $status');
+        
+        // Check current location service status
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        
+        if (!serviceEnabled) {
+          debugPrint('⚠️ Location services DISABLED');
+          
+          // Re-check Wi-Fi and switch API
+          await ApiConfig.initializeBaseUrl(printLogs: true);
+          
+          // Show dialog only if still on Coremicron Wi-Fi
+          if (ApiConfig.isOnCoremicronWifi) {
+            _showLocationRequiredDialog();
+          }
+        } else {
+          debugPrint('✅ Location services ENABLED');
+          
+          // Re-check Wi-Fi and switch API
+          await ApiConfig.initializeBaseUrl(printLogs: true);
+          
+          // If now on Coremicron with location enabled, it will auto-switch to local
+          debugPrint('🔄 API reinitialized after location enabled');
+        }
+      },
+      onError: (error) {
+        debugPrint('❌ Error listening to location service: $error');
+      },
+    );
+  }
+
+  // ✅ Periodically check if location is still enabled when on Coremicron Wi-Fi
+  void _startPeriodicLocationCheck() {
+    _locationCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      // Always check and reinitialize API based on current Wi-Fi and location status
+      final status = await Permission.locationWhenInUse.status;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      
+      debugPrint('📍 Periodic check - Permission: $status, Services: $serviceEnabled, On Coremicron: ${ApiConfig.isOnCoremicronWifi}');
+      
+      if (ApiConfig.isOnCoremicronWifi) {
+        // On Coremicron Wi-Fi
+        if (!status.isGranted || !serviceEnabled) {
+          debugPrint('⚠️ Location disabled while on Coremicron Wi-Fi - switching to external API');
+          // Re-check Wi-Fi and switch API
+          await ApiConfig.initializeBaseUrl(printLogs: true);
+        }
+      }
+    });
+  }
+
+  // ✅ Setup callbacks for API switching, location requirement, and error snackbars
+  void _setupApiConfigCallbacks() {
+    // API switch notification
+    ApiConfig.onApiSwitch = (String message, String apiUrl) {
+      debugPrint('🔄 $message → $apiUrl');
+      _showApiSwitchSnackBar(message);
+    };
+
+    // Location required dialog
+    ApiConfig.onLocationRequired = () {
+      debugPrint('📍 Location permission required for local Wi-Fi');
+      _showLocationRequiredDialog();
+    };
+
+    // ✅ NEW: Error snackbar handler
+    ApiConfig.onShowSnackbar = (String message, {bool isError = false}) {
+      debugPrint('📢 Showing snackbar: $message');
+      _showErrorSnackBar(message, isError: isError);
+    };
+  }
+
+  // ✅ Show SnackBar for API switching
+  void _showApiSwitchSnackBar(String message) {
+    scaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: Colors.indigo,
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () {},
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW: Show error SnackBar with location prompt
+  void _showErrorSnackBar(String message, {bool isError = false}) {
+    scaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error_outline : Icons.info_outline,
+              color: Colors.white,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 15),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isError ? Colors.red.shade700 : Colors.orange.shade700,
+        action: message.contains('Location')
+            ? SnackBarAction(
+                label: 'OPEN SETTINGS',
+                textColor: Colors.white,
+                onPressed: () async {
+                  await openAppSettings();
+                },
+              )
+            : SnackBarAction(
+                label: 'DISMISS',
+                textColor: Colors.white,
+                onPressed: () {},
+              ),
+      ),
+    );
+  }
+
+  // ✅ Show dialog for location permission requirement
+  void _showLocationRequiredDialog() {
+    final context = navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+
+    // Check if dialog is already showing
+    if (ModalRoute.of(context)?.isCurrent != true) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return WillPopScope(
+          onWillPop: () async => false, // Prevent back button dismiss
+          child: AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.location_off, color: Colors.orange, size: 28),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Location Services Required',
+                    style: TextStyle(fontSize: 18),
+                  ),
+                ),
+              ],
+            ),
+            content: const Text(
+              'You are connected to Coremicron Wi-Fi. To use the local API, '
+              'please turn on Location Services in your device settings.\n\n'
+              'Steps:\n'
+              '1. Go to Settings\n'
+              '2. Enable Location/GPS\n'
+              '3. Grant location permission to this app\n\n'
+              'Without location enabled, the app will use the external API.',
+              style: TextStyle(fontSize: 15),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop();
+                },
+                child: const Text(
+                  'Use External API',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  Navigator.of(dialogContext).pop();
+                  // Open location settings
+                  final opened = await openAppSettings();
+                  if (opened) {
+                    debugPrint('✅ Opened device settings for location');
+                  }
+                },
+                icon: const Icon(Icons.settings),
+                label: const Text('Open Settings'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _locationCheckTimer?.cancel();
+    _locationServiceSubscription?.cancel();
+    ApiConfig.stopAutoListen();
+    ApiConfig.onApiSwitch = null;
+    ApiConfig.onLocationRequired = null;
+    ApiConfig.onShowSnackbar = null; // ✅ Clean up new callback
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
     debugPrint('📱 App lifecycle changed: $state');
+    
+    if (state == AppLifecycleState.resumed) {
+      // Always re-check Wi-Fi and location on resume
+      final status = await Permission.locationWhenInUse.status;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      
+      debugPrint('📍 On resume - Permission: $status, Services: $serviceEnabled');
+      
+      // Reinitialize API (will check Wi-Fi name and location)
+      await ApiConfig.initializeBaseUrl(printLogs: true);
+      
+      debugPrint('🔄 API reinitialized on resume - Current URL: ${ApiConfig.currentBaseUrl}');
+      
+      await NotificationService.checkBadgeStateOnResume();
+      debugPrint('🔄 Badge state reloaded on app resume');
+    }
+
     final bool isOnlineStudent = await _isOnlineStudent();
     if (!isOnlineStudent) return;
 
@@ -193,8 +480,6 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
 
     if (state == AppLifecycleState.resumed) {
       _checkLastActiveTimeOnResume();
-      await NotificationService.checkBadgeStateOnResume();
-      debugPrint('🔄 Badge state reloaded on app resume');
     }
   }
 
@@ -262,7 +547,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   void _showContinueDialog() {
     final dialogContext = navigatorKey.currentContext;
     if (dialogContext == null) return;
-    
+
     showDialog(
       context: dialogContext,
       barrierDismissible: false,
@@ -276,14 +561,14 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
                 final prefs = await SharedPreferences.getInstance();
                 final okClickTime = DateTime.now();
                 final endTimeStr = prefs.getString('end_time');
-                
+
                 // ✅ Do all async work first
                 bool shouldLogout = false;
-                
+
                 if (endTimeStr != null) {
                   final endTime = DateTime.parse(endTimeStr);
                   final elapsed = okClickTime.difference(endTime);
-                  
+
                   if (elapsed.inSeconds <= 120) {
                     await prefs.remove('end_time');
                     await prefs.remove('last_active_time');
@@ -291,12 +576,12 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
                     shouldLogout = true;
                   }
                 }
-                
+
                 // Then use context after checking if mounted
                 if (!context.mounted) return;
-                
+
                 Navigator.of(context).pop();
-                
+
                 if (shouldLogout) {
                   await _logoutUser();
                 }
@@ -333,7 +618,8 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
 
         try {
           final response = await http.post(
-            Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
+            Uri.parse(
+                ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
             headers: {
               ...ApiConfig.commonHeaders,
               'Authorization': 'Bearer $accessToken',
@@ -364,6 +650,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       title: 'Coaching Institute App',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(

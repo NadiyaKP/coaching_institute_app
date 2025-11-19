@@ -1,6 +1,8 @@
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:io';
 import '../../common/theme_color.dart';
@@ -41,7 +43,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
   // Notification counts
   int unreadAssignmentsCount = 0;
   int unreadExamsCount = 0;
-  int unreadLeaveStatusCount = 0; // 🆕 Added for leave status count
 
   @override
   void initState() {
@@ -93,31 +94,28 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     }
   }
 
-  // 🆕 Update the bottom navbar badge based on unread counts
+  // Update the bottom navbar badge based on unread counts
   void _updateAcademicsBadge() {
-    // Check if any counts are greater than zero
-    final bool hasUnread = (unreadAssignmentsCount > 0 || unreadExamsCount > 0 || unreadLeaveStatusCount > 0);
+    // Check if both counts are zero
+    final bool hasUnread = (unreadAssignmentsCount > 0 || unreadExamsCount > 0);
     
     // Get current subscription badge state
     final bool hasUnreadSubscription = NotificationService.badgeNotifier.value['hasUnreadSubscription'] ?? false;
-    final bool hasUnreadVideoLectures = NotificationService.badgeNotifier.value['hasUnreadVideoLectures'] ?? false;
     
-    // Update the notification service badges
+    // Update the notification service badges (keeping subscription badge unchanged)
     NotificationService.updateBadges(
       hasUnreadAssignments: hasUnread,
       hasUnreadSubscription: hasUnreadSubscription,
-      hasUnreadVideoLectures: hasUnreadVideoLectures,
-      hasUnreadLeaveStatus: unreadLeaveStatusCount > 0, // 🆕 Pass leave status badge state
     );
     
-    debugPrint('🔔 Updated academics badge - hasUnread: $hasUnread (Assignments: $unreadAssignmentsCount, Exams: $unreadExamsCount, Leave Status: $unreadLeaveStatusCount)');
+    debugPrint('🔔 Updated academics badge - hasUnread: $hasUnread (Assignments: $unreadAssignmentsCount, Exams: $unreadExamsCount)');
   }
 
-  // 🆕 Load and count unread notifications from SharedPreferences
+  // Load and count unread notifications from SharedPreferences
   Future<void> _loadUnreadNotificationCounts() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final notificationsData = prefs.getString('unread_notifications');
+      final String? notificationsData = prefs.getString('unread_notifications');
       
       if (notificationsData != null && notificationsData.isNotEmpty) {
         debugPrint('📬 Stored notifications data: $notificationsData');
@@ -126,7 +124,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
         
         int assignmentCount = 0;
         int examCount = 0;
-        int leaveStatusCount = 0; // 🆕 Track leave status count
         
         for (var notification in notifications) {
           if (notification['data'] != null) {
@@ -136,8 +133,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
               assignmentCount++;
             } else if (type == 'exam') {
               examCount++;
-            } else if (type == 'leave_status') { // 🆕 Count leave status notifications
-              leaveStatusCount++;
             }
           }
         }
@@ -145,16 +140,14 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
         setState(() {
           unreadAssignmentsCount = assignmentCount;
           unreadExamsCount = examCount;
-          unreadLeaveStatusCount = leaveStatusCount; // 🆕 Set leave status count
         });
         
-        debugPrint('📊 Unread counts - Assignments: $assignmentCount, Exams: $examCount, Leave Status: $leaveStatusCount');
+        debugPrint('📊 Unread counts - Assignments: $assignmentCount, Exams: $examCount');
       } else {
         debugPrint('📭 No unread notifications found');
         setState(() {
           unreadAssignmentsCount = 0;
           unreadExamsCount = 0;
-          unreadLeaveStatusCount = 0; // 🆕 Reset leave status count
         });
       }
       
@@ -165,7 +158,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
       setState(() {
         unreadAssignmentsCount = 0;
         unreadExamsCount = 0;
-        unreadLeaveStatusCount = 0; // 🆕 Reset on error
       });
       
       // Clear badge on error
@@ -173,63 +165,47 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     }
   }
 
-  // 🆕 Mark specific notification types as read by sending IDs to API
-  Future<void> _markNotificationsAsRead({String? specificType}) async {
-    debugPrint('🔍 _markNotificationsAsRead() called with type: $specificType');
+  // Mark notifications as read by sending IDs to API
+  Future<void> _markNotificationsAsRead() async {
+    debugPrint('🔍 _markNotificationsAsRead() called');
     
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Get the unread notifications to filter by type
-      final notificationsData = prefs.getString('unread_notifications');
+      // Debug: Check all keys in SharedPreferences
+      final allKeys = prefs.getKeys();
+      debugPrint('🔑 All SharedPreferences keys: $allKeys');
       
-      if (notificationsData == null || notificationsData.isEmpty) {
-        debugPrint('📭 No unread notifications found');
-        return;
-      }
+      final String? idsData = prefs.getString('ids');
+      debugPrint('📝 Raw IDs data from SharedPreferences: $idsData');
       
-      final List<dynamic> notifications = json.decode(notificationsData);
-      
-      // Filter IDs based on the specific type
-      List<dynamic> idsToMarkRead = [];
-      
-      if (specificType != null) {
-        // Filter only notifications of the specific type
-        for (var notification in notifications) {
-          if (notification['data'] != null && notification['id'] != null) {
-            final String type = notification['data']['type']?.toString().toLowerCase() ?? '';
-            if (type == specificType) {
-              idsToMarkRead.add(notification['id']);
-            }
-          }
-        }
-        debugPrint('📝 Found ${idsToMarkRead.length} notifications of type "$specificType" to mark as read');
-      } else {
-        // Mark all notifications as read (original behavior)
-        final idsData = prefs.getString('ids');
-        if (idsData == null || idsData.isEmpty) {
-          debugPrint('📭 No IDs to mark as read');
-          return;
-        }
-        
-        try {
-          idsToMarkRead = json.decode(idsData);
-        } catch (e) {
-          debugPrint('❌ Failed to parse IDs JSON: $e');
-          await prefs.remove('ids');
-          return;
-        }
-      }
-      
-      if (idsToMarkRead.isEmpty) {
+      if (idsData == null || idsData.isEmpty) {
         debugPrint('📭 No IDs to mark as read');
         return;
       }
       
-      debugPrint('📤 Marking ${idsToMarkRead.length} notifications as read - IDs: $idsToMarkRead');
+      // Parse the IDs list
+      List<dynamic> idsList;
+      try {
+        idsList = json.decode(idsData);
+        debugPrint('✅ Successfully parsed IDs list: $idsList (Type: ${idsList.runtimeType})');
+      } catch (e) {
+        debugPrint('❌ Failed to parse IDs JSON: $e');
+        // Clear corrupted data
+        await prefs.remove('ids');
+        return;
+      }
+      
+      if (idsList.isEmpty) {
+        debugPrint('📭 IDs list is empty after parsing');
+        await prefs.remove('ids');
+        return;
+      }
+      
+      debugPrint('📤 Marking ${idsList.length} notifications as read - IDs: $idsList');
       
       // Get fresh access token using AuthService (handles token refresh)
-      final accessToken = await _authService.getAccessToken();
+      final String? accessToken = await _authService.getAccessToken();
       debugPrint('🔐 Access token obtained from AuthService');
       
       if (accessToken == null || accessToken.isEmpty) {
@@ -251,7 +227,7 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
       
       // Prepare request body
       final Map<String, dynamic> requestBody = {
-        'ids': idsToMarkRead,
+        'ids': idsList,
       };
       
       debugPrint('🌐 Full API URL: $apiUrl');
@@ -284,24 +260,10 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
         debugPrint('📨 Response Headers: ${response.headers}');
         
         if (response.statusCode == 200 || response.statusCode == 201) {
-          // Successfully marked as read
+          // Successfully marked as read, clear the IDs from SharedPreferences
+          await prefs.remove('ids');
           debugPrint('✅ Notifications marked as read successfully!');
-          
-          // Remove the marked IDs from unread_notifications
-          List<dynamic> updatedNotifications = notifications.where((notification) {
-            return !idsToMarkRead.contains(notification['id']);
-          }).toList();
-          
-          // Save updated notifications back to SharedPreferences
-          await prefs.setString('unread_notifications', json.encode(updatedNotifications));
-          debugPrint('🔄 Updated unread_notifications in SharedPreferences');
-          
-          // If marking all, also clear the 'ids' key
-          if (specificType == null) {
-            await prefs.remove('ids');
-            debugPrint('🗑️ IDs list cleared from SharedPreferences');
-          }
-          
+          debugPrint('🗑️ IDs list cleared from SharedPreferences');
         } else if (response.statusCode == 401) {
           debugPrint('⚠️ Token expired or invalid - User needs to login again');
           // Handle token expiration
@@ -429,59 +391,19 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     }
   }
 
-  // 🆕 Navigate to Leave Application with notification handling
-  void _navigateToLeaveApplication() async {
-    // Clear the leave status badge in NotificationService immediately
-    NotificationService.clearLeaveStatusBadge();
-    
-    // Clear the local count immediately for instant UI feedback
-    setState(() {
-      unreadLeaveStatusCount = 0;
-    });
-    
-    // Update bottom navbar badge immediately
-    _updateAcademicsBadge();
-    
-    await Navigator.push(
+  // Navigate to Leave Application
+  void _navigateToLeaveApplication() {
+    Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => const MyLeaveApplicationScreen(),
       ),
     );
-    
-    // When returning from leave application:
-    debugPrint('🔄 Returned from Leave Application');
-    
-    // Wait a bit to ensure any dispose() has completed
-    await Future.delayed(const Duration(milliseconds: 100));
-    
-    // Mark only leave_status notifications as read
-    await _markNotificationsAsRead(specificType: 'leave_status');
-    
-    // Then reload the counts
-    debugPrint('🔄 Reloading notification counts after marking leave_status as read');
-    await _loadUnreadNotificationCounts();
-    
-    // Ensure leave count stays 0 even if there's a timing issue
-    setState(() {
-      if (unreadLeaveStatusCount > 0) {
-        debugPrint('⚠️ Leave status count still showing, forcing to 0');
-        unreadLeaveStatusCount = 0;
-      }
-    });
-    
-    // Update bottom navbar badge again
-    _updateAcademicsBadge();
-    
-    // Force UI update
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   // Navigate to View Profile
   void _navigateToViewProfile() async {
-    await Navigator.of(context).push(
+    final result = await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ViewProfileScreen(
           onProfileUpdated: (Map<String, String> updatedData) {
@@ -785,7 +707,7 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                       badgeCount: unreadAssignmentsCount,
                     ),
 
-                    // 🆕 Leave Application Card (Only for offline students) - With unread badge
+                    // Leave Application Card (Only for offline students)
                     if (!isOnlineStudent) ...[
                       const SizedBox(height: 12),
                       
@@ -795,7 +717,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                         subtitle: 'Apply and track leave requests',
                         color: AppColors.primaryBlue, 
                         onTap: _navigateToLeaveApplication,
-                        badgeCount: unreadLeaveStatusCount, // 🆕 Show badge count
                       ),
                     ],
 
@@ -948,6 +869,59 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuickAccessItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 90,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+                size: 22,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textDark,
+                height: 1.2,
+              ),
+            ),
+          ],
         ),
       ),
     );

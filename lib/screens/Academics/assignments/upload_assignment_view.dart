@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../../../common/theme_color.dart';
+import '../../../service/http_interceptor.dart';
 
 class UploadAssignmentView extends StatefulWidget {
   final String fileUrl;
@@ -43,7 +44,8 @@ class _UploadAssignmentViewState extends State<UploadAssignmentView> {
       debugPrint('Downloading PDF from: ${widget.fileUrl}');
 
       // Download the PDF file
-      final response = await http.get(Uri.parse(widget.fileUrl));
+      final response = await globalHttpClient.get(Uri.parse(widget.fileUrl));
+    
 
       if (response.statusCode == 200) {
         // Get temporary directory

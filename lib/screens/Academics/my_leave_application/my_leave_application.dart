@@ -7,8 +7,9 @@ import '../../../common/theme_color.dart';
 import '../../../service/auth_service.dart';
 import '../../../service/api_config.dart';
 import 'new_leave_application.dart';
-import 'leave_application_model.dart'; // Import the model
+import 'leave_application_model.dart';
 import 'package:intl/intl.dart';
+import '../../../service/http_interceptor.dart';
 
 class MyLeaveApplicationScreen extends StatefulWidget {
   const MyLeaveApplicationScreen({Key? key}) : super(key: key);
@@ -56,7 +57,7 @@ class _MyLeaveApplicationScreenState extends State<MyLeaveApplicationScreen> {
       final client = IOClient(ApiConfig.createHttpClient());
       
       try {
-        final response = await client.get(
+        final response = await globalHttpClient.get(
           Uri.parse(apiUrl),
           headers: {
             'Authorization': 'Bearer $accessToken',

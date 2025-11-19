@@ -9,6 +9,7 @@ import '../video_stream/video_stream.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../../screens/subscription/subscription.dart';
+import '../../../service/http_interceptor.dart';
 
 class VideosScreen extends StatefulWidget {
   const VideosScreen({super.key});
@@ -247,7 +248,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       debugPrint('📤 Sending mark read API request to: $apiUrl');
       debugPrint('📦 Request body: ${json.encode(requestBody)}');
 
-      final response = await http.post(
+      final response = await globalHttpClient.post(
         Uri.parse(apiUrl),
         headers: {
           'Authorization': 'Bearer $_accessToken',
@@ -503,7 +504,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       
       debugPrint('Fetching videos from: $apiUrl');
       
-      final response = await http.get(
+      final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: {
           ...ApiConfig.commonHeaders,
@@ -687,7 +688,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
 
             try {
               // Send POST request
-              final response = await http.post(
+              final response = await globalHttpClient.post(
                 Uri.parse(apiUrl),
                 headers: {
                   'Authorization': 'Bearer $_accessToken',

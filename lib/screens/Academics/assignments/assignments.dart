@@ -10,6 +10,7 @@ import '../../../common/theme_color.dart';
 import '../../../service/api_config.dart';
 import '../../../service/auth_service.dart';
 import 'upload_assignment_view.dart';
+import '../../../service/http_interceptor.dart';
 
 class AssignmentsScreen extends StatefulWidget {
   const AssignmentsScreen({Key? key}) : super(key: key);
@@ -266,7 +267,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       try {
         // Make POST request with authorization headers
         debugPrint('📡 Sending POST request...');
-        final response = await client.post(
+        final response = await globalHttpClient.post(
           Uri.parse(apiUrl),
           headers: {
             'Authorization': 'Bearer $accessToken',
@@ -428,7 +429,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
       debugPrint('Method: GET');
       debugPrint('Headers: ${_getAuthHeaders()}');
       
-      final response = await client.get(
+      final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: _getAuthHeaders(),
       ).timeout(ApiConfig.requestTimeout);

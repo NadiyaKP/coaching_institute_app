@@ -9,6 +9,7 @@ import 'mock_test_view.dart';
 import '../../common/bottom_navbar.dart';
 import '../view_profile.dart';
 import '../settings/settings.dart';
+import '../../../service/http_interceptor.dart';
 
 class MockTestScreen extends StatefulWidget {
   const MockTestScreen({super.key});
@@ -202,7 +203,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
       
       debugPrint('Fetching subjects from: $apiUrl');
       
-      final response = await http.get(
+      final response = await  globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: {
           ...ApiConfig.commonHeaders,

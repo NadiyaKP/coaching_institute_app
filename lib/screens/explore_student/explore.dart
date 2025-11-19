@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 import '../explore_student/explore_student_details.dart';
+import '../../../service/http_interceptor.dart';
 
 // ============= MODELS =============
 class Batch {
@@ -99,7 +100,7 @@ class Student {
   }
 }
 
-// ============= PROVIDER CLASS =============
+// ============= PROVIDER CLASS WITH GLOBAL HTTP CLIENT =============
 class ExploreProvider extends ChangeNotifier {
   bool _isLoadingBatches = false;
   bool _isLoadingCourses = false;
@@ -117,7 +118,7 @@ class ExploreProvider extends ChangeNotifier {
   String? _errorMessage;
   int _studentCount = 0;
 
-  // Getters
+  // Getters (same as before)
   bool get isLoadingBatches => _isLoadingBatches;
   bool get isLoadingCourses => _isLoadingCourses;
   bool get isSearching => _isSearching;
@@ -290,19 +291,18 @@ class ExploreProvider extends ChangeNotifier {
     }
   }
 
+  // ✅ UPDATED: Using globalHttpClient with http package
   Future<void> searchStudents() async {
     _isSearching = true;
     _errorMessage = null;
     notifyListeners();
-
-    HttpClient? httpClient;
 
     try {
       // Build query parameters
       Map<String, String> queryParams = {};
       
       if (_selectedCourseId != null && _selectedCourseId!.isNotEmpty) {
-        queryParams['course_id'] = Uri.encodeComponent(_selectedCourseId!);
+        queryParams['course_id'] = _selectedCourseId!;
       }
       
       if (_selectedGender != null && _selectedGender!.isNotEmpty) {
@@ -310,7 +310,7 @@ class ExploreProvider extends ChangeNotifier {
       }
       
       if (_selectedBatchId != null && _selectedBatchId!.isNotEmpty) {
-        queryParams['batch_id'] = Uri.encodeComponent(_selectedBatchId!);
+        queryParams['batch_id'] = _selectedBatchId!;
       }
       
       if (_searchQuery.isNotEmpty) {
@@ -324,29 +324,23 @@ class ExploreProvider extends ChangeNotifier {
       debugPrint('URL: $uri');
       debugPrint('Query Params: $queryParams');
 
-      httpClient = ApiConfig.createHttpClient();
-      
-      final request = await httpClient.getUrl(uri);
-      
-      ApiConfig.commonHeaders.forEach((key, value) {
-        request.headers.set(key, value);
-      });
-      
-      final httpResponse = await request.close().timeout(
+      // ✅ Use globalHttpClient instead of HttpClient
+      final response = await globalHttpClient.get(
+        uri,
+        headers: ApiConfig.commonHeaders,
+      ).timeout(
         ApiConfig.requestTimeout,
         onTimeout: () {
-          throw Exception('Request timeout');
+          throw TimeoutException('Request timeout');
         },
       );
       
-      final responseBody = await httpResponse.transform(utf8.decoder).join();
-      
       debugPrint('=== SEARCH STUDENTS RESPONSE ===');
-      debugPrint('Status: ${httpResponse.statusCode}');
-      debugPrint('Body: $responseBody');
+      debugPrint('Status: ${response.statusCode}');
+      debugPrint('Body: ${response.body}');
 
-      if (httpResponse.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(responseBody);
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
         
         if (responseData['success'] == true) {
           _students = (responseData['students'] as List)
@@ -357,7 +351,7 @@ class ExploreProvider extends ChangeNotifier {
           throw Exception('Failed to search students');
         }
       } else {
-        throw Exception('Server error: ${httpResponse.statusCode}');
+        throw Exception('Server error: ${response.statusCode}');
       }
       
     } catch (e) {
@@ -366,13 +360,11 @@ class ExploreProvider extends ChangeNotifier {
       _students = [];
       _studentCount = 0;
     } finally {
-      httpClient?.close();
       _isSearching = false;
       notifyListeners();
     }
   }
 }
-
 // ============= SKELETAL LOADING WIDGETS =============
 class SkeletonLoader extends StatefulWidget {
   final double width;
@@ -426,7 +418,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [
+              colors: const [
                 AppColors.grey200,
                 AppColors.grey300,
                 AppColors.grey200,

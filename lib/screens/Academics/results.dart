@@ -7,6 +7,7 @@ import '../../../service/api_config.dart';
 import '../../../service/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../common/theme_color.dart';
+import '../../../service/http_interceptor.dart';
 
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({Key? key}) : super(key: key);
@@ -140,7 +141,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
       debugPrint('Method: GET');
       debugPrint('Headers: ${_getAuthHeaders()}');
       
-      final response = await client.get(
+      final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: _getAuthHeaders(),
       ).timeout(ApiConfig.requestTimeout);

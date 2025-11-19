@@ -11,6 +11,7 @@ import 'dart:async';
 import '../../common/loading_animations.dart';
 import '../../screens/mock_test/mock_test_detail.dart';
 import '../../screens/subscription/subscription.dart';
+import '../../../service/http_interceptor.dart';
 
 class MockTestViewScreen extends StatefulWidget {
   final String unitId;
@@ -121,7 +122,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       debugPrint('Fetching mock test questions from: $apiUrl');
       debugPrint('Using access token: ${widget.accessToken.substring(0, 20)}...');
       
-      final response = await http.get(
+      final response = await  globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: {
           ...ApiConfig.commonHeaders,
@@ -612,7 +613,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       
       debugPrint('Submitting test results: ${json.encode(requestBody)}');
       
-      final response = await http.post(
+      final response = await  globalHttpClient.post(
         Uri.parse('${ApiConfig.baseUrl}/api/performance/mock-test/end/'),
         headers: {
           ...ApiConfig.commonHeaders,
@@ -816,7 +817,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       
       debugPrint('Fetching detailed results from: $apiUrl');
       
-      final response = await http.get(
+      final response = await  globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: {
           ...ApiConfig.commonHeaders,

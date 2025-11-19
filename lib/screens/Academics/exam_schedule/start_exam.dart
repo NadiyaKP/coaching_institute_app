@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../../../common/theme_color.dart';
+import '../../../service/http_interceptor.dart';
 
 class StartExamScreen extends StatefulWidget {
   final String examId;
@@ -47,7 +48,7 @@ class _StartExamScreenState extends State<StartExamScreen> {
       debugPrint('Downloading PDF from: ${widget.fileUrl}');
 
       // Download the PDF file
-      final response = await http.get(Uri.parse(widget.fileUrl));
+      final response = await globalHttpClient.get(Uri.parse(widget.fileUrl));
 
       if (response.statusCode == 200) {
         // Get temporary directory

@@ -59,6 +59,7 @@ dependencies:
   flutter_launcher_icons: ^0.13.1
   connectivity_plus: ^6.0.3
   network_info_plus: ^4.0.2
+  geolocator: ^10.1.0 
 
 
   

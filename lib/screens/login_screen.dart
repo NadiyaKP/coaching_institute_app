@@ -511,8 +511,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _loginProvider.dispose();
     super.dispose();
   }
-
-  Future<void> _loginUser() async {
+Future<void> _loginUser() async {
     _loginProvider.validateEmail(emailController.text);
     _loginProvider.validatePassword(passwordController.text);
     
@@ -553,10 +552,20 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
         }
       });
     } else {
-      _showSnackBar(
-        result?['message'] ?? 'Login failed',
-        AppColors.errorRed,
-      );
+      // Check if the error is "Server error: 400"
+      final errorMessage = result?['message'] ?? 'Login failed';
+      
+      if (errorMessage == 'Server error: 400') {
+        _showSnackBar(
+          'Make sure your location is turned on',
+          AppColors.errorRed,
+        );
+      } else {
+        _showSnackBar(
+          errorMessage,
+          AppColors.errorRed,
+        );
+      }
     }
   }
 

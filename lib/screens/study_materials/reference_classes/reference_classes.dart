@@ -16,6 +16,7 @@ import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../service/api_config.dart';
 import '../../../../service/auth_service.dart';
 import '../../../../common/theme_color.dart';
+import '../../../service/http_interceptor.dart';
 
 class ReferenceClassesScreen extends StatefulWidget {
   const ReferenceClassesScreen({super.key});
@@ -199,8 +200,7 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
 
     try {
       String encodedId = Uri.encodeComponent(_subcourseId!);
-      final response = await client
-          .get(
+      final response = await globalHttpClient.get(
             Uri.parse('${ApiConfig.currentBaseUrl}/api/notes/list_referencelinks/?subcourse_id=$encodedId'),
             headers: _getAuthHeaders(),
           )

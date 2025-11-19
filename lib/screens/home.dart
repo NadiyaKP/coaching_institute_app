@@ -15,6 +15,7 @@ import '../screens/subscription/subscription.dart';
 import 'streak_challenge_sheet.dart'; 
 import '../common/bottom_navbar.dart'; 
 import '../service/notification_service.dart';
+import '../../../service/http_interceptor.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -360,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       Future<http.Response> makeProfileRequest(String token) {
-        return client.get(
+        return globalHttpClient.get(
           Uri.parse('${ApiConfig.currentBaseUrl}/api/students/get_profile/'),
           headers: {
             ...ApiConfig.commonHeaders,
@@ -554,7 +555,7 @@ class _HomeScreenState extends State<HomeScreen> {
       print('Fetching subjects from: $apiUrl');
       
       // Make GET request with Bearer token
-      final response = await http.get(
+      final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: {
           ...ApiConfig.commonHeaders,

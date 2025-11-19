@@ -12,6 +12,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../common/theme_color.dart';
 import '../../subscription/subscription.dart';
+import '../../../service/http_interceptor.dart';
 
 class QuestionPapersScreen extends StatefulWidget {
   const QuestionPapersScreen({super.key});
@@ -261,7 +262,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
       debugPrint('Method: GET');
       debugPrint('Headers: ${_getAuthHeaders()}');
       
-      final response = await client.get(
+      final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: _getAuthHeaders(),
       ).timeout(ApiConfig.requestTimeout);
@@ -480,7 +481,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
       debugPrint('Full URL: $apiUrl');
 
       // Send POST request
-      final response = await httpClient.post(
+      final response = await globalHttpClient.post(
         Uri.parse(apiUrl),
         headers: {
           'Authorization': 'Bearer $_accessToken',

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 import '../explore_student/student_document_view.dart';
+import '../../../service/http_interceptor.dart';
 
 // ============= MODELS =============
 class StudentDetails {
@@ -157,34 +158,25 @@ class ExploreStudentDetailsProvider extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
-    HttpClient? httpClient;
-
     try {
-      httpClient = ApiConfig.createHttpClient();
-
-      final request = await httpClient.getUrl(
-        Uri.parse('${ApiConfig.baseUrl}/api/students/explore/$studentId/documents/'),
-      );
-
-      ApiConfig.commonHeaders.forEach((key, value) {
-        request.headers.set(key, value);
-      });
-
-      final httpResponse = await request.close().timeout(
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/students/explore/$studentId/documents/');
+      
+      final response = await globalHttpClient.get(
+        url,
+        headers: ApiConfig.commonHeaders,
+      ).timeout(
         ApiConfig.requestTimeout,
         onTimeout: () {
           throw Exception('Request timeout');
         },
       );
 
-      final responseBody = await httpResponse.transform(utf8.decoder).join();
-
       debugPrint('=== FETCH STUDENT DETAILS RESPONSE ===');
-      debugPrint('Status: ${httpResponse.statusCode}');
-      debugPrint('Body: $responseBody');
+      debugPrint('Status: ${response.statusCode}');
+      debugPrint('Body: ${response.body}');
 
-      if (httpResponse.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(responseBody);
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
 
         if (responseData['success'] == true) {
           _studentDetails = StudentDetails.fromJson(responseData['student']);
@@ -195,13 +187,12 @@ class ExploreStudentDetailsProvider extends ChangeNotifier {
           throw Exception('Failed to fetch student details');
         }
       } else {
-        throw Exception('Server error: ${httpResponse.statusCode}');
+        throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error fetching student details: $e');
       _errorMessage = 'Failed to load student details: ${e.toString()}';
     } finally {
-      httpClient?.close();
       _isLoading = false;
       notifyListeners();
     }
@@ -261,7 +252,7 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
             gradient: LinearGradient(
               begin: Alignment.centerLeft,
               end: Alignment.centerRight,
-              colors: [
+              colors: const [
                 AppColors.grey200,
                 AppColors.grey300,
                 AppColors.grey200,
@@ -337,7 +328,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       child: Row(
         children: [
           IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
             onPressed: () => Navigator.of(context).pop(),
           ),
           const Expanded(
@@ -346,7 +337,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
-                fontSize: 20,
+                fontSize: 18,
                 letterSpacing: -0.3,
               ),
             ),
@@ -361,9 +352,9 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     final screenWidth = MediaQuery.of(context).size.width;
     
     return Container(
-      width: screenWidth - 120, // Even further reduced width
+      width: screenWidth - 120,
       margin: const EdgeInsets.symmetric(horizontal: 60),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -377,7 +368,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       ),
       child: Column(
         children: [
-          // Profile Avatar - Reduced size
+          // Profile Avatar
           Container(
             padding: const EdgeInsets.all(3),
             decoration: BoxDecoration(
@@ -399,23 +390,23 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
               ],
             ),
             child: const CircleAvatar(
-              radius: 40,
+              radius: 36,
               backgroundColor: Colors.white,
               child: Icon(
                 Icons.person_rounded,
-                size: 44,
+                size: 40,
                 color: AppColors.primaryYellow,
               ),
             ),
           ),
           
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           
-          // Name - Reduced font size
+          // Name
           Text(
             student?.name ?? widget.studentName,
             style: const TextStyle(
-              fontSize: 20,
+              fontSize: 17,
               fontWeight: FontWeight.bold,
               color: AppColors.textDark,
               letterSpacing: -0.3,
@@ -423,11 +414,11 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             textAlign: TextAlign.center,
           ),
           
-          // Register Number Badge - Only show if valid
+          // Register Number Badge
           if (_isFieldValid(student?.registerNumber)) ...[
-            const SizedBox(height: 14),
+            const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -447,13 +438,13 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                   const Icon(
                     Icons.badge_rounded,
                     color: AppColors.primaryBlue,
-                    size: 16,
+                    size: 14,
                   ),
-                  const SizedBox(width: 7),
+                  const SizedBox(width: 6),
                   Text(
                     student!.registerNumber,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: FontWeight.bold,
                       color: AppColors.primaryBlue,
                       letterSpacing: 0.5,
@@ -474,7 +465,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
               color: AppColors.primaryYellow.withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
@@ -482,14 +473,14 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             child: Icon(
               icon,
               color: AppColors.primaryYellow,
-              size: 20,
+              size: 18,
             ),
           ),
           const SizedBox(width: 12),
           Text(
             title,
             style: const TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               fontWeight: FontWeight.bold,
               color: AppColors.textDark,
               letterSpacing: -0.2,
@@ -520,18 +511,18 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     bool isLast = false,
   }) {
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, isFirst ? 16 : 14, 16, isLast ? 16 : 14),
+      padding: EdgeInsets.fromLTRB(16, isFirst ? 14 : 12, 16, isLast ? 14 : 12),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(10),
+            padding: const EdgeInsets.all(9),
             decoration: BoxDecoration(
               color: (iconColor ?? AppColors.primaryYellow).withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: Icon(icon, color: iconColor ?? AppColors.primaryYellow, size: 20),
+            child: Icon(icon, color: iconColor ?? AppColors.primaryYellow, size: 18),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -539,17 +530,17 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                 Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: FontWeight.w600,
                     color: AppColors.grey400,
                     letterSpacing: 0.3,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   value,
                   style: const TextStyle(
-                    fontSize: 15,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: AppColors.textDark,
                     letterSpacing: -0.1,
@@ -607,14 +598,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
 
     // If no valid fields, don't show the section
     if (fields.isEmpty) return const SizedBox.shrink();
-
-    // Mark the last field
-    if (fields.isNotEmpty && fields.last is! Divider) {
-      final lastIndex = fields.length - 1;
-      final lastField = fields[lastIndex];
-      // We need to rebuild the last field with isLast = true
-      // This is a simplified approach - in production you might want to handle this differently
-    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -713,8 +696,8 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       onTap: () => _handleDocumentTap(document),
       borderRadius: BorderRadius.circular(12),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.circular(12),
@@ -726,7 +709,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
         child: Row(
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(9),
               decoration: BoxDecoration(
                 color: document.documentColor.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(10),
@@ -734,10 +717,10 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
               child: Icon(
                 document.documentIcon,
                 color: document.documentColor,
-                size: 22,
+                size: 20,
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -745,26 +728,26 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                   Text(
                     document.title,
                     style: const TextStyle(
-                      fontSize: 15,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: AppColors.grey800,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       const Icon(
                         Icons.calendar_today,
-                        size: 11,
+                        size: 10,
                         color: AppColors.grey500,
                       ),
-                      const SizedBox(width: 5),
+                      const SizedBox(width: 4),
                       Text(
                         document.formattedDate,
                         style: const TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.w500,
                           color: AppColors.grey500,
                         ),
@@ -777,7 +760,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             const SizedBox(width: 8),
             Icon(
               Icons.arrow_forward_ios,
-              size: 14,
+              size: 12,
               color: document.documentColor,
             ),
           ],
@@ -791,7 +774,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     final firstDoc = docs.first;
     
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: AppColors.white,
         borderRadius: BorderRadius.circular(16),
@@ -813,11 +796,11 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             onTap: () => _provider.toggleSection(type),
             borderRadius: BorderRadius.circular(16),
             child: Container(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(11),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -830,10 +813,10 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                     child: Icon(
                       firstDoc.documentIcon,
                       color: firstDoc.documentColor,
-                      size: 26,
+                      size: 22,
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -843,16 +826,16 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                             word[0].toUpperCase() + word.substring(1).toLowerCase()
                           ).join(' '),
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 15,
                             fontWeight: FontWeight.w700,
                             color: firstDoc.documentColor,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Text(
                           '${docs.length} document${docs.length > 1 ? 's' : ''}',
                           style: const TextStyle(
-                            fontSize: 13,
+                            fontSize: 11,
                             fontWeight: FontWeight.w600,
                             color: AppColors.grey600,
                           ),
@@ -861,7 +844,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
                       color: firstDoc.documentColor.withOpacity(0.1),
                       shape: BoxShape.circle,
@@ -869,7 +852,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                     child: Icon(
                       isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                       color: firstDoc.documentColor,
-                      size: 24,
+                      size: 20,
                     ),
                   ),
                 ],
@@ -879,7 +862,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
           if (isExpanded) ...[
             const Divider(height: 1, color: AppColors.grey200),
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               child: Column(
                 children: docs.map((doc) => _buildDocumentCard(doc)).toList(),
               ),
@@ -893,36 +876,36 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
   Widget _buildDocumentsSection() {
     if (_provider.documents.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.all(40),
+        padding: const EdgeInsets.all(36),
         child: Center(
           child: Column(
             children: [
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(22),
                 decoration: const BoxDecoration(
                   color: AppColors.grey200,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
                   Icons.description_outlined,
-                  size: 48,
+                  size: 42,
                   color: AppColors.grey500,
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               const Text(
                 'No documents available',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                   color: AppColors.grey600,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               const Text(
                 'Documents will appear here once uploaded',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 12,
                   color: AppColors.grey500,
                 ),
                 textAlign: TextAlign.center,
@@ -958,7 +941,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
           // Profile Card Skeleton
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
@@ -973,35 +956,35 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             child: Column(
               children: [
                 Container(
-                  width: 104,
-                  height: 104,
+                  width: 90,
+                  height: 90,
                   decoration: const BoxDecoration(
                     color: AppColors.grey200,
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 Container(
-                  width: 180,
-                  height: 24,
+                  width: 160,
+                  height: 20,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 14),
                 Container(
-                  width: 120,
-                  height: 36,
+                  width: 110,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(20),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Container(
-                  width: 100,
-                  height: 28,
+                  width: 90,
+                  height: 24,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(20),
@@ -1011,7 +994,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           
           // Section Header Skeleton
           Padding(
@@ -1019,8 +1002,8 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(10),
@@ -1028,8 +1011,8 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                 ),
                 const SizedBox(width: 12),
                 Container(
-                  width: 160,
-                  height: 18,
+                  width: 140,
+                  height: 16,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
@@ -1063,37 +1046,37 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                       Padding(
                         padding: EdgeInsets.fromLTRB(
                           16,
-                          index == 0 ? 16 : 14,
+                          index == 0 ? 14 : 12,
                           16,
-                          index == 1 ? 16 : 14,
+                          index == 1 ? 14 : 12,
                         ),
                         child: Row(
                           children: [
                             Container(
-                              width: 40,
-                              height: 40,
+                              width: 36,
+                              height: 36,
                               decoration: BoxDecoration(
                                 color: AppColors.grey200,
                                 borderRadius: BorderRadius.circular(10),
                               ),
                             ),
-                            const SizedBox(width: 14),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Container(
-                                    width: 80,
-                                    height: 10,
+                                    width: 70,
+                                    height: 9,
                                     decoration: BoxDecoration(
                                       color: AppColors.grey200,
                                       borderRadius: BorderRadius.circular(2),
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 5),
                                   Container(
                                     width: double.infinity,
-                                    height: 16,
+                                    height: 14,
                                     decoration: BoxDecoration(
                                       color: AppColors.grey200,
                                       borderRadius: BorderRadius.circular(4),
@@ -1112,7 +1095,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 22),
           
           // Another Section Skeleton
           Padding(
@@ -1120,8 +1103,8 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             child: Row(
               children: [
                 Container(
-                  width: 36,
-                  height: 36,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(10),
@@ -1129,8 +1112,8 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                 ),
                 const SizedBox(width: 12),
                 Container(
-                  width: 180,
-                  height: 18,
+                  width: 160,
+                  height: 16,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
@@ -1163,37 +1146,37 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                       Padding(
                         padding: EdgeInsets.fromLTRB(
                           16,
-                          index == 0 ? 16 : 14,
+                          index == 0 ? 14 : 12,
                           16,
-                          index == 3 ? 16 : 14,
+                          index == 3 ? 14 : 12,
                         ),
                         child: Row(
                           children: [
                             Container(
-                              width: 40,
-                              height: 40,
+                              width: 36,
+                              height: 36,
                               decoration: BoxDecoration(
                                 color: AppColors.grey200,
                                 borderRadius: BorderRadius.circular(10),
                               ),
                             ),
-                            const SizedBox(width: 14),
+                            const SizedBox(width: 12),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Container(
-                                    width: 100,
-                                    height: 10,
+                                    width: 90,
+                                    height: 9,
                                     decoration: BoxDecoration(
                                       color: AppColors.grey200,
                                       borderRadius: BorderRadius.circular(2),
                                     ),
                                   ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 5),
                                   Container(
                                     width: double.infinity,
-                                    height: 16,
+                                    height: 14,
                                     decoration: BoxDecoration(
                                       color: AppColors.grey200,
                                       borderRadius: BorderRadius.circular(4),
@@ -1212,7 +1195,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
             ),
           ),
           
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
         ],
       ),
     );
@@ -1226,51 +1209,51 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
                 color: AppColors.errorRed.withOpacity(0.1),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
                 Icons.error_outline_rounded,
-                size: 64,
+                size: 56,
                 color: AppColors.errorRed,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             const Text(
               'Oops! Something went wrong',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: AppColors.textDark,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               _provider.errorMessage ?? 'Unable to load student details',
               style: const TextStyle(
-                fontSize: 14,
+                fontSize: 12,
                 color: AppColors.textGrey,
               ),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: () => _provider.fetchStudentDetails(widget.studentId),
-              icon: const Icon(Icons.refresh_rounded, size: 20),
+              icon: const Icon(Icons.refresh_rounded, size: 18),
               label: const Text(
                 'Try Again',
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                 ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryYellow,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1340,24 +1323,24 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                             
                             // Only show Personal Information section if there are valid fields
                             if (hasPersonalInfo) ...[
-                              const SizedBox(height: 24),
+                              const SizedBox(height: 22),
                               _buildSectionHeader('Personal Information', Icons.person_outline_rounded),
                               _buildPersonalInfoSection(),
                             ],
 
                             // Only show Academic Information section if there are valid fields
                             if (hasAcademicInfo) ...[
-                              const SizedBox(height: 24),
+                              const SizedBox(height: 22),
                               _buildSectionHeader('Academic Information', Icons.menu_book_rounded),
                               _buildAcademicInfoSection(),
                             ],
 
                             // Documents Section - always show header
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 22),
                             _buildSectionHeader('Documents', Icons.description_outlined),
                             _buildDocumentsSection(),
                             
-                            const SizedBox(height: 32),
+                            const SizedBox(height: 28),
                           ],
                         ),
                       );

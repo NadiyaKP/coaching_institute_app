@@ -5,10 +5,12 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter/material.dart';
 
 class ApiConfig {
   // --- Base URLs ---
-  static const String _coremicronUrl = 'http://192.168.20.4';
+  static const String _coremicronUrl = 'http://192.168.20.99';
   static const String _defaultUrl = 'http://117.241.73.134';
 
   // Current runtime base URL (auto-determined)
@@ -42,6 +44,17 @@ class ApiConfig {
 
   static const Duration requestTimeout = Duration(seconds: 30);
 
+  // --- Callbacks for UI notifications ---
+  static void Function(String message, String apiUrl)? onApiSwitch;
+  static void Function()? onLocationRequired;
+  
+  // ✅ NEW: Callback for showing error snackbars
+  static void Function(String message, {bool isError})? onShowSnackbar;
+
+  // --- Track if we're on Coremicron Wi-Fi ---
+  static bool _isOnCoremicronWifi = false;
+  static bool get isOnCoremicronWifi => _isOnCoremicronWifi;
+
   // --- HttpClient ---
   static HttpClient createHttpClient() {
     final httpClient = HttpClient()
@@ -54,13 +67,111 @@ class ApiConfig {
     return httpClient;
   }
 
- 
+ // ✅ ENHANCED: Public method to handle errors (called from HttpService)
+static void handleError(String errorMessage) async {
+  debugPrint('🔍 ApiConfig.handleError called with: $errorMessage');
+  
+  // Check if error is the specific "Invalid request method" error
+  if (errorMessage.contains('Invalid request method')) {
+    debugPrint('⚠️ Detected "Invalid request method" error');
+    
+    // Check if we're on Coremicron Wi-Fi
+    if (_isOnCoremicronWifi) {
+      // Check location status
+      final locationStatus = await Permission.locationWhenInUse.status;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+      if (!locationStatus.isGranted || !serviceEnabled) {
+        debugPrint('❌ Location is disabled - showing error message');
+        
+        // Show specific location error message
+        onShowSnackbar?.call(
+          'Make sure your location is ON. Turn on Location Services to continue.',
+          isError: true,
+        );
+        
+        // Also trigger the location required dialog
+        onLocationRequired?.call();
+      } else {
+        // Location is enabled but still getting this error
+        onShowSnackbar?.call(
+          'Make sure your location is ON. Turn on Location to continue.',
+          isError: true,
+        );
+      }
+    } else {
+      // ✅ FIXED: Not on Coremicron Wi-Fi but still getting "Invalid request method"
+      // This is likely a location issue too
+      onShowSnackbar?.call(
+        'Make sure your location is ON. Turn on Location to continue.',
+        isError: true,
+      );
+      
+      // Also trigger the location required callback
+      onLocationRequired?.call();
+    }
+    return; // Exit early after handling specific error
+  }
+  
+  // Handle other connection errors
+  final isConnectionError = errorMessage.contains('ClientException') ||
+      errorMessage.contains('SocketException') ||
+      errorMessage.contains('Connection') ||
+      errorMessage.contains('Failed host lookup');
+
+  if (isConnectionError) {
+    // Check if we're on Coremicron Wi-Fi
+    if (_isOnCoremicronWifi) {
+      // Check location status
+      final locationStatus = await Permission.locationWhenInUse.status;
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+      if (!locationStatus.isGranted || !serviceEnabled) {
+        // Location is disabled - show specific message
+        onShowSnackbar?.call(
+          'Connection failed! Make sure your Location is ON and try again.',
+          isError: true,
+        );
+        
+        // Also trigger the location required callback
+        onLocationRequired?.call();
+      } else {
+        // Location is enabled but still connection error
+        onShowSnackbar?.call(
+          'Connection error: ${_extractShortError(errorMessage)}',
+          isError: true,
+        );
+      }
+    } else {
+      // Not on Coremicron Wi-Fi - show general error
+      onShowSnackbar?.call(
+        'Connection error: ${_extractShortError(errorMessage)}',
+        isError: true,
+      );
+    }
+  }
+}
+
+// ✅ ENHANCED: Extract short error message from full error
+static String _extractShortError(String fullError) {
+  if (fullError.contains('Invalid request method')) {
+    return 'Invalid request - Location may be OFF';
+  } else if (fullError.contains('ClientException')) {
+    return 'Network request failed';
+  } else if (fullError.contains('SocketException')) {
+    return 'Cannot reach server';
+  } else if (fullError.contains('TimeoutException')) {
+    return 'Request timed out';
+  } else {
+    return 'Network error occurred';
+  }
+}
+
   static Future<void> initializeBaseUrl({bool printLogs = true}) async {
     try {
-      // Request permission (needed to read Wi-Fi SSID)
-      try {
-        await Permission.locationWhenInUse.request();
-      } catch (_) {}
+      // Store previous URL to detect changes
+      final previousUrl = _currentBaseUrl;
+      final previousIsOnCoremicron = _isOnCoremicronWifi;
 
       final results = await Connectivity().checkConnectivity();
 
@@ -68,6 +179,8 @@ class ApiConfig {
       if (results.isNotEmpty) {
         activeConnection = results.first;
       }
+
+      if (printLogs) print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       if (activeConnection == ConnectivityResult.wifi) {
         final info = NetworkInfo();
@@ -86,44 +199,128 @@ class ApiConfig {
           wifiName = null;
         }
 
-        if (printLogs) print('ApiConfig: connected Wi-Fi SSID => $wifiName');
+        if (printLogs) print('ApiConfig: Connected Wi-Fi SSID => "$wifiName"');
 
-        // ✅ If connected to institution Wi-Fi, use local URL
+        // ✅ Check if connected to Coremicron Wi-Fi
         if (wifiName != null && wifiName.toLowerCase().contains('coremicron')) {
+          _isOnCoremicronWifi = true;
+
+          // Check both permission AND location services using Geolocator
+          PermissionStatus locationStatus = await Permission.locationWhenInUse.status;
+          bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+
+          if (printLogs) {
+            print('ApiConfig: ✅ Coremicron Wi-Fi detected!');
+            print('ApiConfig: Location permission => $locationStatus');
+            print('ApiConfig: Location services => ${serviceEnabled ? "ENABLED" : "DISABLED"}');
+          }
+
+          // If location permission not granted OR location services disabled
+          if (!locationStatus.isGranted || !serviceEnabled) {
+            if (printLogs) {
+              if (!locationStatus.isGranted) {
+                print('ApiConfig: ⚠️ Location permission NOT granted');
+              }
+              if (!serviceEnabled) {
+                print('ApiConfig: ⚠️ Location services DISABLED on device');
+              }
+              print('ApiConfig: 🔀 Switching to EXTERNAL API');
+            }
+            
+            _currentBaseUrl = _defaultUrl;
+            
+            // Trigger location required callback only if we're on Coremicron
+            onLocationRequired?.call();
+
+            // Notify if URL changed
+            if (previousUrl != _currentBaseUrl) {
+              _notifyApiSwitch('external API (location disabled)', _currentBaseUrl);
+            }
+            
+            if (printLogs) print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            return; // Exit early, don't try local API
+          }
+
+          // Both permission granted AND location services enabled
           _currentBaseUrl = _coremicronUrl;
           if (printLogs) {
-            print('ApiConfig: trying Coremicron local URL => $_currentBaseUrl');
+            print('ApiConfig: ✅ Location fully enabled');
+            print('ApiConfig: 🔀 Switching to LOCAL Coremicron API');
+            print('ApiConfig: Using => $_currentBaseUrl');
+          }
+
+          // Notify if URL changed
+          if (previousUrl != _currentBaseUrl) {
+            _notifyApiSwitch('local Coremicron API', _currentBaseUrl);
           }
 
           // 🔹 Test reachability of local API asynchronously
-          _checkCoremicronReachability();
+          _checkCoremicronReachability(previousUrl);
         } else {
+          // Not on Coremicron Wi-Fi
+          _isOnCoremicronWifi = false;
           _currentBaseUrl = _defaultUrl;
           if (printLogs) {
-            print('ApiConfig: using default external URL => $_currentBaseUrl');
+            print('ApiConfig: ℹ️ Not on Coremicron Wi-Fi');
+            print('ApiConfig: 🔀 Using EXTERNAL API');
+            print('ApiConfig: Using => $_currentBaseUrl');
+          }
+
+          // Notify if URL changed
+          if (previousUrl != _currentBaseUrl) {
+            _notifyApiSwitch('external API', _currentBaseUrl);
           }
         }
       } else if (activeConnection == ConnectivityResult.mobile) {
+        _isOnCoremicronWifi = false;
         _currentBaseUrl = _defaultUrl;
         if (printLogs) {
-          print('ApiConfig: mobile data detected, using default external URL => $_currentBaseUrl');
+          print('ApiConfig: 📱 Mobile data detected');
+          print('ApiConfig: 🔀 Using EXTERNAL API');
+          print('ApiConfig: Using => $_currentBaseUrl');
+        }
+
+        // Notify if URL changed
+        if (previousUrl != _currentBaseUrl) {
+          _notifyApiSwitch('external API (mobile data)', _currentBaseUrl);
         }
       } else {
+        _isOnCoremicronWifi = false;
         _currentBaseUrl = _defaultUrl;
         if (printLogs) {
-          print('ApiConfig: no connectivity (fallback) => $_currentBaseUrl');
+          print('ApiConfig: ⚠️ No connectivity detected (fallback)');
+          print('ApiConfig: Using => $_currentBaseUrl');
+        }
+
+        // Notify if URL changed
+        if (previousUrl != _currentBaseUrl) {
+          _notifyApiSwitch('external API (fallback)', _currentBaseUrl);
         }
       }
+
+      if (printLogs) print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     } catch (e) {
+      final previousUrl = _currentBaseUrl;
+      _isOnCoremicronWifi = false;
       _currentBaseUrl = _defaultUrl;
-      if (printLogs) print('ApiConfig: initialization error -> $e');
+      if (printLogs) {
+        print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        print('ApiConfig: ❌ Initialization error -> $e');
+        print('ApiConfig: Using fallback => $_currentBaseUrl');
+        print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      }
+
+      // Notify if URL changed
+      if (previousUrl != _currentBaseUrl) {
+        _notifyApiSwitch('external API (error fallback)', _currentBaseUrl);
+      }
     }
   }
 
   // -------------------------------------------------------------------
   // ✅ Check local server reachability asynchronously
   // -------------------------------------------------------------------
-  static Future<void> _checkCoremicronReachability() async {
+  static Future<void> _checkCoremicronReachability(String previousUrl) async {
     try {
       final uri = Uri.parse('$_coremicronUrl/api/ping/');
       final stopwatch = Stopwatch()..start();
@@ -148,13 +345,35 @@ class ApiConfig {
       // ❌ Invalid response, switch to default
       print('⚠️ Invalid ping response, switching to default URL');
       _currentBaseUrl = _defaultUrl;
+      
+      // Notify URL change
+      if (previousUrl != _currentBaseUrl) {
+        _notifyApiSwitch('external API (local unreachable)', _currentBaseUrl);
+      }
     } on TimeoutException {
       print('⏳ Ping timed out (>20s) → Switching to default URL');
       _currentBaseUrl = _defaultUrl;
+      
+      // Notify URL change
+      if (previousUrl != _currentBaseUrl) {
+        _notifyApiSwitch('external API (timeout)', _currentBaseUrl);
+      }
     } catch (e) {
       print('❌ Error pinging Coremicron API → switching to default URL: $e');
       _currentBaseUrl = _defaultUrl;
+      
+      // Notify URL change
+      if (previousUrl != _currentBaseUrl) {
+        _notifyApiSwitch('external API (ping failed)', _currentBaseUrl);
+      }
     }
+  }
+
+  // -------------------------------------------------------------------
+  // Notify API Switch
+  // -------------------------------------------------------------------
+  static void _notifyApiSwitch(String apiName, String apiUrl) {
+    onApiSwitch?.call('Switching to $apiName', apiUrl);
   }
 
   // -------------------------------------------------------------------

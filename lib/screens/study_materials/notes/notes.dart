@@ -12,6 +12,7 @@ import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../common/theme_color.dart';
 import '../../study_materials/notes/pdf_viewer_screen.dart';
 import '../../subscription/subscription.dart';
+import '../../../service/http_interceptor.dart';
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -333,7 +334,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       debugPrint('Method: GET');
       debugPrint('Headers: ${_getAuthHeaders()}');
       
-      final response = await client.get(
+      final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
         headers: _getAuthHeaders(),
       ).timeout(ApiConfig.requestTimeout);
@@ -564,7 +565,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       debugPrint('Full URL: $apiUrl');
 
       // Send POST request
-      final response = await httpClient.post(
+      final response = await globalHttpClient.post(
         Uri.parse(apiUrl),
         headers: {
           'Authorization': 'Bearer $_accessToken',
