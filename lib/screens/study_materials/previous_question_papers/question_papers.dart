@@ -1079,141 +1079,186 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     );
   }
 
-  Widget _buildQuestionPapersPage() {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+ Widget _buildQuestionPapersPage() {
+  // Sort question papers before displaying
+  List<dynamic> sortedQuestionPapers = _sortQuestionPapers(_questionPapers);
+
+  return SingleChildScrollView(
+    physics: const BouncingScrollPhysics(),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Section
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Question Papers',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _selectedSubjectName,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.primaryBlue,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Text(
+                  '${sortedQuestionPapers.length} paper${sortedQuestionPapers.length != 1 ? 's' : ''} available',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.grey400,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          if (sortedQuestionPapers.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      width: 4,
-                      height: 24,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryBlue,
-                        borderRadius: BorderRadius.circular(2),
+                        color: AppColors.warningOrange.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.quiz_rounded,
+                        size: 50,
+                        color: AppColors.primaryBlue.withOpacity(0.5),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Question Papers',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textDark,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _selectedSubjectName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.primaryBlue,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.1,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No papers available',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Question papers for this subject\nwill be added soon',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Text(
-                    '${_questionPapers.length} paper${_questionPapers.length != 1 ? 's' : ''} available',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.grey400,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            if (_questionPapers.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.warningOrange.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.quiz_rounded,
-                          size: 50,
-                          color: AppColors.primaryBlue.withOpacity(0.5),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No papers available',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Question papers for this subject\nwill be added soon',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Column(
-                children: _questionPapers
-                    .map((paper) {
-                      final fileUrl = paper['file_url']?.toString() ?? '';
-                      final isLocked = fileUrl.isEmpty || fileUrl == 'null';
-                      
-                      return _buildQuestionPaperCard(
-                        paperId: paper['id']?.toString() ?? '',
-                        title: paper['title']?.toString() ?? 'Untitled Paper',
-                        fileUrl: fileUrl,
-                        uploadedAt: paper['uploaded_at']?.toString() ?? '',
-                        isLocked: isLocked,
-                      );
-                    })
-                    .toList(),
               ),
-          ],
-        ),
+            )
+          else
+            Column(
+              children: sortedQuestionPapers
+                  .map((paper) {
+                    final fileUrl = paper['file_url']?.toString() ?? '';
+                    final isLocked = fileUrl.isEmpty || fileUrl == 'null';
+                    
+                    return _buildQuestionPaperCard(
+                      paperId: paper['id']?.toString() ?? '',
+                      title: paper['title']?.toString() ?? 'Untitled Paper',
+                      fileUrl: fileUrl,
+                      uploadedAt: paper['uploaded_at']?.toString() ?? '',
+                      isLocked: isLocked,
+                    );
+                  })
+                  .toList(),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+// Add this new method to sort question papers
+List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
+  if (papers.isEmpty) return papers;
+
+  // Create a copy to avoid modifying the original list
+  List<dynamic> sortedPapers = List.from(papers);
+
+  // Parse dates and determine locked status for sorting
+  sortedPapers.sort((a, b) {
+    final fileUrlA = a['file_url']?.toString() ?? '';
+    final fileUrlB = b['file_url']?.toString() ?? '';
+    final isLockedA = fileUrlA.isEmpty || fileUrlA == 'null';
+    final isLockedB = fileUrlB.isEmpty || fileUrlB == 'null';
+
+    // For public students, prioritize unlocked papers first
+    if (_studentType.toLowerCase() == 'public') {
+      if (isLockedA != isLockedB) {
+        return isLockedA ? 1 : -1; // Unlocked papers come first
+      }
+    }
+
+    // Sort by date (most recent first)
+    try {
+      final dateA = a['uploaded_at']?.toString() ?? '';
+      final dateB = b['uploaded_at']?.toString() ?? '';
+
+      if (dateA.isEmpty && dateB.isEmpty) return 0;
+      if (dateA.isEmpty) return 1; // Papers without date go to bottom
+      if (dateB.isEmpty) return -1;
+
+      final parsedDateA = DateTime.parse(dateA);
+      final parsedDateB = DateTime.parse(dateB);
+
+      // Most recent first (descending order)
+      return parsedDateB.compareTo(parsedDateA);
+    } catch (e) {
+      debugPrint('Error parsing dates for sorting: $e');
+      return 0;
+    }
+  });
+
+  return sortedPapers;
+}
 
   Widget _buildSubjectCard({
     required String title,

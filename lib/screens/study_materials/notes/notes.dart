@@ -1433,139 +1433,185 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildNotesPage() {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+ Widget _buildNotesPage() {
+  // Sort notes before displaying
+  List<dynamic> sortedNotes = _sortNotes(_notes);
+
+  return SingleChildScrollView(
+    physics: const BouncingScrollPhysics(),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Section
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Notes',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _selectedChapterName,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.primaryBlue,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Text(
+                  '${sortedNotes.length} note${sortedNotes.length != 1 ? 's' : ''} available',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.grey400,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          if (sortedNotes.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      width: 4,
-                      height: 24,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryBlue,
-                        borderRadius: BorderRadius.circular(2),
+                        color: AppColors.primaryBlue.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.note_rounded,
+                        size: 50,
+                        color: AppColors.primaryBlue.withOpacity(0.5),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Notes',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textDark,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _selectedChapterName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.primaryBlue,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.1,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No notes available',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Notes for this chapter\nwill be added soon',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Text(
-                    '${_notes.length} note${_notes.length != 1 ? 's' : ''} available',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.grey400,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            if (_notes.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryBlue.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.note_rounded,
-                          size: 50,
-                          color: AppColors.primaryBlue.withOpacity(0.5),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No notes available',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Notes for this chapter\nwill be added soon',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Column(
-                children: _notes
-                    .map((note) {
-                      final fileUrl = note['file_url']?.toString() ?? '';
-                      final isLocked = fileUrl.isEmpty || fileUrl == 'null';
-                      
-                      return _buildNoteCard(
-                        noteId: note['id']?.toString() ?? '',
-                        title: note['title']?.toString() ?? 'Untitled Note',
-                        fileUrl: fileUrl,
-                        uploadedAt: note['uploaded_at']?.toString() ?? '',
-                        isLocked: isLocked,
-                      );
-                    })
-                    .toList(),
               ),
-          ],
-        ),
+            )
+          else
+            Column(
+              children: sortedNotes
+                  .map((note) {
+                    final fileUrl = note['file_url']?.toString() ?? '';
+                    final isLocked = fileUrl.isEmpty || fileUrl == 'null';
+                    
+                    return _buildNoteCard(
+                      noteId: note['id']?.toString() ?? '',
+                      title: note['title']?.toString() ?? 'Untitled Note',
+                      fileUrl: fileUrl,
+                      uploadedAt: note['uploaded_at']?.toString() ?? '',
+                      isLocked: isLocked,
+                    );
+                  })
+                  .toList(),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+List<dynamic> _sortNotes(List<dynamic> notes) {
+  if (notes.isEmpty) return notes;
+
+  // Create a copy to avoid modifying the original list
+  List<dynamic> sortedNotes = List.from(notes);
+
+  // Parse dates and determine locked status for sorting
+  sortedNotes.sort((a, b) {
+    final fileUrlA = a['file_url']?.toString() ?? '';
+    final fileUrlB = b['file_url']?.toString() ?? '';
+    final isLockedA = fileUrlA.isEmpty || fileUrlA == 'null';
+    final isLockedB = fileUrlB.isEmpty || fileUrlB == 'null';
+
+    // For public students, prioritize unlocked notes first
+    if (_studentType.toLowerCase() == 'public') {
+      if (isLockedA != isLockedB) {
+        return isLockedA ? 1 : -1; // Unlocked notes come first
+      }
+    }
+
+    // Sort by date (most recent first)
+    try {
+      final dateA = a['uploaded_at']?.toString() ?? '';
+      final dateB = b['uploaded_at']?.toString() ?? '';
+
+      if (dateA.isEmpty && dateB.isEmpty) return 0;
+      if (dateA.isEmpty) return 1; // Notes without date go to bottom
+      if (dateB.isEmpty) return -1;
+
+      final parsedDateA = DateTime.parse(dateA);
+      final parsedDateB = DateTime.parse(dateB);
+
+      // Most recent first (descending order)
+      return parsedDateB.compareTo(parsedDateA);
+    } catch (e) {
+      debugPrint('Error parsing dates for sorting: $e');
+      return 0;
+    }
+  });
+
+  return sortedNotes;
+}
 
   Widget _buildSubjectCard({
   required String title,
@@ -1619,8 +1665,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                       color: AppColors.textDark,
                       letterSpacing: -0.1,
                     ),
-                    // maxLines removed
-                    // overflow removed
+                    
                   ),
                   const SizedBox(height: 4),
                   Text(

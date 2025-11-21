@@ -77,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _keyCurrentStreak = 'profile_current_streak'; 
   static const String _keyLongestStreak = 'profile_longest_streak'; 
   static const String _keyUnreadNotifications = 'unread_notifications';
+  static const String _keyDeviceRegistered = 'device_registered_for_session';
 
   @override
   void initState() {
@@ -191,30 +192,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // 🆕 Main refresh method
   Future<void> _refreshData() async {
-    setState(() {
-      isRefreshing = true;
-    });
+  setState(() {
+    isRefreshing = true;
+  });
 
-    try {
-      await _fetchProfileData();
-      
-      // 🆕 ALWAYS fetch subjects data from API during refresh, don't use cache
-      if (subcourseId.isNotEmpty) {
-        await _fetchAndStoreSubjects(forceRefresh: true);
-      }
-      
-      await _registerDeviceToken();
-      
-      debugPrint('✅ All data refreshed successfully from API');
-    } catch (e) {
-      debugPrint('❌ Error during refresh: $e');
-    } finally {
-      setState(() {
-        isRefreshing = false;
-      });
+  try {
+    await _fetchProfileData();
+
+    if (subcourseId.isNotEmpty) {
+      await _fetchAndStoreSubjects(forceRefresh: true);
     }
+    
+    await _fetchUnreadNotifications();
+    
+    debugPrint('✅ All data refreshed successfully from API');
+  } catch (e) {
+    debugPrint('❌ Error during refresh: $e');
+  } finally {
+    setState(() {
+      isRefreshing = false;
+    });
   }
-
+}
  Future<void> _loadCachedProfileData() async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -329,6 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.remove(_keyCurrentStreak); 
       await prefs.remove(_keyLongestStreak);  
       await prefs.remove(_keyUnreadNotifications);
+      await prefs.remove(_keyDeviceRegistered);
       
       debugPrint('Cached profile data cleared');
     } catch (e) {
@@ -341,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return IOClient(client);
   }
 
- Future<void> _fetchProfileData() async {
+Future<void> _fetchProfileData() async {
   try {
     if (!isRefreshing) {
       setState(() {
@@ -393,49 +393,49 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (response.statusCode == 200) {
-  final responseData = json.decode(response.body);
+        final responseData = json.decode(response.body);
 
-  if (responseData['success'] == true && responseData['profile'] != null) {
-    final profile = responseData['profile'];
+        if (responseData['success'] == true && responseData['profile'] != null) {
+          final profile = responseData['profile'];
 
-    await _saveProfileDataToCache(profile);
+          await _saveProfileDataToCache(profile);
 
-    setState(() {
-      name = profile['name'] ?? '';
-      email = profile['email'] ?? '';
-      phoneNumber = profile['phone_number'] ?? '';
-      profileCompleted = profile['profile_completed'] ?? false;
-      studentType = profile['student_type'] ?? '';
+          setState(() {
+            name = profile['name'] ?? '';
+            email = profile['email'] ?? '';
+            phoneNumber = profile['phone_number'] ?? '';
+            profileCompleted = profile['profile_completed'] ?? false;
+            studentType = profile['student_type'] ?? '';
 
-      // Streak data
-      if (profile['streak'] != null) {
-        currentStreak = profile['streak']['current_streak'] ?? 0;
-        longestStreak = profile['streak']['longest_streak'] ?? 0;
-      }
+            // Streak data
+            if (profile['streak'] != null) {
+              currentStreak = profile['streak']['current_streak'] ?? 0;
+              longestStreak = profile['streak']['longest_streak'] ?? 0;
+            }
 
-      // Enrollment details
-      if (profile['enrollments'] != null) {
-        final enrollments = profile['enrollments'];
-        course = enrollments['course'] ?? '';
-        subcourse = enrollments['subcourse'] ?? '';
+            // Enrollment details
+            if (profile['enrollments'] != null) {
+              final enrollments = profile['enrollments'];
+              course = enrollments['course'] ?? '';
+              subcourse = enrollments['subcourse'] ?? '';
 
-        if (enrollments['subcourse_id'] != null) {
-          subcourseId = enrollments['subcourse_id'].toString();
-        }
+              if (enrollments['subcourse_id'] != null) {
+                subcourseId = enrollments['subcourse_id'].toString();
+              }
 
-        enrollmentStatus = enrollments['status'] ?? '';
-        debugPrint('Extracted Subcourse ID from API: $subcourseId');
-      }
+              enrollmentStatus = enrollments['status'] ?? '';
+              debugPrint('Extracted Subcourse ID from API: $subcourseId');
+            }
 
-      // Subscription details
-      if (profile['subscription'] != null) {
-        subscriptionType = profile['subscription']['type'] ?? '';
-        subscriptionEndDate = profile['subscription']['end_date'] ?? '';
-        isSubscriptionActive = profile['subscription']['is_active'] ?? false;
-      }
+            // Subscription details
+            if (profile['subscription'] != null) {
+              subscriptionType = profile['subscription']['type'] ?? '';
+              subscriptionEndDate = profile['subscription']['end_date'] ?? '';
+              isSubscriptionActive = profile['subscription']['is_active'] ?? false;
+            }
 
-      isLoading = false;
-    });
+            isLoading = false;
+          });
 
           // Store start time AFTER we have the student type from API
           _storeStartTime();
@@ -446,8 +446,8 @@ class _HomeScreenState extends State<HomeScreen> {
             await _fetchAndStoreSubjects(forceRefresh: false);
           }
 
-          // After fetching profile and subjects, register device token and fetch notifications
-          _registerDeviceToken();
+          // 🆕 MODIFIED: Register device token only once per session
+          await _registerDeviceTokenOnce();
 
         } else {
           debugPrint('Profile data not found in response');
@@ -507,6 +507,36 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 }
+
+Future<void> _registerDeviceTokenOnce() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Check if device is already registered for this session
+    final bool isDeviceRegistered = prefs.getBool(_keyDeviceRegistered) ?? false;
+    
+    if (isDeviceRegistered) {
+      debugPrint('✅ Device already registered for this session, skipping registration');
+      
+      // Still fetch unread notifications even if device is registered
+      await _fetchUnreadNotifications();
+      return;
+    }
+    
+    debugPrint('🆕 First time registration for this session, calling device registration API');
+    
+    // Call device registration API
+    await _registerDeviceToken();
+    
+    // Mark device as registered for this session
+    await prefs.setBool(_keyDeviceRegistered, true);
+    debugPrint('✅ Device registration flag set for this session');
+    
+  } catch (e) {
+    debugPrint('❌ Error in _registerDeviceTokenOnce: $e');
+  }
+}
+
 
   // 🆕 MODIFIED: Fetch subjects from API and store in SharedPreferences with forceRefresh option
   Future<void> _fetchAndStoreSubjects({bool forceRefresh = false}) async {
@@ -1033,7 +1063,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         _buildQuickAccessCard(
                           icon: Icons.quiz_rounded,
                           title: 'Question Papers',
-                          subtitle: 'Previous year papers',
+                          subtitle: 'Previous year Question papers',
                           color1: AppColors.primaryBlue,
                           color2: AppColors.primaryBlueLight,
                           imagePath: "assets/images/question_papers.png",
@@ -1055,9 +1085,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         _buildQuickAccessCard(
                           icon: Icons.assignment_rounded,
                           title: 'Mock Tests',
-                          subtitle: 'Assess your preparation',
-                          color1: const Color(0xFFFFD54F),
-                          color2: const Color(0xFFFFE082),
+                          subtitle: 'Evaluate your preparations',
+                          color1: AppColors.primaryBlue,
+                          color2: AppColors.primaryBlueLight,
                           imagePath: "assets/images/mock_test.png",
                           onTap: _navigateToMockTest,
                           getResponsiveSize: getResponsiveSize,

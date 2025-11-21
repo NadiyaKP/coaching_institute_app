@@ -8,6 +8,7 @@ import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 import 'dart:io';
 import '../screens/explore_student/explore.dart';
+import '../../../service/http_interceptor.dart';
 
 // ============= RESPONSIVE UTILITY CLASS =============
 class ResponsiveUtils {
@@ -213,135 +214,141 @@ class LoginProvider extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>?> loginUser({
-    required String email,
-    required String password,
-  }) async {
-    _isLoading = true;
-    notifyListeners();
+  required String email,
+  required String password,
+}) async {
+  _isLoading = true;
+  notifyListeners();
 
-    final username = email.trim();
+  final username = email.trim();
+  
+  debugPrint('=== LOGIN REQUEST ===');
+  debugPrint('Login attempt with username: $username');
+
+  try {
+    // ✅ Use globalHttpClient instead of raw HttpClient
+    final apiUrl = '${ApiConfig.baseUrl}/api/students/student_login/';
     
-    debugPrint('=== LOGIN REQUEST ===');
-    debugPrint('Login attempt with username: $username');
-
-    HttpClient? httpClient;
-
-    try {
-      httpClient = ApiConfig.createHttpClient();
-      
-      final request = await httpClient.postUrl(
-        Uri.parse('${ApiConfig.baseUrl}/api/students/student_login/'),
-      );
-      
-      ApiConfig.commonHeaders.forEach((key, value) {
-        request.headers.set(key, value);
-      });
-      
-      final body = jsonEncode({
+    debugPrint('URL: $apiUrl');
+    debugPrint('Method: POST');
+    
+    final response = await globalHttpClient.post(
+      Uri.parse(apiUrl),
+      headers: {
+        'Content-Type': 'application/json',
+        ...ApiConfig.commonHeaders,
+      },
+      body: jsonEncode({
         'username': username,
         'password': password,
-      });
-      request.contentLength = body.length;
-      request.write(body);
-      
-      final httpResponse = await request.close().timeout(
-        ApiConfig.requestTimeout,
-        onTimeout: () {
-          throw Exception('Request timeout');
-        },
-      );
-      
-      final responseBody = await httpResponse.transform(utf8.decoder).join();
-      
-      debugPrint('=== LOGIN RESPONSE ===');
-      debugPrint('Response status: ${httpResponse.statusCode}');
-      debugPrint('Response body: $responseBody');
+      }),
+    ).timeout(
+      ApiConfig.requestTimeout,
+      onTimeout: () {
+        throw TimeoutException('Request timeout');
+      },
+    );
+    
+    debugPrint('=== LOGIN RESPONSE ===');
+    debugPrint('Response status: ${response.statusCode}');
+    debugPrint('Response body: ${response.body}');
 
-      if (httpResponse.statusCode == 200) {
-        final Map<String, dynamic> responseData = jsonDecode(responseBody);
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> responseData = jsonDecode(response.body);
+      
+      if (responseData['success'] == true) {
+        await saveEmail(username);
+        final prefs = await SharedPreferences.getInstance();
         
-        if (responseData['success'] == true) {
-          await saveEmail(username);
-          final prefs = await SharedPreferences.getInstance();
-          
-          await prefs.setString('accessToken', responseData['access'] ?? '');
-          await prefs.setString('studentType', responseData['student_type'] ?? '');
-          await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
-          await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
-          await prefs.setString('username', username);
-          
-          debugPrint('=== STORED IN SHARED PREFERENCES ===');
-          debugPrint('Stored accessToken: ${prefs.getString('accessToken')}');
-          debugPrint('Stored studentType: ${prefs.getString('studentType')}');
-          debugPrint('Stored phoneNumber: ${prefs.getString('phoneNumber')}');
-          debugPrint('Stored profileCompleted: ${prefs.getBool('profileCompleted')}');
-          debugPrint('Stored username: ${prefs.getString('username')}');
-          
-          return {
-            'success': true,
-            'message': 'Login successful!',
-            'profile_completed': responseData['profile_completed'] ?? false,
-            'response_data': responseData,
-          };
-        } else {
-          debugPrint('Login failed: ${responseData['message']}');
-          return {
-            'success': false,
-            'message': responseData['message'] ?? 'Invalid credentials',
-          };
-        }
-      } else if (httpResponse.statusCode == 401) {
-        debugPrint('Authentication failed: 401 Unauthorized');
+        await prefs.setString('accessToken', responseData['access'] ?? '');
+        await prefs.setString('studentType', responseData['student_type'] ?? '');
+        await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
+        await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
+        await prefs.setString('username', username);
+        
+        debugPrint('=== STORED IN SHARED PREFERENCES ===');
+        debugPrint('Stored accessToken: ${prefs.getString('accessToken')}');
+        debugPrint('Stored studentType: ${prefs.getString('studentType')}');
+        debugPrint('Stored phoneNumber: ${prefs.getString('phoneNumber')}');
+        debugPrint('Stored profileCompleted: ${prefs.getBool('profileCompleted')}');
+        debugPrint('Stored username: ${prefs.getString('username')}');
+        
         return {
-          'success': false,
-          'message': 'Invalid email or password',
-        };
-      } else if (httpResponse.statusCode == 404) {
-        debugPrint('API endpoint not found: 404');
-        return {
-          'success': false,
-          'message': 'API endpoint not found',
+          'success': true,
+          'message': 'Login successful!',
+          'profile_completed': responseData['profile_completed'] ?? false,
+          'response_data': responseData,
         };
       } else {
-        debugPrint('Server error: ${httpResponse.statusCode}');
+        debugPrint('Login failed: ${responseData['message']}');
         return {
           'success': false,
-          'message': 'Server error: ${httpResponse.statusCode}',
+          'message': responseData['message'] ?? 'Invalid credentials',
         };
       }
-      
-    } on TimeoutException catch (e) {
-      debugPrint('Timeout Error: $e');
+    } else if (response.statusCode == 401) {
+      debugPrint('Authentication failed: 401 Unauthorized');
       return {
         'success': false,
-        'message': 'Request timeout. Please check your connection.',
+        'message': 'Invalid email or password',
       };
-    } on FormatException catch (e) {
-      debugPrint('JSON Format Error: $e');
+    } else if (response.statusCode == 404) {
+      debugPrint('API endpoint not found: 404');
       return {
         'success': false,
-        'message': 'Invalid response format from server.',
+        'message': 'API endpoint not found',
       };
-    } catch (e) {
-      String errorMessage = 'Network error: ${e.toString()}';
-      if (e.toString().contains('SocketException')) {
-        errorMessage = 'No internet connection. Please check your network.';
-      }
-      debugPrint('API Error: $e');
-      debugPrint('Error Stack Trace: ${StackTrace.current}');
+    } else {
+      debugPrint('Server error: ${response.statusCode}');
       return {
         'success': false,
-        'message': errorMessage,
+        'message': 'Server error: ${response.statusCode}',
       };
-    } finally {
-      httpClient?.close();
-      _isLoading = false;
-      notifyListeners();
-      debugPrint('=== LOGIN REQUEST COMPLETED ===');
     }
+    
+  } on TimeoutException catch (e) {
+    debugPrint('Timeout Error: $e');
+    return {
+      'success': false,
+      'message': 'Request timeout. Please check your connection.',
+    };
+  } on http.ClientException catch (e) {
+    debugPrint('ClientException: $e');
+    // The globalHttpClient will already show the snackbar via ApiConfig.handleError
+    return {
+      'success': false,
+      'message': e.message,
+    };
+  } on SocketException catch (e) {
+    debugPrint('SocketException: $e');
+    return {
+      'success': false,
+      'message': 'No internet connection. Please check your network.',
+    };
+  } on FormatException catch (e) {
+    debugPrint('JSON Format Error: $e');
+    return {
+      'success': false,
+      'message': 'Invalid response format from server.',
+    };
+  } catch (e) {
+    String errorMessage = 'Network error: ${e.toString()}';
+    if (e.toString().contains('SocketException')) {
+      errorMessage = 'No internet connection. Please check your network.';
+    }
+    debugPrint('API Error: $e');
+    debugPrint('Error Stack Trace: ${StackTrace.current}');
+    return {
+      'success': false,
+      'message': errorMessage,
+    };
+  } finally {
+    _isLoading = false;
+    notifyListeners();
+    debugPrint('=== LOGIN REQUEST COMPLETED ===');
   }
 }
-
+}
 // ============= SCREEN CLASS =============
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -557,7 +564,7 @@ Future<void> _loginUser() async {
       
       if (errorMessage == 'Server error: 400') {
         _showSnackBar(
-          'Make sure your location is turned on',
+          'Make sure your location is turned on and also allow location access to the app.',
           AppColors.errorRed,
         );
       } else {

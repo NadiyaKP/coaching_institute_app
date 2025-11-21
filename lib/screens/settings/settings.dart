@@ -125,79 +125,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 
                 const SizedBox(height: 24),
                 
-                // App Settings Section
-                const Text(
-                  'App Settings',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textGrey,
-                  ),
-                ),
-                
-                const SizedBox(height: 12),
-                
-                // Notifications Card
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryYellow.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.notifications_outlined,
-                            color: AppColors.primaryYellow,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Notifications',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textDark,
-                                ),
-                              ),
-                              SizedBox(height: 4),
-                              Text(
-                                'Manage notification preferences',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.textGrey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Text(
-                          'Coming Soon',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textGrey,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 24),
-                
                 // Information Section
                 const Text(
                   'Information',
@@ -334,29 +261,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 
                 const SizedBox(height: 32),
                 
-                // Logout Button Section
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: ElevatedButton.icon(
-                    onPressed: _showLogoutDialog,
-                    icon: const Icon(Icons.logout_rounded, size: 22),
-                    label: const Text(
-                      'Logout',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.2,
+                // Logout Button Section - Reduced Size
+                Center(
+                  child: SizedBox(
+                    width: MediaQuery.of(context).size.width * 0.5, // 50% of screen width
+                    child: ElevatedButton.icon(
+                      onPressed: _showLogoutDialog,
+                      icon: const Icon(Icons.logout_rounded, size: 18),
+                      label: const Text(
+                        'Logout',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        elevation: 2,
                       ),
-                      elevation: 2,
                     ),
                   ),
                 ),

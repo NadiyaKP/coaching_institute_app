@@ -26,8 +26,8 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   List<Assignment> _pendingAssignments = [];
   List<Assignment> _overdueAssignments = [];
   List<Assignment> _submittedAssignments = [];
-  Set<String> _notificationAssignmentIds = {}; // IDs from notifications
-  List<Map<String, dynamic>> _unreadNotifications = []; // Complete notification data
+  Set<String> _notificationAssignmentIds = {}; 
+  List<Map<String, dynamic>> _unreadNotifications = []; 
   bool _isLoading = true;
   String _errorMessage = '';
   String? _accessToken;
@@ -45,7 +45,6 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
 
   @override
   void dispose() {
-    // Call mark notifications as read when the screen is disposed (user navigates back)
     _markNotificationsAsRead();
     super.dispose();
   }
@@ -53,7 +52,7 @@ class _AssignmentsScreenState extends State<AssignmentsScreen> {
   Future<void> _initializeData() async {
     await _getAccessToken();
     await _loadStudentType();
-    await _loadUnreadNotifications(); // Load unread notifications
+    await _loadUnreadNotifications(); 
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _fetchAssignments();
     } else {

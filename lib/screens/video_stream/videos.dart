@@ -565,6 +565,88 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     }
   }
 
+  List<dynamic> _sortVideos(List<dynamic> videos) {
+  if (videos.isEmpty) return videos;
+
+  // Create a copy to avoid modifying the original list
+  List<dynamic> sortedVideos = List.from(videos);
+
+  // Parse dates and determine locked status for sorting
+  sortedVideos.sort((a, b) {
+    final videoUrlA = a['video_url']?.toString() ?? '';
+    final videoUrlB = b['video_url']?.toString() ?? '';
+    final isLockedA = videoUrlA.isEmpty || videoUrlA == 'null';
+    final isLockedB = videoUrlB.isEmpty || videoUrlB == 'null';
+
+    // For public students, prioritize unlocked videos first
+    if (_studentType.toLowerCase() == 'public') {
+      if (isLockedA != isLockedB) {
+        return isLockedA ? 1 : -1; // Unlocked videos come first
+      }
+    }
+
+    // Sort by date (most recent first)
+    try {
+      final dateA = a['uploaded_at']?.toString() ?? '';
+      final dateB = b['uploaded_at']?.toString() ?? '';
+
+      if (dateA.isEmpty && dateB.isEmpty) return 0;
+      if (dateA.isEmpty) return 1; // Videos without date go to bottom
+      if (dateB.isEmpty) return -1;
+
+      final parsedDateA = DateTime.parse(dateA);
+      final parsedDateB = DateTime.parse(dateB);
+
+      // Most recent first (descending order)
+      return parsedDateB.compareTo(parsedDateA);
+    } catch (e) {
+      debugPrint('Error parsing dates for sorting videos: $e');
+      return 0;
+    }
+  });
+
+  return sortedVideos;
+}
+
+// Add this helper method to format date (add after _sortVideos method)
+String _formatVideoDate(String dateString) {
+  try {
+    if (dateString.isEmpty) return 'Unknown date';
+    
+    final DateTime date = DateTime.parse(dateString);
+    final DateTime now = DateTime.now();
+    final Duration difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      return 'Today';
+    } else if (difference.inDays == 1) {
+      return 'Yesterday';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} days ago';
+    } else if (difference.inDays < 30) {
+      final weeks = (difference.inDays / 7).floor();
+      return '$weeks week${weeks > 1 ? 's' : ''} ago';
+    } else if (difference.inDays < 365) {
+      final months = (difference.inDays / 30).floor();
+      return '$months month${months > 1 ? 's' : ''} ago';
+    } else {
+      final years = (difference.inDays / 365).floor();
+      return '$years year${years > 1 ? 's' : ''} ago';
+    }
+  } catch (e) {
+    try {
+      final parts = dateString.split('T')[0].split('-');
+      if (parts.length == 3) {
+        return '${parts[2]}/${parts[1]}/${parts[0]}';
+      }
+    } catch (e) {
+      // If all else fails
+    }
+    return dateString.isNotEmpty ? dateString : 'Unknown date';
+  }
+}
+
+
   // Show and hide subscription message with animation
   void _showAndHideSubscriptionMessage() {
     setState(() {
@@ -1761,138 +1843,144 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   }
 
   Widget _buildVideosPage() {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+  // Sort videos before displaying
+  List<dynamic> sortedVideos = _sortVideos(_videos);
+
+  return SingleChildScrollView(
+    physics: const BouncingScrollPhysics(),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Section
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Videos',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _selectedChapterName,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.primaryBlue,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Text(
+                  '${sortedVideos.length} video${sortedVideos.length != 1 ? 's' : ''} available',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.grey400,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          if (sortedVideos.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      width: 4,
-                      height: 24,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryBlue,
-                        borderRadius: BorderRadius.circular(2),
+                        color: AppColors.primaryBlue.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.videocam_off_rounded,
+                        size: 50,
+                        color: AppColors.primaryBlue.withOpacity(0.5),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Videos',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textDark,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _selectedChapterName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.primaryBlue,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.1,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No videos available',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Videos for this chapter\nwill be added soon',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Text(
-                    '${_videos.length} video${_videos.length != 1 ? 's' : ''} available',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.grey400,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            if (_videos.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryBlue.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.videocam_off_rounded,
-                          size: 50,
-                          color: AppColors.primaryBlue.withOpacity(0.5),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No videos available',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Videos for this chapter\nwill be added soon',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Column(
-                children: _videos
-                    .map((video) {
-                      final videoUrl = video['video_url']?.toString() ?? '';
-                      final isLocked = videoUrl.isEmpty || videoUrl == 'null';
-                      final videoId = video['id']?.toString() ?? '';
-                      
-                      return _buildVideoCard(
-                        videoId: videoId,
-                        title: video['title']?.toString() ?? 'Untitled Video',
-                        isLocked: isLocked,
-                        showBadge: _hasUnreadVideoNotifications(videoId),
-                      );
-                    })
-                    .toList(),
               ),
-          ],
-        ),
+            )
+          else
+            Column(
+              children: sortedVideos
+                  .map((video) {
+                    final videoUrl = video['video_url']?.toString() ?? '';
+                    final isLocked = videoUrl.isEmpty || videoUrl == 'null';
+                    final videoId = video['id']?.toString() ?? '';
+                    final uploadedAt = video['uploaded_at']?.toString() ?? '';
+                    
+                    return _buildVideoCard(
+                      videoId: videoId,
+                      title: video['title']?.toString() ?? 'Untitled Video',
+                      uploadedAt: uploadedAt,
+                      isLocked: isLocked,
+                      showBadge: _hasUnreadVideoNotifications(videoId),
+                    );
+                  })
+                  .toList(),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
 
   Widget _buildSubjectCard({
     required String title,
@@ -2011,173 +2099,185 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     );
   }
 
-  Widget _buildVideoCard({
-    required String videoId,
-    required String title,
-    required bool isLocked,
-    bool showBadge = false,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        if (isLocked) {
-          _showSubscriptionPopup(context);
-          return;
-        }
+ Widget _buildVideoCard({
+  required String videoId,
+  required String title,
+  required String uploadedAt,
+  required bool isLocked,
+  bool showBadge = false,
+}) {
+  return GestureDetector(
+    onTap: () {
+      if (isLocked) {
+        _showSubscriptionPopup(context);
+        return;
+      }
 
-        if (videoId.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Video ID not available'),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-          return;
-        }
-        
-        // Remove notification for this video and add to mark read list
-        _removeNotificationForVideo(videoId);
-        
-        // Send stored events for other videos before starting new video
-        // Only for online students
-        if (_studentType.toLowerCase() == 'online') {
-          _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
-        } else {
-          debugPrint('🎬 Student type is $_studentType - skipping video events collection');
-        }
-        
-        // Navigate to video stream page
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => VideoStreamScreen(
-              videoId: videoId,
-              videoTitle: title,
-              videoDuration: '', 
-            ),
+      if (videoId.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Video ID not available'),
+            backgroundColor: AppColors.errorRed,
           ),
         );
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: isLocked 
-                  ? Colors.grey.withOpacity(0.1)
-                  : AppColors.primaryYellow.withOpacity(0.15),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
+        return;
+      }
+      
+      // Remove notification for this video and add to mark read list
+      _removeNotificationForVideo(videoId);
+      
+      // Send stored events for other videos before starting new video
+      // Only for online students
+      if (_studentType.toLowerCase() == 'online') {
+        _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
+      } else {
+        debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+      }
+      
+      // Navigate to video stream page
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => VideoStreamScreen(
+            videoId: videoId,
+            videoTitle: title,
+            videoDuration: '', 
+          ),
         ),
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Container(
-                    height: 40,
-                    width: 40,
-                    decoration: BoxDecoration(
-                      color: isLocked 
-                          ? Colors.grey.withOpacity(0.1)
-                          : AppColors.primaryBlue.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      isLocked ? Icons.lock_outline_rounded : Icons.play_circle_fill_rounded,
-                      size: 20,
-                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                    ),
+      );
+    },
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: isLocked 
+                ? Colors.grey.withOpacity(0.1)
+                : AppColors.primaryYellow.withOpacity(0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  height: 40,
+                  width: 40,
+                  decoration: BoxDecoration(
+                    color: isLocked 
+                        ? Colors.grey.withOpacity(0.1)
+                        : AppColors.primaryBlue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+                  child: Icon(
+                    isLocked ? Icons.lock_outline_rounded : Icons.play_circle_fill_rounded,
+                    size: 20,
+                    color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isLocked ? Colors.grey : AppColors.textDark,
+                          letterSpacing: -0.1,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (uploadedAt.isNotEmpty) ...[
+                        const SizedBox(height: 4),
                         Text(
-                          title,
+                          _formatVideoDate(uploadedAt),
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: isLocked ? Colors.grey : AppColors.textDark,
-                            letterSpacing: -0.1,
+                            fontSize: 11,
+                            color: isLocked ? Colors.grey : AppColors.grey400,
+                            fontWeight: FontWeight.w500,
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Container(
-                        height: 32,
-                        width: 32,
-                        decoration: BoxDecoration(
-                          color: isLocked 
-                              ? Colors.grey.withOpacity(0.1)
-                              : AppColors.primaryBlue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
-                          color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                          size: 16,
-                        ),
-                      ),
-                      if (showBadge && !isLocked)
-                        Positioned(
-                          top: -4,
-                          right: -4,
-                          child: Container(
-                            width: 8,
-                            height: 8,
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
                     ],
                   ),
-                ],
-              ),
-            ),
-            
-            // Blur effect for locked videos 
-            if (isLocked)
-              Positioned.fill(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: BackdropFilter(
-                    filter: ColorFilter.mode(
-                      Colors.grey.withOpacity(0.3),
-                      BlendMode.srcOver,
+                ),
+                const SizedBox(width: 12),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      height: 32,
+                      width: 32,
+                      decoration: BoxDecoration(
+                        color: isLocked 
+                            ? Colors.grey.withOpacity(0.1)
+                            : AppColors.primaryBlue.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Icon(
+                        isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
+                        color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                        size: 16,
+                      ),
                     ),
-                    child: Container(
-                      color: Colors.white.withOpacity(0.7),
-                      child: const Center(
-                        child: Icon(
-                          Icons.lock_rounded,
-                          color: AppColors.primaryBlue,
-                          size: 18,
+                    if (showBadge && !isLocked)
+                      Positioned(
+                        top: -4,
+                        right: -4,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
                         ),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          
+          // Blur effect for locked videos 
+          if (isLocked)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: BackdropFilter(
+                  filter: ColorFilter.mode(
+                    Colors.grey.withOpacity(0.3),
+                    BlendMode.srcOver,
+                  ),
+                  child: Container(
+                    color: Colors.white.withOpacity(0.7),
+                    child: const Center(
+                      child: Icon(
+                        Icons.lock_rounded,
+                        color: AppColors.primaryBlue,
+                        size: 18,
                       ),
                     ),
                   ),
                 ),
               ),
-          ],
-        ),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class CurvedHeaderClipper extends CustomClipper<Path> {

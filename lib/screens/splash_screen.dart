@@ -1,96 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import '../service/auth_service.dart';
 import 'home.dart';
+import 'getin_screen.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
-
-// ============= PROVIDER CLASS =============
-class SplashProvider extends ChangeNotifier {
-  final AuthService _authService = AuthService();
-  
-  bool _isLoading = true;
-  String? _errorMessage;
-  bool _isLoggedIn = false;
-  bool _hasValidTokens = false;
-
-  bool get isLoading => _isLoading;
-  String? get errorMessage => _errorMessage;
-  bool get isLoggedIn => _isLoggedIn;
-  bool get hasValidTokens => _hasValidTokens;
-
-  Future<void> checkAuthAndNavigate(BuildContext context) async {
-    _isLoading = true;
-    notifyListeners();
-
-    try {
-      // Add a small delay for the splash screen to be visible
-      await Future.delayed(const Duration(seconds: 3));
-
-      print('=== SPLASH SCREEN: Printing SharedPreferences data ===');
-      await _authService.debugPrintAllData();
-
-      // Check authentication status
-      _isLoggedIn = await _authService.isLoggedIn();
-      print('=== AUTHENTICATION STATUS ===');
-      print('Is Logged In: $_isLoggedIn');
-
-      // Optional: Also check token validity if needed
-      try {
-        _hasValidTokens = await _authService.hasValidTokens();
-        print('Has Valid Tokens: $_hasValidTokens');
-      } catch (e) {
-        print('Error checking tokens: $e');
-        _hasValidTokens = false;
-      }
-      
-      print('===============================');
-
-      _isLoading = false;
-      notifyListeners();
-
-      // Navigate based on authentication status
-      if (_isLoggedIn) {
-        print('✅ User is authenticated - Navigating to HomeScreen');
-        _navigateToHome(context);
-      } else {
-        print('❌ User is not authenticated - Navigating to SignupScreen');
-        _navigateToLogin(context);
-      }
-    } catch (e) {
-      print('=== ERROR IN SPLASH SCREEN ===');
-      print('Error Type: ${e.runtimeType}');
-      print('Error Message: $e');
-      print('Falling back to SignupScreen');
-      print('===============================');
-      
-      _errorMessage = e.toString();
-      _isLoading = false;
-      notifyListeners();
-
-      _navigateToLogin(context);
-    }
-  }
-
-  void _navigateToHome(BuildContext context) {
-    if (context.mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const HomeScreen()),
-      );
-    }
-  }
-
-  void _navigateToLogin(BuildContext context) {
-    if (context.mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-      );
-    }
-  }
-}
 
 // ============= SCREEN CLASS =============
 class SplashScreen extends StatefulWidget {
@@ -104,59 +19,63 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Start auth check directly without provider
+    // Start auth check
     _checkAuthAndNavigate();
   }
 
   Future<void> _checkAuthAndNavigate() async {
-    final authService = AuthService();
-    
     try {
       // Add a small delay for the splash screen to be visible
       await Future.delayed(const Duration(seconds: 3));
 
-      print('=== SPLASH SCREEN: Printing SharedPreferences data ===');
-      await authService.debugPrintAllData();
-
-      // Check authentication status
-      final isLoggedIn = await authService.isLoggedIn();
-      print('=== AUTHENTICATION STATUS ===');
-      print('Is Logged In: $isLoggedIn');
-
-      // Optional: Also check token validity if needed
-      bool hasValidTokens = false;
-      try {
-        hasValidTokens = await authService.hasValidTokens();
-        print('Has Valid Tokens: $hasValidTokens');
-      } catch (e) {
-        print('Error checking tokens: $e');
-        hasValidTokens = false;
-      }
+      print('=== SPLASH SCREEN: Checking Authentication ===');
       
-      print('===============================');
-
+      // Get SharedPreferences instance
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Check if accessToken exists in SharedPreferences
+      final String? accessToken = prefs.getString('accessToken');
+      
+      // Check student_type from SharedPreferences
+      final String? studentType = prefs.getString('profile_student_type');
+      
+      print('Access Token Present: ${accessToken != null && accessToken.isNotEmpty}');
+      print('Student Type: ${studentType ?? "N/A"}');
+      
       // Ensure widget is still mounted before navigation
       if (!mounted) return;
 
-      // Navigate based on authentication status
-      if (isLoggedIn) {
-        print('✅ User is authenticated - Navigating to HomeScreen');
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-        );
+      // Navigate based on access token presence and student type
+      if (accessToken != null && accessToken.isNotEmpty) {
+        // Check if student type is 'ONLINE'
+        if (studentType != null && studentType.toUpperCase() == 'ONLINE') {
+          print('✅ Access token found + Student Type is ONLINE - Navigating to GetInScreen');
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const GetInScreen()),
+          );
+        } else {
+          print('✅ Access token found + Student Type is NOT ONLINE - Navigating to HomeScreen');
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const HomeScreen()),
+          );
+        }
       } else {
-        print('❌ User is not authenticated - Navigating to SignupScreen');
+        print('❌ No access token found - Navigating to LoginScreen');
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
+      
+      print('===============================');
+      
     } catch (e) {
       print('=== ERROR IN SPLASH SCREEN ===');
       print('Error Type: ${e.runtimeType}');
       print('Error Message: $e');
-      print('Falling back to SignupScreen');
+      print('Falling back to LoginScreen');
       print('===============================');
       
       // Ensure widget is still mounted before navigation
@@ -242,7 +161,7 @@ class _SplashScreenState extends State<SplashScreen> {
             // Main content - centered for both orientations
             Center(
               child: isLandscape
-                  ? // Landscape: Just show logo centered, loading indicator at bottom
+                  ? // Landscape: Just show logo centered
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -270,7 +189,7 @@ class _SplashScreenState extends State<SplashScreen> {
                         ),
                       ],
                     )
-                  : // Portrait: Show all content with scroll fallback
+                  : // Portrait: Show logo centered
                     SingleChildScrollView(
                       child: Padding(
                         padding: EdgeInsets.symmetric(
@@ -303,59 +222,11 @@ class _SplashScreenState extends State<SplashScreen> {
                                 );
                               },
                             ),
-                            
-                            const SizedBox(height: 40),
-                            
-                            // Loading indicator
-                            const CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
-                              strokeWidth: 3,
-                            ),
-                            
-                            const SizedBox(height: 20),
-                            
-                            // Loading text
-                            Text(
-                              'Loading...',
-                              style: TextStyle(
-                                color: AppColors.white,
-                                fontSize: screenWidth * 0.045,
-                                fontWeight: FontWeight.w500,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
                           ],
                         ),
                       ),
                     ),
             ),
-            
-            // Loading indicator fixed at bottom for landscape
-            if (isLandscape)
-              const Positioned(
-                bottom: 30,
-                left: 0,
-                right: 0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                     CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.white),
-                      strokeWidth: 3,
-                    ),
-                     SizedBox(height: 10),
-                    Text(
-                      'Loading...',
-                      style: TextStyle(
-                        color: AppColors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
           ],
         ),
       ),

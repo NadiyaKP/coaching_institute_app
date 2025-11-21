@@ -12,7 +12,6 @@ import '../exam_schedule/start_exam.dart';
 import '../../mock_test/mock_test.dart';
 import 'dart:ui' show FontFeature;
 import 'dart:async';
-import '../../../service/http_interceptor.dart';
 
 class ExamScheduleScreen extends StatefulWidget {
   const ExamScheduleScreen({super.key});
@@ -200,7 +199,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       
       try {
         debugPrint('📡 Sending POST request to mark exams as read...');
-        final response = await globalHttpClient.post(
+        final response = await client.post(
           Uri.parse(apiUrl),
           headers: {
             'Authorization': 'Bearer $accessToken',
@@ -273,7 +272,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
   DateTime? _getExamStartDateTime(Map<String, dynamic> exam) {
     try {
       DateTime examDate = DateTime.parse(exam['date']);
-      String? startTime = exam['Start_time'];
+      String? startTime = exam['start_time'];
       
       if (startTime != null) {
         List<String> startParts = startTime.split(':');
@@ -442,8 +441,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       if (aIsNew && !bIsNew) return -1;
       if (!aIsNew && bIsNew) return 1;
       
-      bool aIsActive = _isExamActive(a['date'], a['Start_time'], a['end_time']);
-      bool bIsActive = _isExamActive(b['date'], b['Start_time'], b['end_time']);
+      bool aIsActive = _isExamActive(a);
+      bool bIsActive = _isExamActive(b);
       
       if (aIsActive && !bIsActive) return -1;
       if (!aIsActive && bIsActive) return 1;
@@ -463,10 +462,10 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       DateTime examDayA = DateTime(dateA.year, dateA.month, dateA.day);
       DateTime examDayB = DateTime(dateB.year, dateB.month, dateB.day);
       
-      bool aIsUpcoming = examDayA.isAfter(today) || (examDayA.isAtSameMomentAs(today) && !aIsActive && !_isExamPast(a['date'], a['end_time']));
-      bool bIsUpcoming = examDayB.isAfter(today) || (examDayB.isAtSameMomentAs(today) && !bIsActive && !_isExamPast(b['date'], b['end_time']));
-      bool aIsPast = _isExamPast(a['date'], a['end_time']);
-      bool bIsPast = _isExamPast(b['date'], b['end_time']);
+      bool aIsUpcoming = examDayA.isAfter(today) || (examDayA.isAtSameMomentAs(today) && !aIsActive && !_isExamPast(a));
+      bool bIsUpcoming = examDayB.isAfter(today) || (examDayB.isAtSameMomentAs(today) && !bIsActive && !_isExamPast(b));
+      bool aIsPast = _isExamPast(a);
+      bool bIsPast = _isExamPast(b);
       
       if (aIsUpcoming && bIsPast) return -1;
       if (aIsPast && bIsUpcoming) return 1;
@@ -522,13 +521,13 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
             DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
             return examDay.isAfter(today) || 
                    (examDay.isAtSameMomentAs(today) && 
-                    !_isExamActive(exam['date'], exam['Start_time'], exam['end_time']) &&
-                    !_isExamPast(exam['date'], exam['end_time']));
+                    !_isExamActive(exam) &&
+                    !_isExamPast(exam));
           }).toList();
           break;
         case 'Past':
           _filteredExams = _exams.where((exam) {
-            return _isExamPast(exam['date'], exam['end_time']);
+            return _isExamPast(exam);
           }).toList();
           break;
         default: // All
@@ -551,8 +550,13 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     });
   }
 
-  bool _isExamActive(String date, String? startTime, String? endTime) {
-    if (startTime == null || endTime == null) return false;
+  // MODIFIED: Improved exam status detection that handles both cases (with and without end_time)
+  bool _isExamActive(Map<String, dynamic> exam) {
+    String date = exam['date'];
+    String? startTime = exam['start_time'];
+    String? endTime = exam['end_time'];
+
+    if (startTime == null) return false;
 
     try {
       DateTime now = DateTime.now();
@@ -569,50 +573,68 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
         startParts.length > 2 ? int.parse(startParts[2]) : 0,
       );
 
-      // Parse end time
-      List<String> endParts = endTime.split(':');
-      DateTime endDateTime = DateTime(
-        examDate.year,
-        examDate.month,
-        examDate.day,
-        int.parse(endParts[0]),
-        int.parse(endParts[1]),
-        endParts.length > 2 ? int.parse(endParts[2]) : 0,
-      );
+      // If end_time is provided, check if current time is between start and end
+      if (endTime != null) {
+        List<String> endParts = endTime.split(':');
+        DateTime endDateTime = DateTime(
+          examDate.year,
+          examDate.month,
+          examDate.day,
+          int.parse(endParts[0]),
+          int.parse(endParts[1]),
+          endParts.length > 2 ? int.parse(endParts[2]) : 0,
+        );
 
-      return now.isAfter(startDateTime) && now.isBefore(endDateTime);
+        return now.isAfter(startDateTime) && now.isBefore(endDateTime);
+      } else {
+        // If no end_time, exam is active for the entire day after start time
+        DateTime endOfDay = DateTime(
+          examDate.year,
+          examDate.month,
+          examDate.day,
+          23, 59, 59
+        );
+        
+        return now.isAfter(startDateTime) && now.isBefore(endOfDay);
+      }
     } catch (e) {
       debugPrint('Error checking exam active status: $e');
       return false;
     }
   }
 
-  bool _isExamPast(String date, String? endTime) {
-    if (endTime == null) {
-      // If no end time, check if the date is before today
-      DateTime examDate = DateTime.parse(date);
-      DateTime today = DateTime.now();
-      DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
-      DateTime currentDay = DateTime(today.year, today.month, today.day);
-      return examDay.isBefore(currentDay);
-    }
+  // MODIFIED: Improved past exam detection that handles both cases
+  bool _isExamPast(Map<String, dynamic> exam) {
+    String date = exam['date'];
+    String? endTime = exam['end_time'];
 
     try {
       DateTime now = DateTime.now();
       DateTime examDate = DateTime.parse(date);
       
-      // Parse end time
-      List<String> endParts = endTime.split(':');
-      DateTime endDateTime = DateTime(
-        examDate.year,
-        examDate.month,
-        examDate.day,
-        int.parse(endParts[0]),
-        int.parse(endParts[1]),
-        endParts.length > 2 ? int.parse(endParts[2]) : 0,
-      );
+      // If end_time is provided, check if current time is after end time
+      if (endTime != null) {
+        List<String> endParts = endTime.split(':');
+        DateTime endDateTime = DateTime(
+          examDate.year,
+          examDate.month,
+          examDate.day,
+          int.parse(endParts[0]),
+          int.parse(endParts[1]),
+          endParts.length > 2 ? int.parse(endParts[2]) : 0,
+        );
 
-      return now.isAfter(endDateTime);
+        return now.isAfter(endDateTime);
+      } else {
+        // If no end_time, exam is past after the exam date ends
+        DateTime nextDay = DateTime(
+          examDate.year,
+          examDate.month,
+          examDate.day + 1, // Next day at 00:00:00
+        );
+        
+        return now.isAfter(nextDay);
+      }
     } catch (e) {
       debugPrint('Error checking exam past status: $e');
       
@@ -625,7 +647,11 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     }
   }
 
-  bool _isExamUpcoming(String date, String? startTime) {
+  // MODIFIED: Improved upcoming exam detection
+  bool _isExamUpcoming(Map<String, dynamic> exam) {
+    String date = exam['date'];
+    String? startTime = exam['start_time'];
+
     if (startTime == null) {
       // If no start time, check if the date is after today
       DateTime examDate = DateTime.parse(date);
@@ -663,14 +689,11 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     }
   }
 
+  // MODIFIED: Updated button state detection to use the improved methods
   String _getExamButtonState(Map<String, dynamic> exam) {
-    String date = exam['date'];
-    String? startTime = exam['Start_time'];
-    String? endTime = exam['end_time'];
-    
-    if (_isExamActive(date, startTime, endTime)) {
+    if (_isExamActive(exam)) {
       return 'Start Exam';
-    } else if (_isExamPast(date, endTime)) {
+    } else if (_isExamPast(exam)) {
       return 'Exam Completed';
     } else {
       return 'Scheduled';
@@ -752,7 +775,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       final client = _createHttpClientWithCustomCert();
 
       try {
-        final response = await globalHttpClient.get(
+        final response = await client.get(
           Uri.parse('${ApiConfig.currentBaseUrl}/api/attendance/listexam_file/?exam_id=$encodedId'),
           headers: {
             ...ApiConfig.commonHeaders,
@@ -1260,8 +1283,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     String formattedDate = DateFormat('MMM dd, yyyy').format(examDate);
     String? startTime = exam['start_time'];
     String? endTime = exam['end_time'];
-    bool isActive = _isExamActive(exam['date'], startTime, endTime);
-    bool isPast = _isExamPast(exam['date'], endTime);
+    bool isActive = _isExamActive(exam);
+    bool isPast = _isExamPast(exam);
     bool isToday = examDate.isToday();
     
     String buttonState = _getExamButtonState(exam);

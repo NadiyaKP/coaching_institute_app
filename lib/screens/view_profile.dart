@@ -397,7 +397,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
       ],
     ),
     child: Column(
-      mainAxisAlignment: MainAxisAlignment.center, // Center content vertically
+      mainAxisAlignment: MainAxisAlignment.center, 
       children: [
         // Profile Avatar - Reduced size
         Container(
