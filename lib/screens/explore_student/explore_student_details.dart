@@ -435,11 +435,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(
-                    Icons.badge_rounded,
-                    color: AppColors.primaryBlue,
-                    size: 14,
-                  ),
                   const SizedBox(width: 6),
                   Text(
                     student!.registerNumber,
@@ -639,7 +634,7 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     if (_isFieldValid(student.subcourse)) {
       if (fields.isNotEmpty) fields.add(_buildDivider());
       fields.add(_buildInfoField(
-        label: 'SUBCOURSE',
+        label: 'LEVEL',
         value: student.subcourse!,
         icon: Icons.book_outlined,
         iconColor: const Color(0xFF9C27B0),

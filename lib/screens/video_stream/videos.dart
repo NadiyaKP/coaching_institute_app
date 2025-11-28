@@ -1,15 +1,44 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'dart:convert';
-import 'package:coaching_institute_app/service/auth_service.dart';
-import 'package:coaching_institute_app/service/api_config.dart';
-import '../../../../common/theme_color.dart';
-import '../video_stream/video_stream.dart';
+import 'dart:io';
+import '../../../../service/api_config.dart';
+import '../../../../service/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:coaching_institute_app/hive_model.dart';
+import '../../../../common/theme_color.dart';
+import '../video_stream/video_stream.dart';
 import '../../screens/subscription/subscription.dart';
 import '../../../service/http_interceptor.dart';
+
+class NavigationState {
+  final String pageType; 
+  final String subjectId;
+  final String subjectName;
+  final String? unitId;
+  final String? unitName;
+  final String? chapterId;
+  final String? chapterName;
+  final bool hasDirectChapters; 
+  final List<dynamic> unitsData; 
+  final List<dynamic> chaptersData; 
+
+  NavigationState({
+    required this.pageType,
+    required this.subjectId,
+    required this.subjectName,
+    this.unitId,
+    this.unitName,
+    this.chapterId,
+    this.chapterName,
+    this.hasDirectChapters = false,
+    this.unitsData = const [],
+    this.chaptersData = const [],
+  });
+}
 
 class VideosScreen extends StatefulWidget {
   const VideosScreen({super.key});
@@ -23,14 +52,14 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   String? _accessToken;
   
   // Navigation state
-  String _currentPage = 'subjects'; // subjects, units, chapters, videos
+  String _currentPage = 'subjects'; 
   String _courseName = '';
   String _subcourseName = '';
   String _subcourseId = '';
   String _selectedSubjectName = '';
   String _selectedUnitName = '';
   String _selectedChapterName = '';
-  String _studentType = ''; // Added student type
+  String _studentType = '';
   
   // Data lists
   List<dynamic> _subjects = [];
@@ -51,9 +80,18 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   bool _showSubscriptionMessage = false;
   bool _hasLockedVideos = false;
 
+  // Enhanced navigation stack to track the complete path
+  final List<NavigationState> _navigationStack = [];
+
   // Notification data
   List<dynamic> _notificationData = [];
   List<String> _idsToMarkRead = [];
+
+  // FIX: Add debouncing and tracking for API calls
+  bool _isSendingVideoEvents = false;
+  DateTime? _lastVideoEventsCallTime;
+  static const Duration _videoEventsDebounceTime = Duration(seconds: 10);
+  final Set<String> _currentlyProcessingVideoIds = {};
 
   @override
   void initState() {
@@ -362,6 +400,14 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       // Load subjects data from stored JSON
       await _reloadSubjectsFromSharedPreferences();
 
+      // Initialize navigation stack with subjects
+      _navigationStack.add(NavigationState(
+        pageType: 'subjects',
+        subjectId: '',
+        subjectName: 'Subjects',
+        unitsData: _subjects,
+      ));
+
       setState(() {
         _isLoading = false;
       });
@@ -390,27 +436,131 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       final prefs = await SharedPreferences.getInstance();
       final String? subjectsDataJson = prefs.getString('subjects_data');
       
+      debugPrint('📦 Loading subjects data from SharedPreferences for Videos...');
+      debugPrint('Subjects data JSON exists: ${subjectsDataJson != null && subjectsDataJson.isNotEmpty}');
+      
       if (subjectsDataJson != null && subjectsDataJson.isNotEmpty) {
-        final List<dynamic> subjects = json.decode(subjectsDataJson);
-        setState(() {
-          _subjects = subjects;
-        });
-        debugPrint('✅ Reloaded ${_subjects.length} subjects from SharedPreferences for Videos');
+        try {
+          final decodedData = json.decode(subjectsDataJson);
+          debugPrint('📦 Decoded data type: ${decodedData.runtimeType}');
+          
+          List<dynamic> subjects = [];
+          
+          // Handle different possible data structures
+          if (decodedData is List<dynamic>) {
+            subjects = decodedData;
+            debugPrint('✅ Data is List, subjects count: ${subjects.length}');
+          } else if (decodedData is Map<String, dynamic>) {
+            if (decodedData.containsKey('subjects') && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in Map, count: ${subjects.length}');
+            } else if (decodedData.containsKey('success') && decodedData['success'] == true && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in API response structure, count: ${subjects.length}');
+            } else {
+              subjects = decodedData.values.toList();
+              debugPrint('✅ Using Map values as subjects, count: ${subjects.length}');
+            }
+          }
+          
+          // Debug print all subjects with their titles and COMPLETE structure
+          debugPrint('=== COMPLETE SUBJECTS STRUCTURE FOR VIDEOS ===');
+          for (var i = 0; i < subjects.length; i++) {
+            final subject = subjects[i];
+            final title = subject['title']?.toString() ?? 'No Title';
+            final id = subject['id']?.toString() ?? 'No ID';
+            
+            // Get units and chapters with proper null checking
+            final dynamic unitsData = subject['units'];
+            final dynamic chaptersData = subject['chapters'];
+            
+            final List<dynamic> units = (unitsData is List) ? unitsData : [];
+            final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+            
+            debugPrint('Subject $i:');
+            debugPrint('  - Title: "$title"');
+            debugPrint('  - ID: $id');
+            debugPrint('  - Units count: ${units.length}');
+            debugPrint('  - Chapters count: ${chapters.length}');
+            
+            // Print actual units if they exist
+            if (units.isNotEmpty) {
+              debugPrint('  - Units:');
+              for (var j = 0; j < units.length; j++) {
+                final unit = units[j];
+                debugPrint('    [${j + 1}] ${unit['title']} (${unit['chapters']?.length ?? 0} chapters)');
+              }
+            }
+            
+            // Print actual chapters if they exist
+            if (chapters.isNotEmpty) {
+              debugPrint('  - Direct Chapters:');
+              for (var j = 0; j < chapters.length; j++) {
+                final chapter = chapters[j];
+                debugPrint('    [${j + 1}] ${chapter['title']}');
+              }
+            }
+            
+            if (units.isEmpty && chapters.isEmpty) {
+              debugPrint('  - No content available');
+            }
+          }
+          debugPrint('=== END COMPLETE SUBJECTS STRUCTURE FOR VIDEOS ===');
+          
+          // Store the properly parsed subjects
+          setState(() {
+            _subjects = subjects;
+          });
+          
+          debugPrint('✅ Successfully loaded ${_subjects.length} subjects from SharedPreferences for Videos');
+          
+        } catch (e) {
+          debugPrint('❌ Error parsing subjects data JSON: $e');
+          setState(() {
+            _subjects = [];
+          });
+        }
       } else {
         debugPrint('⚠️ No subjects data found in SharedPreferences for Videos');
+        debugPrint('Available keys in SharedPreferences: ${prefs.getKeys()}');
         setState(() {
           _subjects = [];
         });
       }
     } catch (e) {
-      debugPrint('Error reloading subjects from SharedPreferences: $e');
+      debugPrint('❌ Error reloading subjects from SharedPreferences: $e');
       setState(() {
         _subjects = [];
       });
     }
   }
 
-  // Load subjects from SharedPreferences (no API call)
+  Map<String, String> _getAuthHeaders() {
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      throw Exception('Access token is null or empty');
+    }
+    
+    return {
+      'Authorization': 'Bearer $_accessToken',
+      ...ApiConfig.commonHeaders,
+    };
+  }
+
+  void _handleTokenExpiration() async {
+    await _authService.logout();
+    _showError('Session expired. Please login again.');
+    _navigateToLogin();
+  }
+
+  void _navigateToLogin() {
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  }
+
   void _loadSubjects() {
     if (_subjects.isEmpty) {
       _showError('No subjects data available. Please load study materials first.');
@@ -423,9 +573,13 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     });
   }
 
-  // Load units for a subject from SharedPreferences (no API call)
+  // FIXED: Enhanced _loadUnits method to properly handle direct chapters
   void _loadUnits(String subjectId, String subjectName) {
     try {
+      debugPrint('=== LOADING UNITS/CHAPTERS FOR SUBJECT FOR VIDEOS ===');
+      debugPrint('Subject ID: $subjectId');
+      debugPrint('Subject Name: $subjectName');
+      
       // Find the subject in the stored data
       final subject = _subjects.firstWhere(
         (subject) => subject['id']?.toString() == subjectId,
@@ -437,28 +591,90 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         return;
       }
 
-      final List<dynamic> units = subject['units'] ?? [];
+      // Get units and chapters with proper null checking
+      final dynamic unitsData = subject['units'];
+      final dynamic chaptersData = subject['chapters'];
+      
+      final List<dynamic> units = (unitsData is List) ? unitsData : [];
+      final List<dynamic> directChapters = (chaptersData is List) ? chaptersData : [];
 
-      setState(() {
-        _units = units;
-        _selectedSubjectId = subjectId;
-        _selectedSubjectName = subjectName;
-        _currentPage = 'units';
-        _isLoading = false;
-      });
+      debugPrint('Units found: ${units.length}');
+      debugPrint('Direct chapters found: ${directChapters.length}');
+      
+      // Check if units exist and are not empty
+      final bool hasUnits = units.isNotEmpty;
+      
+      // Check if direct chapters exist and are not empty  
+      final bool hasDirectChapters = directChapters.isNotEmpty;
+
+      debugPrint('Has units: $hasUnits');
+      debugPrint('Has direct chapters: $hasDirectChapters');
+
+      // If subject has units, show units page
+      if (hasUnits) {
+        debugPrint('📚 Showing UNITS page for subject: $subjectName');
+        setState(() {
+          _units = units;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _currentPage = 'units';
+          _isLoading = false;
+        });
+        
+        // Add to navigation stack with units data
+        _navigationStack.add(NavigationState(
+          pageType: 'units',
+          subjectId: subjectId,
+          subjectName: subjectName,
+          hasDirectChapters: false,
+          unitsData: units,
+        ));
+      } 
+      // If subject has direct chapters but no units, show chapters directly
+      else if (hasDirectChapters) {
+        debugPrint('📖 Showing DIRECT CHAPTERS page for subject: $subjectName');
+        setState(() {
+          _chapters = directChapters;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _selectedUnitName = ''; // No unit name since we're going directly to chapters
+          _currentPage = 'chapters';
+          _isLoading = false;
+        });
+        
+        // Add to navigation stack with direct chapters flag and chapters data
+        _navigationStack.add(NavigationState(
+          pageType: 'chapters',
+          subjectId: subjectId,
+          subjectName: subjectName,
+          hasDirectChapters: true,
+          chaptersData: directChapters,
+        ));
+      }
+      // If subject has neither units nor chapters
+      else {
+        debugPrint('❌ No content available for subject: $subjectName');
+        _showError('No content available for this subject');
+        setState(() {
+          _isLoading = false;
+        });
+      }
 
     } catch (e) {
-      debugPrint('Error loading units: $e');
-      _showError('Failed to load units: $e');
+      debugPrint('❌ Error loading units/chapters: $e');
+      _showError('Failed to load content: $e');
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  // Load chapters for a unit from SharedPreferences 
   void _loadChapters(String unitId, String unitName) {
     try {
+      debugPrint('=== LOADING CHAPTERS FOR UNIT FOR VIDEOS ===');
+      debugPrint('Unit ID: $unitId');
+      debugPrint('Unit Name: $unitName');
+      
       // Find the unit in the current subject's units
       final unit = _units.firstWhere(
         (unit) => unit['id']?.toString() == unitId,
@@ -471,6 +687,8 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       }
 
       final List<dynamic> chapters = unit['chapters'] ?? [];
+      
+      debugPrint('Chapters found: ${chapters.length}');
 
       setState(() {
         _chapters = chapters;
@@ -479,6 +697,17 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         _currentPage = 'chapters';
         _isLoading = false;
       });
+
+      // Add to navigation stack with chapters data
+      _navigationStack.add(NavigationState(
+        pageType: 'chapters',
+        subjectId: _selectedSubjectId!,
+        subjectName: _selectedSubjectName,
+        unitId: unitId,
+        unitName: unitName,
+        hasDirectChapters: false,
+        chaptersData: chapters,
+      ));
 
     } catch (e) {
       debugPrint('Error loading chapters: $e');
@@ -489,7 +718,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     }
   }
 
-  // Fetch videos for a chapter from API
+  // Fetch videos for a chapter from API - CORRECTED ENDPOINT
   Future<void> _fetchVideos(String chapterId, String chapterName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found');
@@ -500,22 +729,25 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
 
     try {
       String encodedId = Uri.encodeComponent(chapterId);
-      String apiUrl = '${ApiConfig.baseUrl}/api/videos/list?chapter_id=$encodedId';
+      // FIX: Using the correct API endpoint from your working videos.dart
+      String apiUrl = '${ApiConfig.baseUrl}/api/videos/list/?chapter_id=$encodedId';
       
-      debugPrint('Fetching videos from: $apiUrl');
+      debugPrint('=== FETCHING VIDEOS API CALL ===');
+      debugPrint('URL: $apiUrl');
+      debugPrint('Access Token: ${_accessToken!.substring(0, 20)}...');
       
       final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
-        headers: {
-          ...ApiConfig.commonHeaders,
-          'Authorization': 'Bearer $_accessToken',
-        },
+        headers: _getAuthHeaders(),
       ).timeout(ApiConfig.requestTimeout);
 
-      debugPrint('Response Status Code: ${response.statusCode}');
-
+      debugPrint('\n=== VIDEOS API RESPONSE ===');
+      debugPrint('Status Code: ${response.statusCode}');
+      
       if (response.statusCode == 200) {
         final List<dynamic> videos = json.decode(response.body);
+        
+        debugPrint('Videos count: ${videos.length}');
         
         // Check if there are any locked videos (video_url is null or empty)
         final hasLockedVideos = videos.any((video) {
@@ -535,6 +767,18 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         debugPrint('✅ Successfully loaded ${_videos.length} videos for chapter: $chapterName');
         debugPrint('🔒 Locked videos present: $hasLockedVideos');
         
+        // Add to navigation stack with videos data
+        _navigationStack.add(NavigationState(
+          pageType: 'videos',
+          subjectId: _selectedSubjectId!,
+          subjectName: _selectedSubjectName,
+          unitId: _selectedUnitId,
+          unitName: _selectedUnitName,
+          chapterId: chapterId,
+          chapterName: chapterName,
+          hasDirectChapters: _selectedUnitId == null,
+        ));
+
         // Show subscription message if there are locked videos
         if (hasLockedVideos) {
           _showAndHideSubscriptionMessage();
@@ -553,111 +797,124 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         _handleTokenExpiration();
       } else {
         debugPrint('Error: Failed to fetch videos. Status code: ${response.statusCode}');
+        debugPrint('Response body: ${response.body}');
         _showError('Failed to load videos: ${response.statusCode}');
+      }
+    } on HandshakeException catch (e) {
+      debugPrint('SSL Handshake error: $e');
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SSL certificate issue - this is normal in development'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No network connection'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } catch (e) {
       debugPrint('Exception occurred while fetching videos: $e');
       _showError('Error fetching videos: $e');
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
   List<dynamic> _sortVideos(List<dynamic> videos) {
-  if (videos.isEmpty) return videos;
+    if (videos.isEmpty) return videos;
 
-  // Create a copy to avoid modifying the original list
-  List<dynamic> sortedVideos = List.from(videos);
+    // Create a copy to avoid modifying the original list
+    List<dynamic> sortedVideos = List.from(videos);
 
-  // Parse dates and determine locked status for sorting
-  sortedVideos.sort((a, b) {
-    final videoUrlA = a['video_url']?.toString() ?? '';
-    final videoUrlB = b['video_url']?.toString() ?? '';
-    final isLockedA = videoUrlA.isEmpty || videoUrlA == 'null';
-    final isLockedB = videoUrlB.isEmpty || videoUrlB == 'null';
+    // Parse dates and determine locked status for sorting
+    sortedVideos.sort((a, b) {
+      final videoUrlA = a['video_url']?.toString() ?? '';
+      final videoUrlB = b['video_url']?.toString() ?? '';
+      final isLockedA = videoUrlA.isEmpty || videoUrlA == 'null';
+      final isLockedB = videoUrlB.isEmpty || videoUrlB == 'null';
 
-    // For public students, prioritize unlocked videos first
-    if (_studentType.toLowerCase() == 'public') {
-      if (isLockedA != isLockedB) {
-        return isLockedA ? 1 : -1; // Unlocked videos come first
+      // For public students, prioritize unlocked videos first
+      if (_studentType.toLowerCase() == 'public') {
+        if (isLockedA != isLockedB) {
+          return isLockedA ? 1 : -1; // Unlocked videos come first
+        }
       }
-    }
 
-    // Sort by date (most recent first)
-    try {
-      final dateA = a['uploaded_at']?.toString() ?? '';
-      final dateB = b['uploaded_at']?.toString() ?? '';
+      // Sort by date (most recent first)
+      try {
+        final dateA = a['uploaded_at']?.toString() ?? '';
+        final dateB = b['uploaded_at']?.toString() ?? '';
 
-      if (dateA.isEmpty && dateB.isEmpty) return 0;
-      if (dateA.isEmpty) return 1; // Videos without date go to bottom
-      if (dateB.isEmpty) return -1;
+        if (dateA.isEmpty && dateB.isEmpty) return 0;
+        if (dateA.isEmpty) return 1; // Videos without date go to bottom
+        if (dateB.isEmpty) return -1;
 
-      final parsedDateA = DateTime.parse(dateA);
-      final parsedDateB = DateTime.parse(dateB);
+        final parsedDateA = DateTime.parse(dateA);
+        final parsedDateB = DateTime.parse(dateB);
 
-      // Most recent first (descending order)
-      return parsedDateB.compareTo(parsedDateA);
-    } catch (e) {
-      debugPrint('Error parsing dates for sorting videos: $e');
-      return 0;
-    }
-  });
-
-  return sortedVideos;
-}
-
-// Add this helper method to format date (add after _sortVideos method)
-String _formatVideoDate(String dateString) {
-  try {
-    if (dateString.isEmpty) return 'Unknown date';
-    
-    final DateTime date = DateTime.parse(dateString);
-    final DateTime now = DateTime.now();
-    final Duration difference = now.difference(date);
-
-    if (difference.inDays == 0) {
-      return 'Today';
-    } else if (difference.inDays == 1) {
-      return 'Yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else if (difference.inDays < 30) {
-      final weeks = (difference.inDays / 7).floor();
-      return '$weeks week${weeks > 1 ? 's' : ''} ago';
-    } else if (difference.inDays < 365) {
-      final months = (difference.inDays / 30).floor();
-      return '$months month${months > 1 ? 's' : ''} ago';
-    } else {
-      final years = (difference.inDays / 365).floor();
-      return '$years year${years > 1 ? 's' : ''} ago';
-    }
-  } catch (e) {
-    try {
-      final parts = dateString.split('T')[0].split('-');
-      if (parts.length == 3) {
-        return '${parts[2]}/${parts[1]}/${parts[0]}';
+        // Most recent first (descending order)
+        return parsedDateB.compareTo(parsedDateA);
+      } catch (e) {
+        debugPrint('Error parsing dates for sorting videos: $e');
+        return 0;
       }
-    } catch (e) {
-      // If all else fails
-    }
-    return dateString.isNotEmpty ? dateString : 'Unknown date';
+    });
+
+    return sortedVideos;
   }
-}
 
+  // Add this helper method to format date
+  String _formatVideoDate(String dateString) {
+    try {
+      if (dateString.isEmpty) return 'Unknown date';
+      
+      final DateTime date = DateTime.parse(dateString);
+      final DateTime now = DateTime.now();
+      final Duration difference = now.difference(date);
+
+      if (difference.inDays == 0) {
+        return 'Today';
+      } else if (difference.inDays == 1) {
+        return 'Yesterday';
+      } else if (difference.inDays < 7) {
+        return '${difference.inDays} days ago';
+      } else if (difference.inDays < 30) {
+        final weeks = (difference.inDays / 7).floor();
+        return '$weeks week${weeks > 1 ? 's' : ''} ago';
+      } else if (difference.inDays < 365) {
+        final months = (difference.inDays / 30).floor();
+        return '$months month${months > 1 ? 's' : ''} ago';
+      } else {
+        final years = (difference.inDays / 365).floor();
+        return '$years year${years > 1 ? 's' : ''} ago';
+      }
+    } catch (e) {
+      try {
+        final parts = dateString.split('T')[0].split('-');
+        if (parts.length == 3) {
+          return '${parts[2]}/${parts[1]}/${parts[0]}';
+        }
+      } catch (e) {
+        // If all else fails
+      }
+      return dateString.isNotEmpty ? dateString : 'Unknown date';
+    }
+  }
 
   // Show and hide subscription message with animation
   void _showAndHideSubscriptionMessage() {
     setState(() {
       _showSubscriptionMessage = true;
     });
-  }
-
-  void _handleTokenExpiration() async {
-    await _authService.logout();
-    _showError('Session expired. Please login again.');
-    _navigateToLogin();
   }
 
   void _showError(String message) {
@@ -680,12 +937,96 @@ String _formatVideoDate(String dateString) {
     }
   }
 
-  void _navigateToLogin() {
+  // ENHANCED: Proper hierarchical backward navigation
+  void _navigateBack() {
+    debugPrint('=== BACK NAVIGATION START FOR VIDEOS ===');
+    debugPrint('Current stack length: ${_navigationStack.length}');
+    debugPrint('Current page: $_currentPage');
+    
+    if (_navigationStack.length > 1) {
+      // Remove current state
+      final currentState = _navigationStack.removeLast();
+      debugPrint('Removed current state: ${currentState.pageType}');
+      
+      // Get previous state
+      final previousState = _navigationStack.last;
+      debugPrint('Previous state: ${previousState.pageType}');
+      
+      // Restore the previous state properly based on page type
+      setState(() {
+        _currentPage = previousState.pageType;
+        _selectedSubjectId = previousState.subjectId;
+        _selectedSubjectName = previousState.subjectName;
+        
+        switch (previousState.pageType) {
+          case 'subjects':
+            // Going back to subjects - restore subjects data
+            _units = [];
+            _chapters = [];
+            _videos = [];
+            _selectedUnitId = null;
+            _selectedUnitName = '';
+            _selectedChapterId = null;
+            _selectedChapterName = '';
+            break;
+            
+          case 'units':
+            // Going back to units from chapters
+            _units = previousState.unitsData;
+            _chapters = [];
+            _videos = [];
+            _selectedUnitId = null;
+            _selectedUnitName = '';
+            _selectedChapterId = null;
+            _selectedChapterName = '';
+            break;
+            
+          case 'chapters':
+            // Going back to chapters from videos
+            if (previousState.hasDirectChapters) {
+              // Direct chapters (no units)
+              _chapters = previousState.chaptersData;
+              _selectedUnitId = null;
+              _selectedUnitName = '';
+            } else {
+              // Chapters with units
+              _chapters = previousState.chaptersData;
+              _selectedUnitId = previousState.unitId;
+              _selectedUnitName = previousState.unitName ?? '';
+            }
+            _videos = [];
+            _selectedChapterId = null;
+            _selectedChapterName = '';
+            break;
+        }
+        _isLoading = false;
+      });
+      
+      debugPrint('=== BACK NAVIGATION COMPLETE FOR VIDEOS ===');
+      debugPrint('New current page: $_currentPage');
+      debugPrint('Stack length after: ${_navigationStack.length}');
+    } else {
+      // If we're at the root (subjects), exit the screen
+      debugPrint('At root level - exiting videos screen');
+      _exitScreen();
+    }
+  }
+
+  // Enhanced exit screen method that sends data without waiting
+  void _exitScreen() {
+    if (_studentType.toLowerCase() == 'online') {
+      // Send watching data to backend without waiting for response
+      _sendStoredVideoEventsToAPI().catchError((e) {
+        debugPrint('Error sending watching data on exit: $e');
+        // Don't show error to user, just log it
+      });
+    }
+    
+    // Send mark read API when returning from videos section
+    _sendMarkReadApi();
+    
     if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/signup',
-        (Route<dynamic> route) => false,
-      );
+      Navigator.pop(context);
     }
   }
 
@@ -705,11 +1046,25 @@ String _formatVideoDate(String dateString) {
     }
   }
 
-  // Method to send all stored video events data to API (only called from subjects page back button and app lifecycle)
+  // FIXED: Enhanced with debouncing and duplicate call prevention
   Future<void> _sendStoredVideoEventsToAPI() async {
     // Only send data for online students
     if (_studentType.toLowerCase() != 'online') {
       debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+      return;
+    }
+
+    // Check if we're already sending data
+    if (_isSendingVideoEvents) {
+      debugPrint('🎬 Video events API call already in progress, skipping duplicate call');
+      return;
+    }
+
+    // Check debounce time
+    final now = DateTime.now();
+    if (_lastVideoEventsCallTime != null && 
+        now.difference(_lastVideoEventsCallTime!) < _videoEventsDebounceTime) {
+      debugPrint('🎬 Video events API call debounced, too soon since last call');
       return;
     }
 
@@ -731,10 +1086,22 @@ String _formatVideoDate(String dateString) {
         return;
       }
 
+      // Set flags to prevent duplicate calls
+      setState(() {
+        _isSendingVideoEvents = true;
+        _lastVideoEventsCallTime = now;
+      });
+
       bool anyDataSent = false;
       final List<String> successfullySentVideoIds = [];
 
       for (final videoId in allKeys) {
+        // Skip if this video is already being processed
+        if (_currentlyProcessingVideoIds.contains(videoId)) {
+          debugPrint('🎬 ⚠️ Skipping video $videoId - already being processed');
+          continue;
+        }
+
         final videoData = _videoEventsBox.get(videoId);
         
         if (videoData != null && videoData is Map) {
@@ -745,6 +1112,9 @@ String _formatVideoDate(String dateString) {
             debugPrint('\n🎬 Processing video: $videoTitle');
             debugPrint('🎬 Video ID: $videoId');
             debugPrint('🎬 Events count: ${events.length}');
+            
+            // Add to currently processing set
+            _currentlyProcessingVideoIds.add(videoId);
             
             // Filter events to ensure only one 'ended' event
             List<dynamic> filteredEvents = _filterEvents(events);
@@ -772,11 +1142,7 @@ String _formatVideoDate(String dateString) {
               // Send POST request
               final response = await globalHttpClient.post(
                 Uri.parse(apiUrl),
-                headers: {
-                  'Authorization': 'Bearer $_accessToken',
-                  'Content-Type': 'application/json',
-                  ...ApiConfig.commonHeaders,
-                },
+                headers: _getAuthHeaders(),
                 body: jsonEncode(requestBody),
               ).timeout(const Duration(seconds: 30));
 
@@ -817,6 +1183,9 @@ String _formatVideoDate(String dateString) {
               }
             } catch (e) {
               debugPrint('🎬 ❌ Error sending video events for $videoId: $e');
+            } finally {
+              // Remove from currently processing set
+              _currentlyProcessingVideoIds.remove(videoId);
             }
           } else {
             debugPrint('🎬 ⚠️ No events found for video: $videoTitle');
@@ -845,6 +1214,13 @@ String _formatVideoDate(String dateString) {
 
     } catch (e) {
       debugPrint('🎬 ❌ Error in _sendStoredVideoEventsToAPI: $e');
+    } finally {
+      // Reset sending flag
+      if (mounted) {
+        setState(() {
+          _isSendingVideoEvents = false;
+        });
+      }
     }
   }
 
@@ -965,53 +1341,10 @@ String _formatVideoDate(String dateString) {
     }
   }
 
-  void _navigateBack() async {
-    // Reload notification data when navigating back to update badges
-    await _loadNotificationData();
-    
-    setState(() {
-      switch (_currentPage) {
-        case 'subjects':
-          // When going back from subjects page, check for stored data and send if exists
-          // Only for online students
-          if (_studentType.toLowerCase() == 'online') {
-            _sendStoredVideoEventsToAPI();
-          }
-          // Send mark read API when returning from videos section
-          if (_currentPage == 'videos') {
-            _sendMarkReadApi();
-          }
-          if (mounted) {
-            Navigator.pop(context);
-          }
-          break;
-        case 'units':
-          _currentPage = 'subjects';
-          // Don't clear units - they will be reloaded when needed
-          _selectedSubjectId = null;
-          _selectedSubjectName = '';
-          break;
-        case 'chapters':
-          _currentPage = 'units';
-          _selectedUnitId = null;
-          _selectedUnitName = '';
-          break;
-        case 'videos':
-          _currentPage = 'chapters';
-          _videos.clear(); 
-          _selectedChapterId = null;
-          _selectedChapterName = '';
-          // Send mark read API when returning from videos section
-          _sendMarkReadApi();
-          break;
-      }
-    });
-  }
-
   Future<bool> _handleDeviceBackButton() async {
     debugPrint('🎬 Back button pressed - current page: $_currentPage');
     
-    if (_currentPage == 'subjects') {
+    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
       // On subjects page - check for stored data and send if exists
       // Only for online students
       if (_studentType.toLowerCase() == 'online') {
@@ -1027,35 +1360,66 @@ String _formatVideoDate(String dateString) {
       } else {
         debugPrint('🎬 Student type is $_studentType - skipping video events collection');
       }
-      // Allow normal back navigation
-      return true;
-    } else if (_currentPage == 'videos') {
-      // From videos page, go back to chapters page and send mark read API
-      _navigateBack();
-      // Prevent default back behavior
-      return false;
+      // Exit the screen
+      _exitScreen();
+      return false; // Don't allow default back behavior
     } else {
-      // For other pages (units, chapters), do normal navigation
-      debugPrint('🎬 On $_currentPage page - normal back navigation');
+      // For other pages, do normal navigation
       _navigateBack();
-      // Prevent default back behavior
-      return false;
+      return false; // Don't allow default back behavior
     }
   }
 
   String _getAppBarTitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'subjects':
+          return 'Subjects';
+        case 'units':
+          return 'Units';
+        case 'chapters':
+          return 'Chapters';
+        case 'videos':
+          return 'Videos';
+        default:
+          return 'Videos';
+      }
+    }
+    
     switch (_currentPage) {
       case 'subjects':
-        return 'Videos';
+        return 'Subjects';
       case 'units':
-        return 'Units - $_selectedSubjectName';
+        return 'Units';
       case 'chapters':
-        return 'Chapters - $_selectedUnitName';
+        return 'Chapters';
       case 'videos':
-        return 'Videos - $_selectedChapterName';
+        return 'Videos';
       default:
         return 'Videos';
     }
+  }
+
+  String _getAppBarSubtitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'units':
+          return currentState.subjectName;
+        case 'chapters':
+          if (currentState.hasDirectChapters) {
+            return currentState.subjectName;
+          } else {
+            return currentState.unitName ?? currentState.subjectName;
+          }
+        case 'videos':
+          return currentState.chapterName ?? currentState.subjectName;
+        default:
+          return '';
+      }
+    }
+    return '';
   }
 
   // Show subscription popup for locked videos
@@ -1146,10 +1510,7 @@ String _formatVideoDate(String dateString) {
           return;
         }
         
-        final shouldPop = await _handleDeviceBackButton();
-        if (shouldPop && mounted) {
-          Navigator.of(context).pop();
-        }
+        await _handleDeviceBackButton();
       },
       child: Scaffold(
         backgroundColor: AppColors.backgroundLight,
@@ -1198,23 +1559,7 @@ String _formatVideoDate(String dateString) {
                           children: [
                             IconButton(
                               onPressed: () async {
-                                if (_currentPage == 'subjects') {
-                                  if (_studentType.toLowerCase() == 'online') {
-                                    final hasData = await _hasStoredVideoEvents();
-                                    if (hasData) {
-                                      _sendStoredVideoEventsToAPI();
-                                    }
-                                  }
-                                  // Send mark read API when returning from videos section
-                                  if (_currentPage == 'videos') {
-                                    _sendMarkReadApi();
-                                  }
-                                  if (mounted) {
-                                    Navigator.pop(context);
-                                  }
-                                } else {
-                                  _navigateBack();
-                                }
+                                await _handleDeviceBackButton();
                               },
                               icon: const Icon(
                                 Icons.arrow_back_rounded,
@@ -1224,14 +1569,32 @@ String _formatVideoDate(String dateString) {
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                _getAppBarTitle(),
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: -0.3,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _getAppBarTitle(),
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  if (_getAppBarSubtitle().isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _getAppBarSubtitle(),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white70,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],
@@ -1558,17 +1921,38 @@ String _formatVideoDate(String dateString) {
             else
               Column(
                 children: _subjects
-                    .map((subject) => _buildSubjectCard(
-                          title: subject['title']?.toString() ?? 'Unknown Subject',
-                          subtitle: '${subject['units']?.length ?? 0} units available',
-                          icon: Icons.subject_rounded,
-                          color: AppColors.primaryBlue,
-                          onTap: () => _loadUnits(
-                            subject['id']?.toString() ?? '',
-                            subject['title']?.toString() ?? 'Unknown Subject',
-                          ),
-                          showBadge: _hasUnreadSubjectNotifications(subject['id']?.toString() ?? ''),
-                        ))
+                    .map((subject) {
+                      // Get units and chapters with proper null checking
+                      final dynamic unitsData = subject['units'];
+                      final dynamic chaptersData = subject['chapters'];
+                      
+                      final List<dynamic> units = (unitsData is List) ? unitsData : [];
+                      final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+                      
+                      final bool hasUnits = units.isNotEmpty;
+                      final bool hasChapters = chapters.isNotEmpty;
+                      
+                      String contentCount;
+                      if (hasUnits) {
+                        contentCount = '${units.length} units';
+                      } else if (hasChapters) {
+                        contentCount = '${chapters.length} chapters';
+                      } else {
+                        contentCount = 'No content';
+                      }
+                              
+                      return _buildSubjectCard(
+                        title: subject['title']?.toString() ?? 'Untitled Subject',
+                        subtitle: contentCount,
+                        icon: Icons.subject_rounded,
+                        color: AppColors.primaryBlue,
+                        onTap: () => _loadUnits(
+                          subject['id']?.toString() ?? '',
+                          subject['title']?.toString() ?? 'Unknown Subject',
+                        ),
+                        showBadge: _hasUnreadSubjectNotifications(subject['id']?.toString() ?? ''),
+                      );
+                    })
                     .toList(),
               ),
           ],
@@ -1747,7 +2131,7 @@ String _formatVideoDate(String dateString) {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _selectedUnitName,
+                            _selectedUnitName.isNotEmpty ? _selectedUnitName : _selectedSubjectName,
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppColors.primaryBlue,
@@ -1843,144 +2227,143 @@ String _formatVideoDate(String dateString) {
   }
 
   Widget _buildVideosPage() {
-  // Sort videos before displaying
-  List<dynamic> sortedVideos = _sortVideos(_videos);
+    // Sort videos before displaying
+    List<dynamic> sortedVideos = _sortVideos(_videos);
 
-  return SingleChildScrollView(
-    physics: const BouncingScrollPhysics(),
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Section
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryBlue,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Videos',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _selectedChapterName,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.primaryBlue,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.only(left: 16),
-                child: Text(
-                  '${sortedVideos.length} video${sortedVideos.length != 1 ? 's' : ''} available',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.grey400,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          if (sortedVideos.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Section
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      width: 4,
+                      height: 24,
                       decoration: BoxDecoration(
-                        color: AppColors.primaryBlue.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.videocam_off_rounded,
-                        size: 50,
-                        color: AppColors.primaryBlue.withOpacity(0.5),
+                        color: AppColors.primaryBlue,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'No videos available',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Videos for this chapter\nwill be added soon',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textGrey,
-                        fontWeight: FontWeight.w500,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Videos',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedChapterName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            )
-          else
-            Column(
-              children: sortedVideos
-                  .map((video) {
-                    final videoUrl = video['video_url']?.toString() ?? '';
-                    final isLocked = videoUrl.isEmpty || videoUrl == 'null';
-                    final videoId = video['id']?.toString() ?? '';
-                    final uploadedAt = video['uploaded_at']?.toString() ?? '';
-                    
-                    return _buildVideoCard(
-                      videoId: videoId,
-                      title: video['title']?.toString() ?? 'Untitled Video',
-                      uploadedAt: uploadedAt,
-                      isLocked: isLocked,
-                      showBadge: _hasUnreadVideoNotifications(videoId),
-                    );
-                  })
-                  .toList(),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Text(
+                    '${sortedVideos.length} video${sortedVideos.length != 1 ? 's' : ''} available',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.grey400,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
             ),
-        ],
-      ),
-    ),
-  );
-}
 
+            const SizedBox(height: 24),
+
+            if (sortedVideos.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.videocam_off_rounded,
+                          size: 50,
+                          color: AppColors.primaryBlue.withOpacity(0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No videos available',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Videos for this chapter\nwill be added soon',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Column(
+                children: sortedVideos
+                    .map((video) {
+                      final videoUrl = video['video_url']?.toString() ?? '';
+                      final isLocked = videoUrl.isEmpty || videoUrl == 'null';
+                      final videoId = video['id']?.toString() ?? '';
+                      final uploadedAt = video['uploaded_at']?.toString() ?? '';
+                      
+                      return _buildVideoCard(
+                        videoId: videoId,
+                        title: video['title']?.toString() ?? 'Untitled Video',
+                        uploadedAt: uploadedAt,
+                        isLocked: isLocked,
+                        showBadge: _hasUnreadVideoNotifications(videoId),
+                      );
+                    })
+                    .toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildSubjectCard({
     required String title,
@@ -2099,185 +2482,185 @@ String _formatVideoDate(String dateString) {
     );
   }
 
- Widget _buildVideoCard({
-  required String videoId,
-  required String title,
-  required String uploadedAt,
-  required bool isLocked,
-  bool showBadge = false,
-}) {
-  return GestureDetector(
-    onTap: () {
-      if (isLocked) {
-        _showSubscriptionPopup(context);
-        return;
-      }
+  Widget _buildVideoCard({
+    required String videoId,
+    required String title,
+    required String uploadedAt,
+    required bool isLocked,
+    bool showBadge = false,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        if (isLocked) {
+          _showSubscriptionPopup(context);
+          return;
+        }
 
-      if (videoId.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Video ID not available'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-        return;
-      }
-      
-      // Remove notification for this video and add to mark read list
-      _removeNotificationForVideo(videoId);
-      
-      // Send stored events for other videos before starting new video
-      // Only for online students
-      if (_studentType.toLowerCase() == 'online') {
-        _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
-      } else {
-        debugPrint('🎬 Student type is $_studentType - skipping video events collection');
-      }
-      
-      // Navigate to video stream page
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => VideoStreamScreen(
-            videoId: videoId,
-            videoTitle: title,
-            videoDuration: '', 
-          ),
-        ),
-      );
-    },
-    child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: isLocked 
-                ? Colors.grey.withOpacity(0.1)
-                : AppColors.primaryYellow.withOpacity(0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Container(
-                  height: 40,
-                  width: 40,
-                  decoration: BoxDecoration(
-                    color: isLocked 
-                        ? Colors.grey.withOpacity(0.1)
-                        : AppColors.primaryBlue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    isLocked ? Icons.lock_outline_rounded : Icons.play_circle_fill_rounded,
-                    size: 20,
-                    color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: isLocked ? Colors.grey : AppColors.textDark,
-                          letterSpacing: -0.1,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (uploadedAt.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          _formatVideoDate(uploadedAt),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isLocked ? Colors.grey : AppColors.grey400,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Container(
-                      height: 32,
-                      width: 32,
-                      decoration: BoxDecoration(
-                        color: isLocked 
-                            ? Colors.grey.withOpacity(0.1)
-                            : AppColors.primaryBlue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
-                        color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                        size: 16,
-                      ),
-                    ),
-                    if (showBadge && !isLocked)
-                      Positioned(
-                        top: -4,
-                        right: -4,
-                        child: Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ],
+        if (videoId.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Video ID not available'),
+              backgroundColor: AppColors.errorRed,
+            ),
+          );
+          return;
+        }
+        
+        // Remove notification for this video and add to mark read list
+        _removeNotificationForVideo(videoId);
+        
+        // Send stored events for other videos before starting new video
+        // Only for online students
+        if (_studentType.toLowerCase() == 'online') {
+          _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
+        } else {
+          debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+        }
+        
+        // Navigate to video stream page
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => VideoStreamScreen(
+              videoId: videoId,
+              videoTitle: title,
+              videoDuration: '', 
             ),
           ),
-          
-          // Blur effect for locked videos 
-          if (isLocked)
-            Positioned.fill(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: BackdropFilter(
-                  filter: ColorFilter.mode(
-                    Colors.grey.withOpacity(0.3),
-                    BlendMode.srcOver,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: isLocked 
+                  ? Colors.grey.withOpacity(0.1)
+                  : AppColors.primaryYellow.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isLocked ? Icons.lock_outline_rounded : Icons.play_circle_fill_rounded,
+                      size: 20,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                    ),
                   ),
-                  child: Container(
-                    color: Colors.white.withOpacity(0.7),
-                    child: const Center(
-                      child: Icon(
-                        Icons.lock_rounded,
-                        color: AppColors.primaryBlue,
-                        size: 18,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: isLocked ? Colors.grey : AppColors.textDark,
+                            letterSpacing: -0.1,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (uploadedAt.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatVideoDate(uploadedAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isLocked ? Colors.grey : AppColors.grey400,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        height: 32,
+                        width: 32,
+                        decoration: BoxDecoration(
+                          color: isLocked 
+                              ? Colors.grey.withOpacity(0.1)
+                              : AppColors.primaryBlue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          isLocked ? Icons.lock_rounded : Icons.play_arrow_rounded,
+                          color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                          size: 16,
+                        ),
+                      ),
+                      if (showBadge && !isLocked)
+                        Positioned(
+                          top: -4,
+                          right: -4,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            
+            // Blur effect for locked videos 
+            if (isLocked)
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: BackdropFilter(
+                    filter: ColorFilter.mode(
+                      Colors.grey.withOpacity(0.3),
+                      BlendMode.srcOver,
+                    ),
+                    child: Container(
+                      color: Colors.white.withOpacity(0.7),
+                      child: const Center(
+                        child: Icon(
+                          Icons.lock_rounded,
+                          color: AppColors.primaryBlue,
+                          size: 18,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 class CurvedHeaderClipper extends CustomClipper<Path> {

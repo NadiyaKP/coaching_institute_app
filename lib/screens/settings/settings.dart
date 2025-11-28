@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:convert';
@@ -11,6 +12,79 @@ import '../../service/auth_service.dart';
 import '../../service/api_config.dart';
 import '../../common/theme_color.dart';
 
+// ============= PROVIDER CLASS =============
+class SettingsProvider extends ChangeNotifier {
+  // Change Password Dialog State
+  bool _currentPasswordVisible = false;
+  bool _newPasswordVisible = false;
+  bool _confirmPasswordVisible = false;
+  bool _isLoading = false;
+  
+  // Contact Us State
+  bool _showContactUsSheet = false;
+  
+  // Logout State
+  bool _isLoggingOut = false;
+
+  // Getters
+  bool get currentPasswordVisible => _currentPasswordVisible;
+  bool get newPasswordVisible => _newPasswordVisible;
+  bool get confirmPasswordVisible => _confirmPasswordVisible;
+  bool get isLoading => _isLoading;
+  bool get showContactUsSheet => _showContactUsSheet;
+  bool get isLoggingOut => _isLoggingOut;
+
+  // Change Password Visibility Methods
+  void toggleCurrentPasswordVisibility() {
+    _currentPasswordVisible = !_currentPasswordVisible;
+    notifyListeners();
+  }
+
+  void toggleNewPasswordVisibility() {
+    _newPasswordVisible = !_newPasswordVisible;
+    notifyListeners();
+  }
+
+  void toggleConfirmPasswordVisibility() {
+    _confirmPasswordVisible = !_confirmPasswordVisible;
+    notifyListeners();
+  }
+
+  // Loading State Methods
+  void setLoading(bool loading) {
+    _isLoading = loading;
+    notifyListeners();
+  }
+
+  void setLoggingOut(bool loggingOut) {
+    _isLoggingOut = loggingOut;
+    notifyListeners();
+  }
+
+  // Contact Us Sheet Methods
+  void showContactUs() {
+    _showContactUsSheet = true;
+    notifyListeners();
+  }
+
+  void hideContactUs() {
+    _showContactUsSheet = false;
+    notifyListeners();
+  }
+
+  // Reset all states
+  void resetAllStates() {
+    _currentPasswordVisible = false;
+    _newPasswordVisible = false;
+    _confirmPasswordVisible = false;
+    _isLoading = false;
+    _showContactUsSheet = false;
+    _isLoggingOut = false;
+    notifyListeners();
+  }
+}
+
+// ============= SCREEN CLASS =============
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -20,6 +94,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final AuthService _authService = AuthService();
+  late SettingsProvider _settingsProvider;
 
   // Create HTTP client with custom certificate handling
   http.Client _createHttpClientWithCustomCert() {
@@ -28,268 +103,290 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _settingsProvider = SettingsProvider();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Settings',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 18,
+    return ChangeNotifierProvider.value(
+      value: _settingsProvider,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text(
+            'Settings',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 18,
+            ),
           ),
+          backgroundColor: AppColors.primaryYellow,
+          iconTheme: const IconThemeData(color: Colors.white),
+          elevation: 2,
         ),
-        backgroundColor: AppColors.primaryYellow,
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 2,
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 8),
-                
-                // Account Settings Section
-                const Text(
-                  'Account Settings',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textGrey,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 8),
+                  
+                  // Account Settings Section
+                  const Text(
+                    'Account Settings',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textGrey,
+                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 12),
-                
-                // Change Password Card
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: InkWell(
-                    onTap: _showChangePasswordDialog,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryYellow.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Change Password Card
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: InkWell(
+                      onTap: _showChangePasswordDialog,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryYellow.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.lock_outline,
+                                color: AppColors.primaryYellow,
+                                size: 24,
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.lock_outline,
-                              color: AppColors.primaryYellow,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Change Password',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textDark,
+                            const SizedBox(width: 16),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Change Password',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textDark,
+                                    ),
                                   ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Update your account password',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textGrey,
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Update your account password',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textGrey,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: AppColors.textGrey,
-                          ),
-                        ],
+                            const Icon(
+                              Icons.chevron_right,
+                              color: AppColors.textGrey,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                
-                const SizedBox(height: 24),
-                
-                // Information Section
-                const Text(
-                  'Information',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textGrey,
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Information Section
+                  const Text(
+                    'Information',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textGrey,
+                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 12),
-                
-                // About Us Card
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                  
+                  const SizedBox(height: 12),
+                  
+                  // About Us Card
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.pushNamed(context, '/about_us');
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryYellow.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.info_outline,
+                                color: AppColors.primaryYellow,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'About Us',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textDark,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Learn more about us',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textGrey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right,
+                              color: AppColors.textGrey,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.pushNamed(context, '/about_us');
+                  
+                  const SizedBox(height: 12),
+                  
+                  // Contact Us Card
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: InkWell(
+                      onTap: _showContactUsBottomSheet,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryYellow.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(
+                                Icons.mail_outline,
+                                color: AppColors.primaryYellow,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Contact Us',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textDark,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Get in touch with our team',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppColors.textGrey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Icon(
+                              Icons.chevron_right,
+                              color: AppColors.textGrey,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 32),
+                  
+                  // Logout Button Section - Reduced Size
+                  Consumer<SettingsProvider>(
+                    builder: (context, settingsProvider, child) {
+                      return Center(
+                        child: SizedBox(
+                          width: MediaQuery.of(context).size.width * 0.5, // 50% of screen width
+                          child: ElevatedButton.icon(
+                            onPressed: settingsProvider.isLoggingOut ? null : () => _showLogoutDialog(settingsProvider),
+                            icon: const Icon(Icons.logout_rounded, size: 18),
+                            label: settingsProvider.isLoggingOut
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : const Text(
+                                    'Logout',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 2,
+                            ),
+                          ),
+                        ),
+                      );
                     },
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryYellow.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.info_outline,
-                              color: AppColors.primaryYellow,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'About Us',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textDark,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Learn more about us',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: AppColors.textGrey,
-                          ),
-                        ],
-                      ),
-                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 12),
-                
-                // Contact Us Card
-                Card(
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: InkWell(
-                    onTap: _showContactUsBottomSheet,
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primaryYellow.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(
-                              Icons.mail_outline,
-                              color: AppColors.primaryYellow,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Contact Us',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textDark,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'Get in touch with our team',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(
-                            Icons.chevron_right,
-                            color: AppColors.textGrey,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Logout Button Section - Reduced Size
-                Center(
-                  child: SizedBox(
-                    width: MediaQuery.of(context).size.width * 0.5, // 50% of screen width
-                    child: ElevatedButton.icon(
-                      onPressed: _showLogoutDialog,
-                      icon: const Icon(Icons.logout_rounded, size: 18),
-                      label: const Text(
-                        'Logout',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 2,
-                      ),
-                    ),
-                  ),
-                ),
-                
-                const SizedBox(height: 16),
-              ],
+                  
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           ),
         ),
@@ -306,293 +403,275 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final newPasswordFocus = FocusNode();
     final confirmPasswordFocus = FocusNode();
     
-    bool currentPasswordVisible = false;
-    bool newPasswordVisible = false;
-    bool confirmPasswordVisible = false;
-    bool isLoading = false;
-
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: const Row(
-                children: [
-                  Icon(
-                    Icons.lock_reset,
-                    color: AppColors.primaryYellow,
-                    size: 24,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Change Password',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+        return ChangeNotifierProvider(
+          create: (context) => SettingsProvider(),
+          child: Consumer<SettingsProvider>(
+            builder: (context, settingsProvider, child) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: const Row(
                   children: [
-                    // Current Password Field
-                    TextField(
-                      controller: currentPasswordController,
-                      focusNode: currentPasswordFocus,
-                      obscureText: !currentPasswordVisible,
-                      onEditingComplete: () {
-                        if (currentPasswordController.text.isNotEmpty && 
-                            currentPasswordController.text.length < 4) {
-                          _showErrorSnackBar('Current password must be at least 4 characters');
-                        }
-                        newPasswordFocus.requestFocus();
-                      },
-                      decoration: InputDecoration(
-                        labelText: 'Current Password',
-                        hintText: 'Enter current password',
-                        prefixIcon: const Icon(
-                          Icons.lock_outline,
-                          color: AppColors.primaryYellow,
-                        ),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            currentPasswordVisible
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              currentPasswordVisible = !currentPasswordVisible;
-                            });
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: AppColors.primaryYellow,
-                            width: 2,
-                          ),
-                        ),
-                      ),
+                    Icon(
+                      Icons.lock_reset,
+                      color: AppColors.primaryYellow,
+                      size: 24,
                     ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // New Password Field
-                    TextField(
-                      controller: newPasswordController,
-                      focusNode: newPasswordFocus,
-                      obscureText: !newPasswordVisible,
-                      onEditingComplete: () {
-                        if (newPasswordController.text.isNotEmpty && 
-                            newPasswordController.text.length < 4) {
-                          _showErrorSnackBar('New password must be at least 4 characters');
-                        }
-                        confirmPasswordFocus.requestFocus();
-                      },
-                      decoration: InputDecoration(
-                        labelText: 'New Password',
-                        hintText: 'Enter new password',
-                        prefixIcon: const Icon(
-                          Icons.lock,
-                          color: AppColors.primaryYellow,
-                        ),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            newPasswordVisible
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              newPasswordVisible = !newPasswordVisible;
-                            });
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: AppColors.primaryYellow,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Confirm Password Field
-                    TextField(
-                      controller: confirmPasswordController,
-                      focusNode: confirmPasswordFocus,
-                      obscureText: !confirmPasswordVisible,
-                      onEditingComplete: () {
-                        if (confirmPasswordController.text.isNotEmpty && 
-                            confirmPasswordController.text.length < 4) {
-                          _showErrorSnackBar('Confirm password must be at least 4 characters');
-                        }
-                        confirmPasswordFocus.unfocus();
-                      },
-                      decoration: InputDecoration(
-                        labelText: 'Confirm Password',
-                        hintText: 'Re-enter new password',
-                        prefixIcon: const Icon(
-                          Icons.lock_clock,
-                          color: AppColors.primaryYellow,
-                        ),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            confirmPasswordVisible
-                                ? Icons.visibility
-                                : Icons.visibility_off,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              confirmPasswordVisible = !confirmPasswordVisible;
-                            });
-                          },
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: const BorderSide(
-                            color: AppColors.primaryYellow,
-                            width: 2,
-                          ),
-                        ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Change Password',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isLoading
-                      ? null
-                      : () {
-                          Navigator.of(dialogContext).pop();
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Current Password Field
+                      TextField(
+                        controller: currentPasswordController,
+                        focusNode: currentPasswordFocus,
+                        obscureText: !settingsProvider.currentPasswordVisible,
+                        onEditingComplete: () {
+                          if (currentPasswordController.text.isNotEmpty && 
+                              currentPasswordController.text.length < 4) {
+                            _showErrorSnackBar('Current password must be at least 4 characters');
+                          }
+                          newPasswordFocus.requestFocus();
                         },
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: AppColors.textGrey),
+                        decoration: InputDecoration(
+                          labelText: 'Current Password',
+                          hintText: 'Enter current password',
+                          prefixIcon: const Icon(
+                            Icons.lock_outline,
+                            color: AppColors.primaryYellow,
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              settingsProvider.currentPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            onPressed: settingsProvider.toggleCurrentPasswordVisibility,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: AppColors.primaryYellow,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // New Password Field
+                      TextField(
+                        controller: newPasswordController,
+                        focusNode: newPasswordFocus,
+                        obscureText: !settingsProvider.newPasswordVisible,
+                        onEditingComplete: () {
+                          if (newPasswordController.text.isNotEmpty && 
+                              newPasswordController.text.length < 4) {
+                            _showErrorSnackBar('New password must be at least 4 characters');
+                          }
+                          confirmPasswordFocus.requestFocus();
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'New Password',
+                          hintText: 'Enter new password',
+                          prefixIcon: const Icon(
+                            Icons.lock,
+                            color: AppColors.primaryYellow,
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              settingsProvider.newPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            onPressed: settingsProvider.toggleNewPasswordVisibility,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: AppColors.primaryYellow,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      
+                      // Confirm Password Field
+                      TextField(
+                        controller: confirmPasswordController,
+                        focusNode: confirmPasswordFocus,
+                        obscureText: !settingsProvider.confirmPasswordVisible,
+                        onEditingComplete: () {
+                          if (confirmPasswordController.text.isNotEmpty && 
+                              confirmPasswordController.text.length < 4) {
+                            _showErrorSnackBar('Confirm password must be at least 4 characters');
+                          }
+                          confirmPasswordFocus.unfocus();
+                        },
+                        decoration: InputDecoration(
+                          labelText: 'Confirm Password',
+                          hintText: 'Re-enter new password',
+                          prefixIcon: const Icon(
+                            Icons.lock_clock,
+                            color: AppColors.primaryYellow,
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              settingsProvider.confirmPasswordVisible
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                            ),
+                            onPressed: settingsProvider.toggleConfirmPasswordVisibility,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: AppColors.primaryYellow,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: isLoading
-                      ? null
-                      : () async {
-                          // Validate all fields
-                          if (currentPasswordController.text.isEmpty) {
-                            _showErrorSnackBar('Please enter current password');
-                            return;
-                          }
-                          
-                          if (currentPasswordController.text.length < 4) {
-                            _showErrorSnackBar('Current password must be at least 4 characters');
-                            return;
-                          }
-                          
-                          if (newPasswordController.text.isEmpty) {
-                            _showErrorSnackBar('Please enter new password');
-                            return;
-                          }
-                          
-                          if (newPasswordController.text.length < 4) {
-                            _showErrorSnackBar('New password must be at least 4 characters');
-                            return;
-                          }
-                          
-                          if (confirmPasswordController.text.isEmpty) {
-                            _showErrorSnackBar('Please confirm new password');
-                            return;
-                          }
-                          
-                          if (confirmPasswordController.text.length < 4) {
-                            _showErrorSnackBar('Confirm password must be at least 4 characters');
-                            return;
-                          }
-                          
-                          if (currentPasswordController.text == newPasswordController.text) {
-                            _showErrorSnackBar('New password must be different from current password');
-                            return;
-                          }
-                          
-                          if (newPasswordController.text != confirmPasswordController.text) {
-                            _showErrorSnackBar('New password and confirm password do not match');
-                            return;
-                          }
-                          
-                          setState(() {
-                            isLoading = true;
-                          });
-                          
-                          final result = await _changePassword(
-                            currentPasswordController.text,
-                            newPasswordController.text,
-                          );
-                          
-                          setState(() {
-                            isLoading = false;
-                          });
-                          
-                          if (result['success'] == true) {
-                            if (Navigator.of(dialogContext).canPop()) {
-                              Navigator.of(dialogContext).pop();
-                            }
-                            
-                            SchedulerBinding.instance.addPostFrameCallback((_) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(this.context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(result['message'] ?? 'Password changed successfully'),
-                                    backgroundColor: AppColors.successGreen,
-                                    duration: const Duration(seconds: 3),
-                                  ),
-                                );
-                              }
-                            });
-                          } else {
-                            _showErrorSnackBar(result['message'] ?? 'Failed to change password');
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryYellow,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
+                actions: [
+                  TextButton(
+                    onPressed: settingsProvider.isLoading
+                        ? null
+                        : () {
+                            Navigator.of(dialogContext).pop();
+                          },
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: AppColors.textGrey),
                     ),
                   ),
-                  child: isLoading
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ElevatedButton(
+                    onPressed: settingsProvider.isLoading
+                        ? null
+                        : () async {
+                            // Validate all fields
+                            if (currentPasswordController.text.isEmpty) {
+                              _showErrorSnackBar('Please enter current password');
+                              return;
+                            }
+                            
+                            if (currentPasswordController.text.length < 4) {
+                              _showErrorSnackBar('Current password must be at least 4 characters');
+                              return;
+                            }
+                            
+                            if (newPasswordController.text.isEmpty) {
+                              _showErrorSnackBar('Please enter new password');
+                              return;
+                            }
+                            
+                            if (newPasswordController.text.length < 4) {
+                              _showErrorSnackBar('New password must be at least 4 characters');
+                              return;
+                            }
+                            
+                            if (confirmPasswordController.text.isEmpty) {
+                              _showErrorSnackBar('Please confirm new password');
+                              return;
+                            }
+                            
+                            if (confirmPasswordController.text.length < 4) {
+                              _showErrorSnackBar('Confirm password must be at least 4 characters');
+                              return;
+                            }
+                            
+                            if (currentPasswordController.text == newPasswordController.text) {
+                              _showErrorSnackBar('New password must be different from current password');
+                              return;
+                            }
+                            
+                            if (newPasswordController.text != confirmPasswordController.text) {
+                              _showErrorSnackBar('New password and confirm password do not match');
+                              return;
+                            }
+                            
+                            settingsProvider.setLoading(true);
+                            
+                            final result = await _changePassword(
+                              currentPasswordController.text,
+                              newPasswordController.text,
+                            );
+                            
+                            settingsProvider.setLoading(false);
+                            
+                            if (result['success'] == true) {
+                              if (Navigator.of(dialogContext).canPop()) {
+                                Navigator.of(dialogContext).pop();
+                              }
+                              
+                              SchedulerBinding.instance.addPostFrameCallback((_) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(this.context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(result['message'] ?? 'Password changed successfully'),
+                                      backgroundColor: AppColors.successGreen,
+                                      duration: const Duration(seconds: 3),
+                                    ),
+                                  );
+                                }
+                              });
+                            } else {
+                              _showErrorSnackBar(result['message'] ?? 'Failed to change password');
+                            }
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryYellow,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: settingsProvider.isLoading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text(
+                            'Submit',
+                            style: TextStyle(color: Colors.white),
                           ),
-                        )
-                      : const Text(
-                          'Submit',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                ),
-              ],
-            );
-          },
+                  ),
+                ],
+              );
+            },
+          ),
         );
       },
     ).then((_) {
@@ -1010,7 +1089,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ============== LOGOUT FUNCTIONALITY ==============
   
   // Show Logout Dialog
-  void _showLogoutDialog() {
+  void _showLogoutDialog(SettingsProvider settingsProvider) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -1059,7 +1138,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ElevatedButton(
               onPressed: () {
                 Navigator.of(context).pop();
-                _performLogout();
+                _performLogout(settingsProvider);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -1083,10 +1162,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Perform Logout
-  Future<void> _performLogout() async {
+  Future<void> _performLogout(SettingsProvider settingsProvider) async {
     String? accessToken;
     
     try {
+      settingsProvider.setLoggingOut(true);
+      
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -1127,7 +1208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(); // Close loading dialog
       }
       
       await _clearLogoutData();
@@ -1136,7 +1217,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('SSL Handshake error: $e');
       
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(); // Close loading dialog
       }
       
       String endTime = DateTime.now().toIso8601String();
@@ -1147,7 +1228,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('Network error: $e');
       
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(); // Close loading dialog
       }
       
       String endTime = DateTime.now().toIso8601String();
@@ -1158,12 +1239,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       debugPrint('Logout error: $e');
       
       if (mounted) {
-        Navigator.of(context).pop();
+        Navigator.of(context).pop(); // Close loading dialog
       }
       
       String endTime = DateTime.now().toIso8601String();
       await _sendAttendanceData(accessToken, endTime);
       await _clearLogoutData();
+    } finally {
+      settingsProvider.setLoggingOut(false);
     }
   }
 

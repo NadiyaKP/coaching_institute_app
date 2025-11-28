@@ -39,6 +39,11 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
 
+  // Subjects
+  List<dynamic> _subjects = [];
+  String? _selectedSubjectId;
+  String? _selectedSubjectTitle;
+
   final AuthService _authService = AuthService();
   late Box<VideoWatchingRecord> _videoRecordsBox;
   bool _hiveInitialized = false;
@@ -140,6 +145,7 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
       });
 
       if (_subcourseId != null && _subcourseId!.isNotEmpty) {
+        await _fetchSubjects();
         await _fetchVideos();
       } else {
         setState(() {
@@ -188,6 +194,53 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
     }
   }
 
+  Future<void> _fetchSubjects() async {
+    if (_subcourseId == null || _accessToken == null || _accessToken!.isEmpty) {
+      _showError('Required data not available');
+      return;
+    }
+
+    final client = _createHttpClientWithCustomCert();
+
+    try {
+      String encodedId = Uri.encodeComponent(_subcourseId!);
+      final response = await globalHttpClient.get(
+            Uri.parse('${ApiConfig.currentBaseUrl}/api/course/list_subjects/?subcourse_id=$encodedId'),
+            headers: _getAuthHeaders(),
+          )
+          .timeout(ApiConfig.requestTimeout);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['success'] ?? false) {
+          setState(() {
+            _subjects = data['subjects'] ?? [];
+          });
+          debugPrint('✅ Fetched ${_subjects.length} subjects');
+          
+          // Debug: Print all subjects with their IDs
+          for (var subject in _subjects) {
+            debugPrint('Subject: ${subject['title']} - ID: ${subject['id']}');
+          }
+        } else {
+          debugPrint('Failed to fetch subjects: ${data['message']}');
+        }
+      } else if (response.statusCode == 401) {
+        _handleTokenExpiration();
+      } else {
+        debugPrint('Failed to fetch subjects: ${response.statusCode}');
+      }
+    } on HandshakeException catch (e) {
+      debugPrint('SSL Handshake error while fetching subjects: $e');
+    } on SocketException catch (e) {
+      debugPrint('Network error while fetching subjects: $e');
+    } catch (e) {
+      debugPrint('Error fetching subjects: $e');
+    } finally {
+      client.close();
+    }
+  }
+
   Future<void> _fetchVideos() async {
     if (_subcourseId == null || _accessToken == null || _accessToken!.isEmpty) {
       _showError('Required data not available');
@@ -215,6 +268,11 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
             _isLoading = false;
           });
           debugPrint('✅ Fetched ${_videos.length} videos');
+          
+          // Debug: Print all videos with their subject IDs
+          for (var video in _videos) {
+            debugPrint('Video: ${video['title']} - Subject ID: ${video['subject_id']}');
+          }
         } else {
           _showError(data['message'] ?? 'Failed to fetch videos');
         }
@@ -256,15 +314,35 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
   void _filterVideos() {
     final query = _searchController.text.toLowerCase();
     setState(() {
-      if (query.isEmpty) {
+      if (query.isEmpty && _selectedSubjectId == null) {
         _filteredVideos = List.from(_videos);
       } else {
         _filteredVideos = _videos.where((video) {
           final title = video['title']?.toString().toLowerCase() ?? '';
-          return title.contains(query);
+          final subjectId = video['subject_id']?.toString();
+          
+          bool matchesSearch = query.isEmpty || title.contains(query);
+          bool matchesSubject = _selectedSubjectId == null || subjectId == _selectedSubjectId;
+          
+          return matchesSearch && matchesSubject;
         }).toList();
       }
     });
+    
+    debugPrint('Filtered videos: ${_filteredVideos.length} (Subject: $_selectedSubjectId, Search: "$query")');
+  }
+
+  void _onSubjectChanged(String? subjectId) {
+    setState(() {
+      _selectedSubjectId = subjectId;
+      _selectedSubjectTitle = subjectId == null 
+          ? null 
+          : _subjects.firstWhere(
+              (subject) => subject['id'].toString() == subjectId,
+              orElse: () => {'title': 'Unknown Subject'}
+            )['title'];
+    });
+    _filterVideos();
   }
 
   void _showError(String message) {
@@ -803,6 +881,75 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
             ),
           ),
 
+        // Subject Dropdown Filter
+        if (!_isSearching && _subjects.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.grey.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedSubjectId,
+                    isExpanded: true,
+                    hint: const Text(
+                      'Select Subject',
+                      style: TextStyle(
+                        color: AppColors.textGrey,
+                        fontSize: 14,
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.arrow_drop_down_rounded,
+                      color: AppColors.primaryYellow,
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: null,
+                        child: Text(
+                          'All Subjects',
+                          style: TextStyle(
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      ..._subjects.map<DropdownMenuItem<String>>((subject) {
+                        final subjectId = subject['id']?.toString();
+                        final subjectTitle = subject['title'] ?? 'Unknown Subject';
+                        
+                        return DropdownMenuItem<String>(
+                          value: subjectId,
+                          child: Text(
+                            subjectTitle,
+                            style: const TextStyle(
+                              color: AppColors.textDark,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                    onChanged: _onSubjectChanged,
+                  ),
+                ),
+              ),
+            ),
+          ),
+
         Expanded(
           child: _buildVideosList(),
         ),
@@ -812,38 +959,44 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
 
   Widget _buildVideosList() {
     if (_filteredVideos.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 60),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppColors.primaryYellow.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  _searchController.text.isNotEmpty ? Icons.search_off_rounded : Icons.video_library_rounded,
-                  size: 60,
-                  color: AppColors.primaryYellow.withOpacity(0.5),
-                ),
+      return SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: AppColors.primaryYellow.withOpacity(0.1),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 20),
-              Text(
-                _searchController.text.isNotEmpty ? 'No videos found' : 'No videos available',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textDark,
-                  letterSpacing: -0.2,
-                ),
+              child: Icon(
+                _searchController.text.isNotEmpty || _selectedSubjectId != null 
+                    ? Icons.search_off_rounded 
+                    : Icons.video_library_rounded,
+                size: 60,
+                color: AppColors.primaryYellow.withOpacity(0.5),
               ),
-              const SizedBox(height: 8),
-              Text(
-                _searchController.text.isNotEmpty
-                    ? 'Try searching with different keywords'
+            ),
+            const SizedBox(height: 20),
+            Text(
+              _searchController.text.isNotEmpty || _selectedSubjectId != null
+                  ? 'No videos found'
+                  : 'No videos available',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textDark,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Text(
+                _searchController.text.isNotEmpty || _selectedSubjectId != null
+                    ? 'Try changing your search or filter'
                     : 'Video classes will be added soon',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
@@ -852,8 +1005,8 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
                   fontWeight: FontWeight.w500,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -880,13 +1033,17 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Text(
-                        'Reference Classes',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: -0.3,
+                      Expanded(
+                        child: Text(
+                          _selectedSubjectTitle != null
+                              ? '$_selectedSubjectTitle Videos'
+                              : 'Reference Classes',
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                            letterSpacing: -0.3,
+                          ),
                         ),
                       ),
                     ],
@@ -897,9 +1054,11 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Available video lectures for your course',
-                          style: TextStyle(
+                        Text(
+                          _selectedSubjectTitle != null
+                              ? 'Video lectures for $_selectedSubjectTitle'
+                              : 'Available video lectures for your course',
+                          style: const TextStyle(
                             fontSize: 14,
                             color: AppColors.textGrey,
                             fontWeight: FontWeight.w500,

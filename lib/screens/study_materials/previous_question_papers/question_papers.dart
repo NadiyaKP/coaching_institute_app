@@ -3,35 +3,50 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'package:provider/provider.dart';
 import '../../../../service/api_config.dart';
 import '../../../../service/auth_service.dart';
-import '../previous_question_papers/questions_pdf_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:coaching_institute_app/hive_model.dart';
 import '../../../../common/theme_color.dart';
+import '../previous_question_papers/questions_pdf_view.dart';
 import '../../subscription/subscription.dart';
 import '../../../service/http_interceptor.dart';
 
-class QuestionPapersScreen extends StatefulWidget {
-  const QuestionPapersScreen({super.key});
+// ==================== NAVIGATION STATE CLASS ====================
+class NavigationState {
+  final String pageType; 
+  final String subjectId;
+  final String subjectName;
+  final List<dynamic> subjectsData; 
+  final List<dynamic> questionPapersData; 
 
-  @override
-  State<QuestionPapersScreen> createState() => _QuestionPapersScreenState();
+  NavigationState({
+    required this.pageType,
+    required this.subjectId,
+    required this.subjectName,
+    this.subjectsData = const [],
+    this.questionPapersData = const [],
+  });
 }
 
-class _QuestionPapersScreenState extends State<QuestionPapersScreen> with WidgetsBindingObserver {
+// ==================== PROVIDER CLASS ====================
+class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver {
+  final AuthService _authService = AuthService();
+  
+  // State variables
   bool _isLoading = true;
   String? _accessToken;
   
   // Navigation state
-  String _currentPage = 'subjects'; // subjects, question_papers
+  String _currentPage = 'subjects';
   String _courseName = '';
   String _subcourseName = '';
   String _subcourseId = '';
   String _selectedSubjectName = '';
-  String _studentType = ''; // Added student type
+  String _studentType = '';
   
   // Data lists
   List<dynamic> _subjects = [];
@@ -40,7 +55,6 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
   // Selected IDs for navigation
   String? _selectedSubjectId;
 
-  final AuthService _authService = AuthService();
   late Box<PdfReadingRecord> _pdfRecordsBox;
   bool _hiveInitialized = false;
 
@@ -48,45 +62,33 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
   bool _showSubscriptionMessage = false;
   bool _hasLockedPapers = false;
 
+  // Enhanced navigation stack to track the complete path
+  final List<NavigationState> _navigationStack = [];
+
+  // Debouncing for API calls
+  bool _isSendingData = false;
+  DateTime? _lastApiCallTime;
+  static const Duration _apiCallDebounceTime = Duration(seconds: 5);
+
+  // Getters
+  bool get isLoading => _isLoading;
+  String? get accessToken => _accessToken;
+  String get currentPage => _currentPage;
+  String get courseName => _courseName;
+  String get subcourseName => _subcourseName;
+  String get subcourseId => _subcourseId;
+  String get selectedSubjectName => _selectedSubjectName;
+  String get studentType => _studentType;
+  List<dynamic> get subjects => _subjects;
+  List<dynamic> get questionPapers => _questionPapers;
+  bool get showSubscriptionMessage => _showSubscriptionMessage;
+  bool get hasLockedPapers => _hasLockedPapers;
+  List<NavigationState> get navigationStack => _navigationStack;
+
   @override
   void initState() {
-    super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeHive();
-  }
-
-  Future<void> _initializeHive() async {
-    // Check if Hive is already initialized for this adapter
-    if (!_hiveInitialized) {
-      try {
-        // Check if adapter is already registered
-        if (!Hive.isAdapterRegistered(0)) {
-          Hive.registerAdapter(PdfReadingRecordAdapter());
-        }
-        
-        // Initialize Hive if not already initialized
-        if (!Hive.isBoxOpen('pdf_records_box')) {
-          _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
-        } else {
-          _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
-        }
-        
-        _hiveInitialized = true;
-        debugPrint('✅ Hive initialized successfully for Question Papers');
-      } catch (e) {
-        debugPrint('❌ Error initializing Hive for Question Papers: $e');
-        // Fallback: try to use existing box if available
-        try {
-          _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
-          _hiveInitialized = true;
-          debugPrint('✅ Using existing Hive box for Question Papers');
-        } catch (e) {
-          debugPrint('❌ Failed to use existing Hive box for Question Papers: $e');
-        }
-      }
-    }
-    
-    _initializeData();
   }
 
   @override
@@ -110,14 +112,49 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     }
   }
 
+  Future<void> initialize() async {
+    WidgetsBinding.instance.addObserver(this);
+    await _initializeHive();
+  }
+
+  Future<void> _initializeHive() async {
+    if (!_hiveInitialized) {
+      try {
+        if (!Hive.isAdapterRegistered(0)) {
+          Hive.registerAdapter(PdfReadingRecordAdapter());
+        }
+        
+        if (!Hive.isBoxOpen('pdf_records_box')) {
+          _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
+        } else {
+          _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
+        }
+        
+        _hiveInitialized = true;
+        debugPrint('✅ Hive initialized successfully for Question Papers');
+      } catch (e) {
+        debugPrint('❌ Error initializing Hive for Question Papers: $e');
+
+        try {
+          _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
+          _hiveInitialized = true;
+          debugPrint('✅ Using existing Hive box for Question Papers');
+        } catch (e) {
+          debugPrint('❌ Failed to use existing Hive box for Question Papers: $e');
+        }
+      }
+    }
+    
+    await _initializeData();
+  }
+
   Future<void> _initializeData() async {
     await _getAccessToken();
-    await _loadStudentType(); // Load student type first
+    await _loadStudentType();
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _loadDataFromSharedPreferences();
     } else {
       _showError('Access token not found. Please login again.');
-      _navigateToLogin();
     }
   }
 
@@ -125,9 +162,8 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
   Future<void> _loadStudentType() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      setState(() {
-        _studentType = prefs.getString('profile_student_type') ?? '';
-      });
+      _studentType = prefs.getString('profile_student_type') ?? '';
+      notifyListeners();
       debugPrint('Student Type loaded: $_studentType');
     } catch (e) {
       debugPrint('Error loading student type: $e');
@@ -137,8 +173,9 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
   Future<void> _getAccessToken() async {
     try {
       _accessToken = await _authService.getAccessToken();
+      notifyListeners();
     } catch (e) {
-      _showError('Failed to retrieve access token: $e');
+      debugPrint('Failed to retrieve access token: $e');
     }
   }
 
@@ -148,57 +185,96 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
       final prefs = await SharedPreferences.getInstance();
       
       // Load course and subcourse data
-      setState(() {
-        _courseName = prefs.getString('profile_course') ?? 'Course';
-        _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
-        _subcourseId = prefs.getString('profile_subcourse_id') ?? '';
-      });
+      _courseName = prefs.getString('profile_course') ?? 'Course';
+      _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
+      _subcourseId = prefs.getString('profile_subcourse_id') ?? '';
 
-      // Load subjects data from stored JSON
       await _reloadSubjectsFromSharedPreferences();
 
-      setState(() {
-        _isLoading = false;
-      });
+      // Initialize navigation stack with subjects
+      _navigationStack.add(NavigationState(
+        pageType: 'subjects',
+        subjectId: '',
+        subjectName: 'Subjects',
+        subjectsData: _subjects,
+      ));
+
+      _isLoading = false;
+      notifyListeners();
 
     } catch (e) {
       debugPrint('Error loading data from SharedPreferences: $e');
-      _showError('Failed to load study materials data: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
-  // Reload subjects from SharedPreferences (used when returning to course page)
   Future<void> _reloadSubjectsFromSharedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? subjectsDataJson = prefs.getString('subjects_data');
+      
+      debugPrint('📦 Loading subjects data from SharedPreferences for Question Papers...');
+      debugPrint('Subjects data JSON exists: ${subjectsDataJson != null && subjectsDataJson.isNotEmpty}');
+      
       if (subjectsDataJson != null && subjectsDataJson.isNotEmpty) {
-        final List<dynamic> subjects = json.decode(subjectsDataJson);
-        setState(() {
+        try {
+          final decodedData = json.decode(subjectsDataJson);
+          debugPrint('📦 Decoded data type: ${decodedData.runtimeType}');
+          
+          List<dynamic> subjects = [];
+          
+          // Handle different possible data structures
+          if (decodedData is List<dynamic>) {
+            subjects = decodedData;
+            debugPrint('✅ Data is List, subjects count: ${subjects.length}');
+          } else if (decodedData is Map<String, dynamic>) {
+            if (decodedData.containsKey('subjects') && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in Map, count: ${subjects.length}');
+            } else if (decodedData.containsKey('success') && decodedData['success'] == true && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in API response structure, count: ${subjects.length}');
+            } else {
+              subjects = decodedData.values.toList();
+              debugPrint('✅ Using Map values as subjects, count: ${subjects.length}');
+            }
+          }
+          
+          // Debug print all subjects with their titles and structure
+          debugPrint('=== SUBJECTS STRUCTURE FOR QUESTION PAPERS ===');
+          for (var i = 0; i < subjects.length; i++) {
+            final subject = subjects[i];
+            final title = subject['title']?.toString() ?? 'No Title';
+            final id = subject['id']?.toString() ?? 'No ID';
+            
+            debugPrint('Subject $i:');
+            debugPrint('  - Title: "$title"');
+            debugPrint('  - ID: $id');
+          }
+          debugPrint('=== END SUBJECTS STRUCTURE ===');
+          
+          // Store the properly parsed subjects
           _subjects = subjects;
-        });
-        debugPrint('✅ Reloaded ${_subjects.length} subjects from SharedPreferences for Question Papers');
+          notifyListeners();
+          
+          debugPrint('✅ Successfully loaded ${_subjects.length} subjects from SharedPreferences for Question Papers');
+          
+        } catch (e) {
+          debugPrint('❌ Error parsing subjects data JSON: $e');
+          _subjects = [];
+          notifyListeners();
+        }
       } else {
         debugPrint('⚠️ No subjects data found in SharedPreferences for Question Papers');
-        setState(() {
-          _subjects = [];
-        });
+        _subjects = [];
+        notifyListeners();
       }
     } catch (e) {
-      debugPrint('Error reloading subjects from SharedPreferences: $e');
-      setState(() {
-        _subjects = [];
-      });
+      debugPrint('❌ Error reloading subjects from SharedPreferences: $e');
+      _subjects = [];
+      notifyListeners();
     }
-  }
-
-  // Create HTTP client with custom certificate handling for development
-  http.Client _createHttpClientWithCustomCert() {
-    final client = ApiConfig.createHttpClient();
-    return IOClient(client);
   }
 
   // Helper method to get authorization headers
@@ -213,43 +289,25 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     };
   }
 
-  // Helper method to handle token expiration
-  void _handleTokenExpiration() async {
-    await _authService.logout();
-    _showError('Session expired. Please login again.');
-    _navigateToLogin();
-  }
-
-  void _navigateToLogin() {
-    if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/signup',
-        (Route<dynamic> route) => false,
-      );
-    }
-  }
-
   // Load subjects from SharedPreferences (no API call)
-  void _loadSubjects() {
+  void loadSubjects() {
     if (_subjects.isEmpty) {
-      _showError('No subjects data available. Please load study materials first.');
       return;
     }
 
-    setState(() {
-      _currentPage = 'subjects';
-      _isLoading = false;
-    });
+    _currentPage = 'subjects';
+    _isLoading = false;
+    notifyListeners();
   }
 
   // Fetch question papers for a subject from API
-  Future<void> _fetchQuestionPapers(String subjectId, String subjectName) async {
+  Future<void> fetchQuestionPapers(String subjectId, String subjectName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
-      _showError('Access token not found');
       return;
     }
 
-    setState(() => _isLoading = true);
+    _isLoading = true;
+    notifyListeners();
 
     final client = _createHttpClientWithCustomCert();
 
@@ -309,110 +367,143 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
             return fileUrl.isEmpty || fileUrl == 'null';
           });
 
-          setState(() {
-            _questionPapers = papers;
-            _selectedSubjectId = subjectId;
-            _selectedSubjectName = subjectName;
-            _currentPage = 'question_papers';
-            _isLoading = false;
-            _hasLockedPapers = hasLockedPapers;
-          });
+          _questionPapers = papers;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _currentPage = 'question_papers';
+          _isLoading = false;
+          _hasLockedPapers = hasLockedPapers;
+          notifyListeners();
+
+          // Add to navigation stack with question papers data
+          _navigationStack.add(NavigationState(
+            pageType: 'question_papers',
+            subjectId: subjectId,
+            subjectName: subjectName,
+            questionPapersData: papers,
+          ));
 
           // Show subscription message if there are locked papers
           if (hasLockedPapers) {
             _showAndHideSubscriptionMessage();
           }
         } else {
-          _showError(data['message'] ?? 'Failed to fetch question papers');
+          debugPrint('Failed to fetch question papers: ${data['message'] ?? 'Unknown error'}');
+          _isLoading = false;
+          notifyListeners();
         }
       } else if (response.statusCode == 401) {
         _handleTokenExpiration();
       } else {
-        _showError('Failed to fetch question papers: ${response.statusCode}');
+        debugPrint('Failed to fetch question papers: ${response.statusCode}');
+        _isLoading = false;
+        notifyListeners();
       }
     } on HandshakeException catch (e) {
       debugPrint('SSL Handshake error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SSL certificate issue - this is normal in development'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      _isLoading = false;
+      notifyListeners();
     } on SocketException catch (e) {
       debugPrint('Network error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No network connection'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _isLoading = false;
+      notifyListeners();
     } catch (e) {
       debugPrint('Error fetching question papers: $e');
-      _showError('Error fetching question papers: $e');
-      setState(() => _isLoading = false);
+      _isLoading = false;
+      notifyListeners();
     } finally {
       client.close();
     }
   }
 
+  // Create HTTP client with custom certificate handling for development
+  http.Client _createHttpClientWithCustomCert() {
+    final client = ApiConfig.createHttpClient();
+    return IOClient(client);
+  }
+
+  // Helper method to handle token expiration
+  void _handleTokenExpiration() async {
+    await _authService.logout();
+  }
+
   // Show and hide subscription message with animation
   void _showAndHideSubscriptionMessage() {
-    setState(() {
-      _showSubscriptionMessage = true;
-    });
+    _showSubscriptionMessage = true;
+    notifyListeners();
+  }
+
+  void hideSubscriptionMessage() {
+    _showSubscriptionMessage = false;
+    notifyListeners();
   }
 
   void _showError(String message) {
-    setState(() => _isLoading = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'Dismiss',
-            textColor: Colors.white,
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
-        ),
-      );
-    }
+    _isLoading = false;
+    notifyListeners();
   }
 
-  void _navigateBack() {
-    setState(() {
-      switch (_currentPage) {
+  // ENHANCED: Proper hierarchical backward navigation
+  void navigateBack() {
+    debugPrint('=== BACK NAVIGATION START ===');
+    debugPrint('Current stack length: ${_navigationStack.length}');
+    debugPrint('Current page: $_currentPage');
+    
+    if (_navigationStack.length > 1) {
+      // Remove current state
+      final currentState = _navigationStack.removeLast();
+      debugPrint('Removed current state: ${currentState.pageType}');
+      
+      // Get previous state
+      final previousState = _navigationStack.last;
+      debugPrint('Previous state: ${previousState.pageType}');
+      
+      // Restore the previous state properly based on page type
+      _currentPage = previousState.pageType;
+      _selectedSubjectId = previousState.subjectId;
+      _selectedSubjectName = previousState.subjectName;
+      
+      switch (previousState.pageType) {
         case 'subjects':
-          // When going back from subjects page, check for stored data and send if exists
-          // Only for online students
-          if (_studentType.toLowerCase() == 'online') {
-            _sendStoredReadingDataToAPI();
-          }
-          if (mounted) {
-            Navigator.pop(context);
-          }
-          break;
-        case 'question_papers':
-          _currentPage = 'subjects';
-          _questionPapers.clear();
+          // Going back to subjects - restore subjects data
+          _questionPapers = [];
           _selectedSubjectId = null;
           _selectedSubjectName = '';
           break;
+          
+        case 'question_papers':
+          // Going back to question papers from individual paper view
+          _questionPapers = previousState.questionPapersData;
+          break;
       }
-    });
+      _isLoading = false;
+      notifyListeners();
+      
+      debugPrint('=== BACK NAVIGATION COMPLETE ===');
+      debugPrint('New current page: $_currentPage');
+      debugPrint('Stack length after: ${_navigationStack.length}');
+    } else {
+      // If we're at the root (subjects), exit the screen
+      debugPrint('At root level - exiting screen');
+      _exitScreen();
+    }
+  }
+
+  // Enhanced exit screen method that sends data without waiting
+  void _exitScreen() {
+    if (_studentType.toLowerCase() == 'online') {
+      // Send reading data to backend without waiting for response
+      _sendStoredReadingDataToAPI().catchError((e) {
+        debugPrint('Error sending reading data on exit: $e');
+        // Don't show error to user, just log it
+      });
+    }
+    
+    // Navigation will be handled by the widget
   }
 
   // Method to check if there is stored reading data
-  Future<bool> _hasStoredReadingData() async {
+  Future<bool> hasStoredReadingData() async {
     try {
       return _pdfRecordsBox.isNotEmpty;
     } catch (e) {
@@ -421,11 +512,24 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     }
   }
 
-  // Method to send all stored reading data to API (only called from subjects page back button and app lifecycle)
+  // FIXED: Enhanced with debouncing to prevent multiple API calls
   Future<void> _sendStoredReadingDataToAPI() async {
-    // Only send data for online students
     if (_studentType.toLowerCase() != 'online') {
       debugPrint('Student type is $_studentType - skipping reading data collection');
+      return;
+    }
+
+    // Check if we're already sending data
+    if (_isSendingData) {
+      debugPrint('📱 API call already in progress, skipping duplicate call');
+      return;
+    }
+
+    // Check debounce time
+    final now = DateTime.now();
+    if (_lastApiCallTime != null && 
+        now.difference(_lastApiCallTime!) < _apiCallDebounceTime) {
+      debugPrint('📱 API call debounced, too soon since last call');
       return;
     }
 
@@ -471,53 +575,45 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
       debugPrint('Request Body:');
       debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
 
-      // Create HTTP client
-      final client = ApiConfig.createHttpClient();
-      final httpClient = IOClient(client);
+      // Set flags to prevent duplicate calls
+      _isSendingData = true;
+      _lastApiCallTime = now;
+      notifyListeners();
 
-      // API endpoint
-      final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_questionpaper/';
-
-      debugPrint('Full URL: $apiUrl');
-
-      // Send POST request
-      final response = await globalHttpClient.post(
-        Uri.parse(apiUrl),
+      // Fire and forget - don't wait for response
+      globalHttpClient.post(
+        Uri.parse('${ApiConfig.baseUrl}/api/performance/add_readed_questionpaper/'),
         headers: {
           'Authorization': 'Bearer $_accessToken',
           'Content-Type': 'application/json',
           ...ApiConfig.commonHeaders,
         },
         body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 30));
-
-      debugPrint('\nRESPONSE:');
-      debugPrint('Status Code: ${response.statusCode}');
-      debugPrint('Response Headers: ${response.headers}');
-
-      // Pretty print JSON response if possible
-      try {
-        final responseJson = jsonDecode(response.body);
-        debugPrint('Response Body:');
-        debugPrint(const JsonEncoder.withIndent('  ').convert(responseJson));
-      } catch (e) {
-        debugPrint('Response Body: ${response.body}');
-      }
-
-      debugPrint('=== END BULK QUESTION PAPER API CALL ===\n');
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        debugPrint('✓ All question paper data sent successfully to API');
+      ).timeout(const Duration(seconds: 10)).then((response) {
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          debugPrint('✓ All question paper data sent successfully to API');
+          _clearStoredReadingData().catchError((e) {
+            debugPrint('Error clearing stored data: $e');
+          });
+        } else {
+          debugPrint('✗ Failed to send question paper data. Status: ${response.statusCode}');
+        }
         
-        // Clear all stored records after successful API call
-        await _clearStoredReadingData();
-        
-      } else {
-        debugPrint('✗ Failed to send question paper data. Status: ${response.statusCode}');
-      }
+        // Reset sending flag after completion
+        _isSendingData = false;
+        notifyListeners();
+      }).catchError((e) {
+        debugPrint('✗ Error sending stored question paper records to API: $e');
+        // Reset sending flag on error
+        _isSendingData = false;
+        notifyListeners();
+      });
+
     } catch (e) {
-      debugPrint('✗ Error sending stored question paper records to API: $e');
-      debugPrint('=== END BULK QUESTION PAPER API CALL (ERROR) ===\n');
+      debugPrint('✗ Error preparing to send stored question paper records: $e');
+      // Reset sending flag on error
+      _isSendingData = false;
+      notifyListeners();
     }
   }
 
@@ -532,284 +628,324 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
   }
 
   // Handle device back button press
-  Future<bool> _handleDeviceBackButton() async {
-    if (_currentPage == 'subjects') {
-      // On subjects page - check for stored data and send if exists
-      // Only for online students
+  Future<bool> handleDeviceBackButton(BuildContext context) async {
+    debugPrint('=== DEVICE BACK BUTTON PRESSED ===');
+    debugPrint('Current page: $_currentPage');
+    debugPrint('Stack length: ${_navigationStack.length}');
+    
+    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
+      debugPrint('At root subjects - exiting screen and navigating to home');
+      
+      // Send reading data to backend without waiting for response
       if (_studentType.toLowerCase() == 'online') {
-        final hasData = await _hasStoredReadingData();
-        if (hasData) {
-          // Send data in background without waiting for response
-          _sendStoredReadingDataToAPI();
-        }
+        _sendStoredReadingDataToAPI().catchError((e) {
+          debugPrint('Error sending reading data on exit: $e');
+        });
       }
-      // Allow normal back navigation
-      return true;
-    } else if (_currentPage == 'question_papers') {
-      // From question papers page, go back to subjects page
-      _navigateBack();
-      // Prevent default back behavior
-      return false;
+      
+      // Navigate back to home page
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+      return false; // Don't allow default back behavior
     } else {
-      // For other cases, do normal navigation
-      _navigateBack();
-      // Prevent default back behavior
-      return false;
+      navigateBack();
+      return false; // Don't allow default back behavior
     }
   }
 
-  String _getAppBarTitle() {
+  // Method to handle back button from subjects page to home
+  void navigateBackToHome(BuildContext context) {
+    debugPrint('=== NAVIGATING BACK TO HOME FROM SUBJECTS ===');
+    
+    // Send reading data to backend without waiting for response
+    if (_studentType.toLowerCase() == 'online') {
+      _sendStoredReadingDataToAPI().catchError((e) {
+        debugPrint('Error sending reading data on exit: $e');
+      });
+    }
+    
+    // Navigate back to home page
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  String getAppBarTitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'subjects':
+          return 'Subjects';
+        case 'question_papers':
+          return 'Question Papers';
+        default:
+          return 'Question Papers';
+      }
+    }
+    
     switch (_currentPage) {
       case 'subjects':
-        return 'Question Papers';
+        return 'Subjects';
       case 'question_papers':
-        return 'Papers - $_selectedSubjectName';
+        return 'Question Papers';
       default:
         return 'Question Papers';
     }
   }
 
-  // Show subscription popup for locked papers
-  void _showSubscriptionPopup(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Row(
-            children: [
-              Icon(
-                Icons.lock_outline_rounded,
-                color: AppColors.primaryYellow,
-                size: 24,
-              ),
-              SizedBox(width: 12),
-              Text(
-                'Premium Content',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textDark,
-                ),
-              ),
-            ],
-          ),
-          content: const Text(
-            'Take any subscription plan to view this content and unlock all premium features.',
-            style: TextStyle(
-              fontSize: 14,
-              color: AppColors.textGrey,
-              height: 1.4,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text(
-                'Cancel',
-                style: TextStyle(
-                  color: AppColors.textGrey,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SubscriptionScreen(),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryYellow,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              ),
-              child: const Text(
-                'Subscribe',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
+  String getAppBarSubtitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'question_papers':
+          return currentState.subjectName;
+        default:
+          return '';
+      }
+    }
+    return '';
   }
 
+  // Sort question papers before displaying
+  List<dynamic> sortQuestionPapers(List<dynamic> papers) {
+    if (papers.isEmpty) return papers;
+
+    // Create a copy to avoid modifying the original list
+    List<dynamic> sortedPapers = List.from(papers);
+
+    // Parse dates and determine locked status for sorting
+    sortedPapers.sort((a, b) {
+      final fileUrlA = a['file_url']?.toString() ?? '';
+      final fileUrlB = b['file_url']?.toString() ?? '';
+      final isLockedA = fileUrlA.isEmpty || fileUrlA == 'null';
+      final isLockedB = fileUrlB.isEmpty || fileUrlB == 'null';
+
+      // For public students, prioritize unlocked papers first
+      if (_studentType.toLowerCase() == 'public') {
+        if (isLockedA != isLockedB) {
+          return isLockedA ? 1 : -1; // Unlocked papers come first
+        }
+      }
+
+      // Sort by date (most recent first)
+      try {
+        final dateA = a['uploaded_at']?.toString() ?? '';
+        final dateB = b['uploaded_at']?.toString() ?? '';
+
+        if (dateA.isEmpty && dateB.isEmpty) return 0;
+        if (dateA.isEmpty) return 1; // Papers without date go to bottom
+        if (dateB.isEmpty) return -1;
+
+        final parsedDateA = DateTime.parse(dateA);
+        final parsedDateB = DateTime.parse(dateB);
+
+        // Most recent first (descending order)
+        return parsedDateB.compareTo(parsedDateA);
+      } catch (e) {
+        debugPrint('Error parsing dates for sorting: $e');
+        return 0;
+      }
+    });
+
+    return sortedPapers;
+  }
+
+  // Public method to send stored reading data (can be called from UI)
+  Future<void> sendStoredReadingDataToAPI() async {
+    await _sendStoredReadingDataToAPI();
+  }
+}
+
+// ==================== SCREEN WIDGET ====================
+class QuestionPapersScreen extends StatefulWidget {
+  const QuestionPapersScreen({super.key});
+
+  @override
+  State<QuestionPapersScreen> createState() => _QuestionPapersScreenState();
+}
+
+class _QuestionPapersScreenState extends State<QuestionPapersScreen> {
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (bool didPop) async {
-        if (didPop) {
-          return;
-        }
-        
-        final shouldPop = await _handleDeviceBackButton();
-        if (shouldPop && mounted) {
-          Navigator.of(context).pop();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: AppColors.backgroundLight,
-        body: Stack(
-          children: [
-            // Gradient background
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.primaryYellow.withOpacity(0.08),
-                    AppColors.backgroundLight,
-                    Colors.white,
-                  ],
-                  stops: const [0.0, 0.4, 1.0],
-                ),
-              ),
-            ),
-            
-            // Main content
-            Column(
-              children: [
-                // Header Section with Curved Bottom
-                ClipPath(
-                  clipper: CurvedHeaderClipper(),
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.primaryYellow,
-                          AppColors.primaryYellowDark,
-                        ],
+    return ChangeNotifierProvider(
+      create: (context) => QuestionPapersProvider()..initialize(),
+      builder: (context, child) {
+        return Consumer<QuestionPapersProvider>(
+          builder: (context, provider, child) {
+            return PopScope(
+              canPop: false,
+              onPopInvoked: (bool didPop) async {
+                if (didPop) {
+                  return;
+                }
+                
+                await provider.handleDeviceBackButton(context);
+              },
+              child: Scaffold(
+                backgroundColor: AppColors.backgroundLight,
+                body: Stack(
+                  children: [
+                    // Gradient background
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            AppColors.primaryYellow.withOpacity(0.08),
+                            AppColors.backgroundLight,
+                            Colors.white,
+                          ],
+                          stops: const [0.0, 0.4, 1.0],
+                        ),
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    
+                    // Main content
+                    Column(
                       children: [
-                        // Back button and title row
-                        Row(
-                          children: [
-                            IconButton(
-                              onPressed: () async {
-                                if (_currentPage == 'subjects') {
-                                  if (_studentType.toLowerCase() == 'online') {
-                                    final hasData = await _hasStoredReadingData();
-                                    if (hasData) {
-                                      _sendStoredReadingDataToAPI();
-                                    }
-                                  }
-                                  if (mounted) {
-                                    Navigator.pop(context);
-                                  }
-                                } else {
-                                  _navigateBack();
-                                }
-                              },
-                              icon: const Icon(
-                                Icons.arrow_back_rounded,
-                                color: Colors.white,
-                                size: 24,
+                        // Header Section with Curved Bottom
+                        ClipPath(
+                          clipper: CurvedHeaderClipper(),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  AppColors.primaryYellow,
+                                  AppColors.primaryYellowDark,
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _getAppBarTitle(),
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: -0.3,
+                            padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Back button and title row
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      onPressed: () async {
+                                        if (provider.currentPage == 'subjects' && provider.navigationStack.length <= 1) {
+                                          // On subjects page - navigate back to home
+                                          provider.navigateBackToHome(context);
+                                        } else {
+                                          // Use normal back navigation for other pages
+                                          await provider.handleDeviceBackButton(context);
+                                        }
+                                      },
+                                      icon: const Icon(
+                                        Icons.arrow_back_rounded,
+                                        color: Colors.white,
+                                        size: 24,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            provider.getAppBarTitle(),
+                                            style: const TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                              letterSpacing: -0.3,
+                                            ),
+                                          ),
+                                          if (provider.getAppBarSubtitle().isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              provider.getAppBarSubtitle(),
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.white70,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+
+                        // Subscription Message (appears only when there are locked papers)
+                        if (provider.showSubscriptionMessage && provider.hasLockedPapers)
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const SubscriptionScreen(),
+                                ),
+                              );
+                            },
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryYellow.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.primaryYellow.withOpacity(0.3),
+                                  width: 1,
                                 ),
                               ),
+                              child: const Row(
+                                children: [
+                                  Icon(
+                                    Icons.lock_open_rounded,
+                                    color: AppColors.primaryYellow,
+                                    size: 20,
+                                  ),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      'Take subscription to unlock all premium features',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primaryYellowDark,
+                                      ),
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.arrow_forward_ios_rounded,
+                                    color: AppColors.primaryYellow,
+                                    size: 16,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
+                          ),
+
+                        // Content Area
+                        Expanded(
+                          child: provider.isLoading
+                              ? _buildSkeletonLoading()
+                              : _buildCurrentPage(context, provider),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
-
-                // Subscription Message 
-                if (_showSubscriptionMessage && _hasLockedPapers)
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const SubscriptionScreen(),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryYellow.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: AppColors.primaryYellow.withOpacity(0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(
-                            Icons.lock_open_rounded,
-                            color: AppColors.primaryYellow,
-                            size: 20,
-                          ),
-                           SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              'Take subscription to unlock all premium features',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.primaryYellowDark,
-                              ),
-                            ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_ios_rounded,
-                            color: AppColors.primaryYellow,
-                            size: 16,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                // Content Area
-                Expanded(
-                  child: _isLoading
-                      ? _buildSkeletonLoading()
-                      : _buildCurrentPage(),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -939,18 +1075,18 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     );
   }
 
-  Widget _buildCurrentPage() {
-    switch (_currentPage) {
+  Widget _buildCurrentPage(BuildContext context, QuestionPapersProvider provider) {
+    switch (provider.currentPage) {
       case 'subjects':
-        return _buildSubjectsPage();
+        return _buildSubjectsPage(context, provider);
       case 'question_papers':
-        return _buildQuestionPapersPage();
+        return _buildQuestionPapersPage(context, provider);
       default:
-        return _buildSubjectsPage();
+        return _buildSubjectsPage(context, provider);
     }
   }
 
-  Widget _buildSubjectsPage() {
+  Widget _buildSubjectsPage(BuildContext context, QuestionPapersProvider provider) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
@@ -1001,7 +1137,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_subjects.length} subject${_subjects.length != 1 ? 's' : ''} available',
+                        '${provider.subjects.length} subject${provider.subjects.length != 1 ? 's' : ''} available',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.grey400,
@@ -1016,7 +1152,7 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
 
             const SizedBox(height: 24),
 
-            if (_subjects.isEmpty)
+            if (provider.subjects.isEmpty)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 40),
@@ -1060,13 +1196,13 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
               )
             else
               Column(
-                children: _subjects
+                children: provider.subjects
                     .map((subject) => _buildSubjectCard(
                           title: subject['title']?.toString() ?? 'Unknown Subject',
-                          subtitle: 'Tap to view papers',
+                          subtitle: 'Tap to view question papers',
                           icon: Icons.quiz_rounded,
                           color: AppColors.primaryBlue,
-                          onTap: () => _fetchQuestionPapers(
+                          onTap: () => provider.fetchQuestionPapers(
                             subject['id']?.toString() ?? '',
                             subject['title']?.toString() ?? 'Unknown Subject',
                           ),
@@ -1079,186 +1215,144 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> with Widget
     );
   }
 
- Widget _buildQuestionPapersPage() {
-  // Sort question papers before displaying
-  List<dynamic> sortedQuestionPapers = _sortQuestionPapers(_questionPapers);
+  Widget _buildQuestionPapersPage(BuildContext context, QuestionPapersProvider provider) {
+    // Sort question papers before displaying
+    List<dynamic> sortedQuestionPapers = provider.sortQuestionPapers(provider.questionPapers);
 
-  return SingleChildScrollView(
-    physics: const BouncingScrollPhysics(),
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Section
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryBlue,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Question Papers',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _selectedSubjectName,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.primaryBlue,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.only(left: 16),
-                child: Text(
-                  '${sortedQuestionPapers.length} paper${sortedQuestionPapers.length != 1 ? 's' : ''} available',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.grey400,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          if (sortedQuestionPapers.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header Section
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      width: 4,
+                      height: 24,
                       decoration: BoxDecoration(
-                        color: AppColors.warningOrange.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.quiz_rounded,
-                        size: 50,
-                        color: AppColors.primaryBlue.withOpacity(0.5),
+                        color: AppColors.primaryBlue,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'No papers available',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Question papers for this subject\nwill be added soon',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppColors.textGrey,
-                        fontWeight: FontWeight.w500,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Question Papers',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            provider.selectedSubjectName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            )
-          else
-            Column(
-              children: sortedQuestionPapers
-                  .map((paper) {
-                    final fileUrl = paper['file_url']?.toString() ?? '';
-                    final isLocked = fileUrl.isEmpty || fileUrl == 'null';
-                    
-                    return _buildQuestionPaperCard(
-                      paperId: paper['id']?.toString() ?? '',
-                      title: paper['title']?.toString() ?? 'Untitled Paper',
-                      fileUrl: fileUrl,
-                      uploadedAt: paper['uploaded_at']?.toString() ?? '',
-                      isLocked: isLocked,
-                    );
-                  })
-                  .toList(),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Text(
+                    '${sortedQuestionPapers.length} paper${sortedQuestionPapers.length != 1 ? 's' : ''} available',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.grey400,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
             ),
-        ],
+
+            const SizedBox(height: 24),
+
+            if (sortedQuestionPapers.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.warningOrange.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.quiz_rounded,
+                          size: 50,
+                          color: AppColors.primaryBlue.withOpacity(0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No papers available',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Question papers for this subject\nwill be added soon',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Column(
+                children: sortedQuestionPapers
+                    .map((paper) {
+                      final fileUrl = paper['file_url']?.toString() ?? '';
+                      final isLocked = fileUrl.isEmpty || fileUrl == 'null';
+                      
+                      return _buildQuestionPaperCard(
+                        context: context,
+                        provider: provider,
+                        paperId: paper['id']?.toString() ?? '',
+                        title: paper['title']?.toString() ?? 'Untitled Paper',
+                        fileUrl: fileUrl,
+                        uploadedAt: paper['uploaded_at']?.toString() ?? '',
+                        isLocked: isLocked,
+                      );
+                    })
+                    .toList(),
+              ),
+          ],
+        ),
       ),
-    ),
-  );
-}
-
-// Add this new method to sort question papers
-List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
-  if (papers.isEmpty) return papers;
-
-  // Create a copy to avoid modifying the original list
-  List<dynamic> sortedPapers = List.from(papers);
-
-  // Parse dates and determine locked status for sorting
-  sortedPapers.sort((a, b) {
-    final fileUrlA = a['file_url']?.toString() ?? '';
-    final fileUrlB = b['file_url']?.toString() ?? '';
-    final isLockedA = fileUrlA.isEmpty || fileUrlA == 'null';
-    final isLockedB = fileUrlB.isEmpty || fileUrlB == 'null';
-
-    // For public students, prioritize unlocked papers first
-    if (_studentType.toLowerCase() == 'public') {
-      if (isLockedA != isLockedB) {
-        return isLockedA ? 1 : -1; // Unlocked papers come first
-      }
-    }
-
-    // Sort by date (most recent first)
-    try {
-      final dateA = a['uploaded_at']?.toString() ?? '';
-      final dateB = b['uploaded_at']?.toString() ?? '';
-
-      if (dateA.isEmpty && dateB.isEmpty) return 0;
-      if (dateA.isEmpty) return 1; // Papers without date go to bottom
-      if (dateB.isEmpty) return -1;
-
-      final parsedDateA = DateTime.parse(dateA);
-      final parsedDateB = DateTime.parse(dateB);
-
-      // Most recent first (descending order)
-      return parsedDateB.compareTo(parsedDateA);
-    } catch (e) {
-      debugPrint('Error parsing dates for sorting: $e');
-      return 0;
-    }
-  });
-
-  return sortedPapers;
-}
+    );
+  }
 
   Widget _buildSubjectCard({
     required String title,
@@ -1384,6 +1478,8 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
   }
 
   Widget _buildQuestionPaperCard({
+    required BuildContext context,
+    required QuestionPapersProvider provider,
     required String paperId,
     required String title,
     required String fileUrl,
@@ -1401,7 +1497,7 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
         debugPrint('Question Paper ID: $paperId');
         debugPrint('Title: $title');
         debugPrint('Raw File URL from API: "$fileUrl"');
-        debugPrint('Student Type: $_studentType');
+        debugPrint('Student Type: ${provider.studentType}');
         
         if (fileUrl.isEmpty) {
           debugPrint('❌ File URL is empty');
@@ -1414,7 +1510,7 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
           return;
         }
         
-        if (_accessToken == null || _accessToken!.isEmpty) {
+        if (provider.accessToken == null || provider.accessToken!.isEmpty) {
           debugPrint('❌ Access token is null or empty');
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1426,7 +1522,7 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
         }
         
         debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
-        debugPrint('Reading data collection enabled for student type: $_studentType');
+        debugPrint('Reading data collection enabled for student type: ${provider.studentType}');
         debugPrint('=== END QUESTION PAPER CARD CLICK ===\n');
         
         Navigator.push(
@@ -1435,9 +1531,9 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
             builder: (context) => QuestionsPDFViewScreen(
               pdfUrl: fileUrl,
               title: title,
-              accessToken: _accessToken!,
+              accessToken: provider.accessToken!,
               questionPaperId: paperId,
-              enableReadingData: _studentType.toLowerCase() == 'online',
+              enableReadingData: provider.studentType.toLowerCase() == 'online',
             ),
           ),
         );
@@ -1526,7 +1622,7 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
               ),
             ),
             
-            // Blur effect for locked papers
+            // Blur effect for locked papers - only on the content area
             if (isLocked)
               Positioned.fill(
                 child: ClipRRect(
@@ -1552,6 +1648,85 @@ List<dynamic> _sortQuestionPapers(List<dynamic> papers) {
           ],
         ),
       ),
+    );
+  }
+
+  // Show subscription popup for locked papers
+  void _showSubscriptionPopup(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                color: AppColors.primaryYellow,
+                size: 24,
+              ),
+              SizedBox(width: 12),
+              Text(
+                'Premium Content',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Take any subscription plan to view this content and unlock all premium features.',
+            style: TextStyle(
+              fontSize: 14,
+              color: AppColors.textGrey,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppColors.textGrey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SubscriptionScreen(),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primaryYellow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              child: const Text(
+                'Subscribe',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

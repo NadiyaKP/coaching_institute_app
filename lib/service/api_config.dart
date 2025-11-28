@@ -152,7 +152,6 @@ static void handleError(String errorMessage) async {
   }
 }
 
-// ✅ ENHANCED: Extract short error message from full error
 static String _extractShortError(String fullError) {
   if (fullError.contains('Invalid request method')) {
     return 'Invalid request - Location may be OFF';

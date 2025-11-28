@@ -27,9 +27,9 @@ class ResponsiveUtils {
     final isLandscapeMode = isLandscape(context);
 
     if (isTabletDevice || isLandscapeMode) {
-      return width * 0.5; // 50% width for tablets/landscape
+      return width * 0.5;
     }
-    return width * 0.9; // 90% width for phones in portrait
+    return width * 0.9; 
   }
 
   static double getMaxContainerWidth(BuildContext context) {
@@ -226,7 +226,7 @@ class LoginProvider extends ChangeNotifier {
   debugPrint('Login attempt with username: $username');
 
   try {
-    // ✅ Use globalHttpClient instead of raw HttpClient
+    
     final apiUrl = '${ApiConfig.baseUrl}/api/students/student_login/';
     
     debugPrint('URL: $apiUrl');
@@ -314,7 +314,7 @@ class LoginProvider extends ChangeNotifier {
     };
   } on http.ClientException catch (e) {
     debugPrint('ClientException: $e');
-    // The globalHttpClient will already show the snackbar via ApiConfig.handleError
+    
     return {
       'success': false,
       'message': e.message,
@@ -703,7 +703,7 @@ Widget _buildHeader() {
           ),
         ),
         
-        // Explore Button - only shown in portrait mode (inside header)
+        // Explore Button 
         if (!isLandscape)
           Positioned(
             top: 16,
@@ -1354,7 +1354,7 @@ Widget _buildExploreButton() {
                 );
               }
               
-              // Portrait layout - stacked
+              // Portrait layout 
               return SingleChildScrollView(
                 child: Column(
                   children: [

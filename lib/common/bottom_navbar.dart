@@ -409,7 +409,7 @@ class CommonProfileDrawer extends StatelessWidget {
                               _buildCourseInfo('Course', course),
                             if (subcourse.isNotEmpty) ...[
                               const SizedBox(height: 8),
-                              _buildCourseInfo('Subcourse', subcourse),
+                              _buildCourseInfo('Level', subcourse),
                             ],
                           ],
                         ),

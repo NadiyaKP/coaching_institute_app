@@ -25,60 +25,35 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _checkAuthAndNavigate() async {
     try {
-      // Add a small delay for the splash screen to be visible
       await Future.delayed(const Duration(seconds: 3));
-
-      print('=== SPLASH SCREEN: Checking Authentication ===');
-      
-      // Get SharedPreferences instance
       final prefs = await SharedPreferences.getInstance();
-      
-      // Check if accessToken exists in SharedPreferences
       final String? accessToken = prefs.getString('accessToken');
-      
-      // Check student_type from SharedPreferences
       final String? studentType = prefs.getString('profile_student_type');
       
-      print('Access Token Present: ${accessToken != null && accessToken.isNotEmpty}');
-      print('Student Type: ${studentType ?? "N/A"}');
-      
-      // Ensure widget is still mounted before navigation
       if (!mounted) return;
-
-      // Navigate based on access token presence and student type
       if (accessToken != null && accessToken.isNotEmpty) {
         // Check if student type is 'ONLINE'
         if (studentType != null && studentType.toUpperCase() == 'ONLINE') {
-          print('✅ Access token found + Student Type is ONLINE - Navigating to GetInScreen');
+      
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const GetInScreen()),
           );
         } else {
-          print('✅ Access token found + Student Type is NOT ONLINE - Navigating to HomeScreen');
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
         }
       } else {
-        print('❌ No access token found - Navigating to LoginScreen');
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
       
-      print('===============================');
-      
     } catch (e) {
-      print('=== ERROR IN SPLASH SCREEN ===');
-      print('Error Type: ${e.runtimeType}');
-      print('Error Message: $e');
-      print('Falling back to LoginScreen');
-      print('===============================');
-      
-      // Ensure widget is still mounted before navigation
+ 
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -96,8 +71,8 @@ class _SplashScreenState extends State<SplashScreen> {
     
     // Responsive sizing based on orientation
     final logoSize = isLandscape 
-        ? screenHeight * 0.55  // Use height for landscape - increased size
-        : screenWidth * 0.7;    // Use width for portrait
+        ? screenHeight * 0.55  
+        : screenWidth * 0.7;    
     
     return Scaffold(
       body: Container(
@@ -108,7 +83,6 @@ class _SplashScreenState extends State<SplashScreen> {
         ),
         child: Stack(
           children: [
-            // Background decorative circles
             Positioned(
               top: -30,
               right: -20,

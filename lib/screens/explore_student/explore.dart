@@ -57,7 +57,7 @@ class Course {
 }
 
 class Student {
-  final String id;  // ADD THIS LINE
+  final String id;  
   final String name;
   final String gender;
   final String studentType;
@@ -70,7 +70,7 @@ class Student {
   final String? previousInstitution;
 
   Student({
-    required this.id,  // ADD THIS LINE
+    required this.id,  
     required this.name,
     required this.gender,
     required this.studentType,
@@ -1118,7 +1118,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                 const SizedBox(height: 8),
                 _buildInfoRow(
                   icon: Icons.subject_outlined,
-                  label: 'Subcourse',
+                  label: 'Level',
                   value: student.subcourse!,
                   fontSize: fontSize,
                 ),

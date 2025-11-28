@@ -14,6 +14,32 @@ import '../../study_materials/notes/pdf_viewer_screen.dart';
 import '../../subscription/subscription.dart';
 import '../../../service/http_interceptor.dart';
 
+class NavigationState {
+  final String pageType; 
+  final String subjectId;
+  final String subjectName;
+  final String? unitId;
+  final String? unitName;
+  final String? chapterId;
+  final String? chapterName;
+  final bool hasDirectChapters; 
+  final List<dynamic> unitsData; 
+  final List<dynamic> chaptersData; 
+
+  NavigationState({
+    required this.pageType,
+    required this.subjectId,
+    required this.subjectName,
+    this.unitId,
+    this.unitName,
+    this.chapterId,
+    this.chapterName,
+    this.hasDirectChapters = false,
+    this.unitsData = const [],
+    this.chaptersData = const [],
+  });
+}
+
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
 
@@ -26,14 +52,14 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   String? _accessToken;
   
   // Navigation state
-  String _currentPage = 'subjects'; // subjects, units, chapters, notes
+  String _currentPage = 'subjects'; 
   String _courseName = '';
   String _subcourseName = '';
   String _subcourseId = '';
   String _selectedSubjectName = '';
   String _selectedUnitName = '';
   String _selectedChapterName = '';
-  String _studentType = ''; // Added student type
+  String _studentType = '';
   
   // Data lists
   List<dynamic> _subjects = [];
@@ -54,6 +80,14 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   bool _showSubscriptionMessage = false;
   bool _hasLockedNotes = false;
 
+  // Enhanced navigation stack to track the complete path
+  final List<NavigationState> _navigationStack = [];
+
+  // FIX: Add debouncing for API calls
+  bool _isSendingData = false;
+  DateTime? _lastApiCallTime;
+  static const Duration _apiCallDebounceTime = Duration(seconds: 5);
+
   @override
   void initState() {
     super.initState();
@@ -62,15 +96,12 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initializeHive() async {
-    // Check if Hive is already initialized for this adapter
     if (!_hiveInitialized) {
       try {
-        // Check if adapter is already registered
         if (!Hive.isAdapterRegistered(0)) {
           Hive.registerAdapter(PdfReadingRecordAdapter());
         }
         
-        // Initialize Hive if not already initialized
         if (!Hive.isBoxOpen('pdf_records_box')) {
           _pdfRecordsBox = await Hive.openBox<PdfReadingRecord>('pdf_records_box');
         } else {
@@ -81,7 +112,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         debugPrint('✅ Hive initialized successfully for Notes');
       } catch (e) {
         debugPrint('❌ Error initializing Hive for Notes: $e');
-        // Fallback: try to use existing box if available
         try {
           _pdfRecordsBox = Hive.box<PdfReadingRecord>('pdf_records_box');
           _hiveInitialized = true;
@@ -105,8 +135,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     
-    // Send stored data when app goes to background (minimized or device locked)
-    // Only for online students
     if (_studentType.toLowerCase() == 'online') {
       if (state == AppLifecycleState.paused || 
           state == AppLifecycleState.inactive ||
@@ -118,7 +146,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
   Future<void> _initializeData() async {
     await _getAccessToken();
-    await _loadStudentType(); // Load student type first
+    await _loadStudentType();
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _loadDataFromSharedPreferences();
     } else {
@@ -127,7 +155,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Load student type from SharedPreferences
   Future<void> _loadStudentType() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -148,20 +175,25 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Load data from SharedPreferences instead of API calls
   Future<void> _loadDataFromSharedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Load course and subcourse data
       setState(() {
         _courseName = prefs.getString('profile_course') ?? 'Course';
         _subcourseName = prefs.getString('profile_subcourse') ?? 'Subcourse';
         _subcourseId = prefs.getString('profile_subcourse_id') ?? '';
       });
 
-      // Load subjects data from stored JSON
       await _reloadSubjectsFromSharedPreferences();
+
+      // Initialize navigation stack with subjects
+      _navigationStack.add(NavigationState(
+        pageType: 'subjects',
+        subjectId: '',
+        subjectName: 'Subjects',
+        unitsData: _subjects,
+      ));
 
       setState(() {
         _isLoading = false;
@@ -176,38 +208,115 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Reload subjects from SharedPreferences (used when returning to course page)
   Future<void> _reloadSubjectsFromSharedPreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final String? subjectsDataJson = prefs.getString('subjects_data');
+      
+      debugPrint('📦 Loading subjects data from SharedPreferences...');
+      debugPrint('Subjects data JSON exists: ${subjectsDataJson != null && subjectsDataJson.isNotEmpty}');
+      
       if (subjectsDataJson != null && subjectsDataJson.isNotEmpty) {
-        final List<dynamic> subjects = json.decode(subjectsDataJson);
-        setState(() {
-          _subjects = subjects;
-        });
-        debugPrint('✅ Reloaded ${_subjects.length} subjects from SharedPreferences for Notes');
+        try {
+          final decodedData = json.decode(subjectsDataJson);
+          debugPrint('📦 Decoded data type: ${decodedData.runtimeType}');
+          
+          List<dynamic> subjects = [];
+          
+          // Handle different possible data structures
+          if (decodedData is List<dynamic>) {
+            subjects = decodedData;
+            debugPrint('✅ Data is List, subjects count: ${subjects.length}');
+          } else if (decodedData is Map<String, dynamic>) {
+            if (decodedData.containsKey('subjects') && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in Map, count: ${subjects.length}');
+            } else if (decodedData.containsKey('success') && decodedData['success'] == true && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in API response structure, count: ${subjects.length}');
+            } else {
+              subjects = decodedData.values.toList();
+              debugPrint('✅ Using Map values as subjects, count: ${subjects.length}');
+            }
+          }
+          
+          // Debug print all subjects with their titles and COMPLETE structure
+          debugPrint('=== COMPLETE SUBJECTS STRUCTURE ===');
+          for (var i = 0; i < subjects.length; i++) {
+            final subject = subjects[i];
+            final title = subject['title']?.toString() ?? 'No Title';
+            final id = subject['id']?.toString() ?? 'No ID';
+            
+            // Get units and chapters with proper null checking
+            final dynamic unitsData = subject['units'];
+            final dynamic chaptersData = subject['chapters'];
+            
+            final List<dynamic> units = (unitsData is List) ? unitsData : [];
+            final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+            
+            debugPrint('Subject $i:');
+            debugPrint('  - Title: "$title"');
+            debugPrint('  - ID: $id');
+            debugPrint('  - Units count: ${units.length}');
+            debugPrint('  - Chapters count: ${chapters.length}');
+            
+            // Print actual units if they exist
+            if (units.isNotEmpty) {
+              debugPrint('  - Units:');
+              for (var j = 0; j < units.length; j++) {
+                final unit = units[j];
+                debugPrint('    [${j + 1}] ${unit['title']} (${unit['chapters']?.length ?? 0} chapters)');
+              }
+            }
+            
+            // Print actual chapters if they exist
+            if (chapters.isNotEmpty) {
+              debugPrint('  - Direct Chapters:');
+              for (var j = 0; j < chapters.length; j++) {
+                final chapter = chapters[j];
+                debugPrint('    [${j + 1}] ${chapter['title']}');
+              }
+            }
+            
+            if (units.isEmpty && chapters.isEmpty) {
+              debugPrint('  - No content available');
+            }
+          }
+          debugPrint('=== END COMPLETE SUBJECTS STRUCTURE ===');
+          
+          // Store the properly parsed subjects
+          setState(() {
+            _subjects = subjects;
+          });
+          
+          debugPrint('✅ Successfully loaded ${_subjects.length} subjects from SharedPreferences for Notes');
+          
+        } catch (e) {
+          debugPrint('❌ Error parsing subjects data JSON: $e');
+          setState(() {
+            _subjects = [];
+          });
+        }
       } else {
         debugPrint('⚠️ No subjects data found in SharedPreferences for Notes');
+        debugPrint('Available keys in SharedPreferences: ${prefs.getKeys()}');
         setState(() {
           _subjects = [];
         });
       }
     } catch (e) {
-      debugPrint('Error reloading subjects from SharedPreferences: $e');
+      debugPrint('❌ Error reloading subjects from SharedPreferences: $e');
       setState(() {
         _subjects = [];
       });
     }
   }
 
-  // Create HTTP client with custom certificate handling for development
   http.Client _createHttpClientWithCustomCert() {
     final client = ApiConfig.createHttpClient();
     return IOClient(client);
   }
 
-  // Helper method to get authorization headers
   Map<String, String> _getAuthHeaders() {
     if (_accessToken == null || _accessToken!.isEmpty) {
       throw Exception('Access token is null or empty');
@@ -219,7 +328,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     };
   }
 
-  // Helper method to handle token expiration
   void _handleTokenExpiration() async {
     await _authService.logout();
     _showError('Session expired. Please login again.');
@@ -235,7 +343,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Load subjects from SharedPreferences (no API call)
   void _loadSubjects() {
     if (_subjects.isEmpty) {
       _showError('No subjects data available. Please load study materials first.');
@@ -248,9 +355,13 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     });
   }
 
-  // Load units for a subject from SharedPreferences (no API call)
+  // FIXED: Enhanced _loadUnits method to properly handle direct chapters
   void _loadUnits(String subjectId, String subjectName) {
     try {
+      debugPrint('=== LOADING UNITS/CHAPTERS FOR SUBJECT ===');
+      debugPrint('Subject ID: $subjectId');
+      debugPrint('Subject Name: $subjectName');
+      
       // Find the subject in the stored data
       final subject = _subjects.firstWhere(
         (subject) => subject['id']?.toString() == subjectId,
@@ -262,28 +373,90 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         return;
       }
 
-      final List<dynamic> units = subject['units'] ?? [];
+      // Get units and chapters with proper null checking
+      final dynamic unitsData = subject['units'];
+      final dynamic chaptersData = subject['chapters'];
+      
+      final List<dynamic> units = (unitsData is List) ? unitsData : [];
+      final List<dynamic> directChapters = (chaptersData is List) ? chaptersData : [];
 
-      setState(() {
-        _units = units;
-        _selectedSubjectId = subjectId;
-        _selectedSubjectName = subjectName;
-        _currentPage = 'units';
-        _isLoading = false;
-      });
+      debugPrint('Units found: ${units.length}');
+      debugPrint('Direct chapters found: ${directChapters.length}');
+      
+      // Check if units exist and are not empty
+      final bool hasUnits = units.isNotEmpty;
+      
+      // Check if direct chapters exist and are not empty  
+      final bool hasDirectChapters = directChapters.isNotEmpty;
+
+      debugPrint('Has units: $hasUnits');
+      debugPrint('Has direct chapters: $hasDirectChapters');
+
+      // If subject has units, show units page
+      if (hasUnits) {
+        debugPrint('📚 Showing UNITS page for subject: $subjectName');
+        setState(() {
+          _units = units;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _currentPage = 'units';
+          _isLoading = false;
+        });
+        
+        // Add to navigation stack with units data
+        _navigationStack.add(NavigationState(
+          pageType: 'units',
+          subjectId: subjectId,
+          subjectName: subjectName,
+          hasDirectChapters: false,
+          unitsData: units,
+        ));
+      } 
+      // If subject has direct chapters but no units, show chapters directly
+      else if (hasDirectChapters) {
+        debugPrint('📖 Showing DIRECT CHAPTERS page for subject: $subjectName');
+        setState(() {
+          _chapters = directChapters;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _selectedUnitName = ''; // No unit name since we're going directly to chapters
+          _currentPage = 'chapters';
+          _isLoading = false;
+        });
+        
+        // Add to navigation stack with direct chapters flag and chapters data
+        _navigationStack.add(NavigationState(
+          pageType: 'chapters',
+          subjectId: subjectId,
+          subjectName: subjectName,
+          hasDirectChapters: true,
+          chaptersData: directChapters,
+        ));
+      }
+      // If subject has neither units nor chapters
+      else {
+        debugPrint('❌ No content available for subject: $subjectName');
+        _showError('No content available for this subject');
+        setState(() {
+          _isLoading = false;
+        });
+      }
 
     } catch (e) {
-      debugPrint('Error loading units: $e');
-      _showError('Failed to load units: $e');
+      debugPrint('❌ Error loading units/chapters: $e');
+      _showError('Failed to load content: $e');
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  // Load chapters for a unit from SharedPreferences (no API call)
   void _loadChapters(String unitId, String unitName) {
     try {
+      debugPrint('=== LOADING CHAPTERS FOR UNIT ===');
+      debugPrint('Unit ID: $unitId');
+      debugPrint('Unit Name: $unitName');
+      
       // Find the unit in the current subject's units
       final unit = _units.firstWhere(
         (unit) => unit['id']?.toString() == unitId,
@@ -296,6 +469,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       }
 
       final List<dynamic> chapters = unit['chapters'] ?? [];
+      
+      debugPrint('Chapters found: ${chapters.length}');
 
       setState(() {
         _chapters = chapters;
@@ -304,6 +479,17 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         _currentPage = 'chapters';
         _isLoading = false;
       });
+
+      // Add to navigation stack with chapters data
+      _navigationStack.add(NavigationState(
+        pageType: 'chapters',
+        subjectId: _selectedSubjectId!,
+        subjectName: _selectedSubjectName,
+        unitId: unitId,
+        unitName: unitName,
+        hasDirectChapters: false,
+        chaptersData: chapters,
+      ));
 
     } catch (e) {
       debugPrint('Error loading chapters: $e');
@@ -314,7 +500,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Fetch notes for a chapter from API
   Future<void> _fetchNotes(String chapterId, String chapterName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found');
@@ -327,12 +512,10 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
     try {
       String encodedId = Uri.encodeComponent(chapterId);
-      final apiUrl = '${ApiConfig.currentBaseUrl}/api/notes/list_notes?chapter_id=$encodedId';
+      final apiUrl = '${ApiConfig.currentBaseUrl}/api/notes/list_notes/?chapter_id=$encodedId';
       
       debugPrint('=== FETCHING NOTES API CALL ===');
       debugPrint('URL: $apiUrl');
-      debugPrint('Method: GET');
-      debugPrint('Headers: ${_getAuthHeaders()}');
       
       final response = await globalHttpClient.get(
         Uri.parse(apiUrl),
@@ -341,41 +524,12 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
       debugPrint('\n=== NOTES API RESPONSE ===');
       debugPrint('Status Code: ${response.statusCode}');
-      debugPrint('Response Headers: ${response.headers}');
       
-      // Use print() instead of debugPrint() to avoid masking
-      print('Response Body (Raw):');
-      print(response.body);
-      
-      // Pretty print JSON if possible
-      try {
-        final responseJson = jsonDecode(response.body);
-        print('\nResponse Body (Formatted):');
-        print(const JsonEncoder.withIndent('  ').convert(responseJson));
-        
-        // Print file URLs explicitly using print()
-        if (responseJson['notes'] != null && responseJson['notes'] is List) {
-          print('\n=== EXTRACTED FILE URLS ===');
-          for (var i = 0; i < responseJson['notes'].length; i++) {
-            final note = responseJson['notes'][i];
-            print('Note ${i + 1}:');
-            print('  ID: ${note['id']}');
-            print('  Title: ${note['title']}');
-            print('  File URL: ${note['file_url']}');
-          }
-          print('=== END FILE URLS ===\n');
-        }
-      } catch (e) {
-        debugPrint('Unable to format JSON: $e');
-      }
-      debugPrint('=== END NOTES API RESPONSE ===\n');
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] ?? false) {
           final notes = data['notes'] ?? [];
           
-          // Check if there are any locked notes
           final hasLockedNotes = notes.any((note) {
             final fileUrl = note['file_url']?.toString() ?? '';
             return fileUrl.isEmpty || fileUrl == 'null';
@@ -390,7 +544,18 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
             _hasLockedNotes = hasLockedNotes;
           });
 
-          // Show subscription message if there are locked notes
+          // Add to navigation stack with notes data
+          _navigationStack.add(NavigationState(
+            pageType: 'notes',
+            subjectId: _selectedSubjectId!,
+            subjectName: _selectedSubjectName,
+            unitId: _selectedUnitId,
+            unitName: _selectedUnitName,
+            chapterId: chapterId,
+            chapterName: chapterName,
+            hasDirectChapters: _selectedUnitId == null, // If no unit, it's direct chapters
+          ));
+
           if (hasLockedNotes) {
             _showAndHideSubscriptionMessage();
           }
@@ -433,7 +598,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Show and hide subscription message with animation
   void _showAndHideSubscriptionMessage() {
     setState(() {
       _showSubscriptionMessage = true;
@@ -460,42 +624,96 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
+  // ENHANCED: Proper hierarchical backward navigation
   void _navigateBack() {
-    setState(() {
-      switch (_currentPage) {
-        case 'subjects':
-          // When going back from subjects page, check for stored data and send if exists
-          // Only for online students
-          if (_studentType.toLowerCase() == 'online') {
-            _sendStoredReadingDataToAPI();
-          }
-          if (mounted) {
-            Navigator.pop(context);
-          }
-          break;
-        case 'units':
-          _currentPage = 'subjects';
-          // Don't clear units - they will be reloaded when needed
-          _selectedSubjectId = null;
-          _selectedSubjectName = '';
-          break;
-        case 'chapters':
-          _currentPage = 'units';
-          // Don't clear chapters - they will be reloaded when needed
-          _selectedUnitId = null;
-          _selectedUnitName = '';
-          break;
-        case 'notes':
-          _currentPage = 'chapters';
-          _notes.clear(); // Only clear notes as they come from API
-          _selectedChapterId = null;
-          _selectedChapterName = '';
-          break;
-      }
-    });
+    debugPrint('=== BACK NAVIGATION START ===');
+    debugPrint('Current stack length: ${_navigationStack.length}');
+    debugPrint('Current page: $_currentPage');
+    
+    if (_navigationStack.length > 1) {
+      // Remove current state
+      final currentState = _navigationStack.removeLast();
+      debugPrint('Removed current state: ${currentState.pageType}');
+      
+      // Get previous state
+      final previousState = _navigationStack.last;
+      debugPrint('Previous state: ${previousState.pageType}');
+      
+      // Restore the previous state properly based on page type
+      setState(() {
+        _currentPage = previousState.pageType;
+        _selectedSubjectId = previousState.subjectId;
+        _selectedSubjectName = previousState.subjectName;
+        
+        switch (previousState.pageType) {
+          case 'subjects':
+            // Going back to subjects - restore subjects data
+            _units = [];
+            _chapters = [];
+            _notes = [];
+            _selectedUnitId = null;
+            _selectedUnitName = '';
+            _selectedChapterId = null;
+            _selectedChapterName = '';
+            break;
+            
+          case 'units':
+            // Going back to units from chapters
+            _units = previousState.unitsData;
+            _chapters = [];
+            _notes = [];
+            _selectedUnitId = null;
+            _selectedUnitName = '';
+            _selectedChapterId = null;
+            _selectedChapterName = '';
+            break;
+            
+          case 'chapters':
+            // Going back to chapters from notes
+            if (previousState.hasDirectChapters) {
+              // Direct chapters (no units)
+              _chapters = previousState.chaptersData;
+              _selectedUnitId = null;
+              _selectedUnitName = '';
+            } else {
+              // Chapters with units
+              _chapters = previousState.chaptersData;
+              _selectedUnitId = previousState.unitId;
+              _selectedUnitName = previousState.unitName ?? '';
+            }
+            _notes = [];
+            _selectedChapterId = null;
+            _selectedChapterName = '';
+            break;
+        }
+        _isLoading = false;
+      });
+      
+      debugPrint('=== BACK NAVIGATION COMPLETE ===');
+      debugPrint('New current page: $_currentPage');
+      debugPrint('Stack length after: ${_navigationStack.length}');
+    } else {
+      // If we're at the root (subjects), exit the screen
+      debugPrint('At root level - exiting screen');
+      _exitScreen();
+    }
   }
 
-  // Method to check if there is stored reading data
+  // Enhanced exit screen method that sends data without waiting
+  void _exitScreen() {
+    if (_studentType.toLowerCase() == 'online') {
+      // Send reading data to backend without waiting for response
+      _sendStoredReadingDataToAPI().catchError((e) {
+        debugPrint('Error sending reading data on exit: $e');
+        // Don't show error to user, just log it
+      });
+    }
+    
+    if (mounted) {
+      Navigator.pop(context);
+    }
+  }
+
   Future<bool> _hasStoredReadingData() async {
     try {
       return _pdfRecordsBox.isNotEmpty;
@@ -505,11 +723,24 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Method to send all stored reading data to API (only called from subjects page back button and app lifecycle)
+  // FIXED: Enhanced with debouncing to prevent multiple API calls
   Future<void> _sendStoredReadingDataToAPI() async {
-    // Only send data for online students
     if (_studentType.toLowerCase() != 'online') {
       debugPrint('Student type is $_studentType - skipping reading data collection');
+      return;
+    }
+
+    // Check if we're already sending data
+    if (_isSendingData) {
+      debugPrint('📱 API call already in progress, skipping duplicate call');
+      return;
+    }
+
+    // Check debounce time
+    final now = DateTime.now();
+    if (_lastApiCallTime != null && 
+        now.difference(_lastApiCallTime!) < _apiCallDebounceTime) {
+      debugPrint('📱 API call debounced, too soon since last call');
       return;
     }
 
@@ -527,7 +758,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
       List<Map<String, dynamic>> allNotesData = [];
 
       for (final record in allRecords) {
-        // Prepare the note data (without readedtime_seconds)
         final noteData = {
           'encrypted_note_id': record.encryptedNoteId,
           'readedtime': record.readedtime,
@@ -543,29 +773,23 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         return;
       }
 
-      // Prepare request body with all note records
       final requestBody = {
         'notes': allNotesData,
       };
 
-      debugPrint('REQUEST:');
-      debugPrint('Endpoint: /api/performance/add_readed_notes/');
-      debugPrint('Method: POST');
-      debugPrint('Authorization: Bearer $_accessToken');
-      debugPrint('Request Body:');
-      debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
+      // Set flags to prevent duplicate calls
+      setState(() {
+        _isSendingData = true;
+        _lastApiCallTime = now;
+      });
 
-      // Create HTTP client
       final client = ApiConfig.createHttpClient();
       final httpClient = IOClient(client);
 
-      // API endpoint
       final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_notes/';
 
-      debugPrint('Full URL: $apiUrl');
-
-      // Send POST request
-      final response = await globalHttpClient.post(
+      // Fire and forget - don't wait for response
+      globalHttpClient.post(
         Uri.parse(apiUrl),
         headers: {
           'Authorization': 'Bearer $_accessToken',
@@ -573,39 +797,43 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           ...ApiConfig.commonHeaders,
         },
         body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 30));
-
-      debugPrint('\nRESPONSE:');
-      debugPrint('Status Code: ${response.statusCode}');
-      debugPrint('Response Headers: ${response.headers}');
-
-      // Pretty print JSON response if possible
-      try {
-        final responseJson = jsonDecode(response.body);
-        debugPrint('Response Body:');
-        debugPrint(const JsonEncoder.withIndent('  ').convert(responseJson));
-      } catch (e) {
-        debugPrint('Response Body: ${response.body}');
-      }
-
-      debugPrint('=== END BULK NOTES API CALL ===\n');
-
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        debugPrint('✓ All note data sent successfully to API');
+      ).timeout(const Duration(seconds: 10)).then((response) {
+        if (response.statusCode == 200 || response.statusCode == 201) {
+          debugPrint('✓ All note data sent successfully to API');
+          _clearStoredReadingData().catchError((e) {
+            debugPrint('Error clearing stored data: $e');
+          });
+        } else {
+          debugPrint('✗ Failed to send note data. Status: ${response.statusCode}');
+        }
         
-        // Clear all stored records after successful API call
-        await _clearStoredReadingData();
-        
-      } else {
-        debugPrint('✗ Failed to send note data. Status: ${response.statusCode}');
-      }
+        // Reset sending flag after completion
+        if (mounted) {
+          setState(() {
+            _isSendingData = false;
+          });
+        }
+      }).catchError((e) {
+        debugPrint('✗ Error sending stored note records to API: $e');
+        // Reset sending flag on error
+        if (mounted) {
+          setState(() {
+            _isSendingData = false;
+          });
+        }
+      });
+
     } catch (e) {
-      debugPrint('✗ Error sending stored note records to API: $e');
-      debugPrint('=== END BULK NOTES API CALL (ERROR) ===\n');
+      debugPrint('✗ Error preparing to send stored note records: $e');
+      // Reset sending flag on error
+      if (mounted) {
+        setState(() {
+          _isSendingData = false;
+        });
+      }
     }
   }
 
-  // Method to clear all stored reading data
   Future<void> _clearStoredReadingData() async {
     try {
       await _pdfRecordsBox.clear();
@@ -615,49 +843,73 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     }
   }
 
-  // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
-    if (_currentPage == 'subjects') {
-      // On subjects page - check for stored data and send if exists
-      // Only for online students
-      if (_studentType.toLowerCase() == 'online') {
-        final hasData = await _hasStoredReadingData();
-        if (hasData) {
-          // Send data in background without waiting for response
-          _sendStoredReadingDataToAPI();
-        }
-      }
-      // Allow normal back navigation
-      return true;
-    } else if (_currentPage == 'notes') {
-      // From notes page, go back to chapters page
-      _navigateBack();
-      // Prevent default back behavior
-      return false;
+    debugPrint('=== DEVICE BACK BUTTON PRESSED ===');
+    debugPrint('Current page: $_currentPage');
+    debugPrint('Stack length: ${_navigationStack.length}');
+    
+    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
+      debugPrint('At root subjects - exiting screen');
+      _exitScreen();
+      return false; // Don't allow default back behavior
     } else {
-      // For other pages (units, chapters), do normal navigation
       _navigateBack();
-      // Prevent default back behavior
-      return false;
+      return false; // Don't allow default back behavior
     }
   }
 
   String _getAppBarTitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'subjects':
+          return 'Subjects';
+        case 'units':
+          return 'Units';
+        case 'chapters':
+          return 'Chapters';
+        case 'notes':
+          return 'Notes';
+        default:
+          return 'Notes';
+      }
+    }
+    
     switch (_currentPage) {
       case 'subjects':
-        return 'Notes';
+        return 'Subjects';
       case 'units':
-        return 'Units - $_selectedSubjectName';
+        return 'Units';
       case 'chapters':
-        return 'Chapters - $_selectedUnitName';
+        return 'Chapters';
       case 'notes':
-        return 'Notes - $_selectedChapterName';
+        return 'Notes';
       default:
         return 'Notes';
     }
   }
 
-  // Show subscription popup for locked notes
+  String _getAppBarSubtitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'units':
+          return currentState.subjectName;
+        case 'chapters':
+          if (currentState.hasDirectChapters) {
+            return currentState.subjectName;
+          } else {
+            return currentState.unitName ?? currentState.subjectName;
+          }
+        case 'notes':
+          return currentState.chapterName ?? currentState.subjectName;
+        default:
+          return '';
+      }
+    }
+    return '';
+  }
+
   void _showSubscriptionPopup(BuildContext context) {
     showDialog(
       context: context,
@@ -745,16 +997,12 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
           return;
         }
         
-        final shouldPop = await _handleDeviceBackButton();
-        if (shouldPop && mounted) {
-          Navigator.of(context).pop();
-        }
+        await _handleDeviceBackButton();
       },
       child: Scaffold(
         backgroundColor: AppColors.backgroundLight,
         body: Stack(
           children: [
-            // Gradient background
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -770,10 +1018,8 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               ),
             ),
             
-            // Main content
             Column(
               children: [
-                // Header Section with Curved Bottom
                 ClipPath(
                   clipper: CurvedHeaderClipper(),
                   child: Container(
@@ -792,24 +1038,11 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Back button and title row
                         Row(
                           children: [
                             IconButton(
                               onPressed: () async {
-                                if (_currentPage == 'subjects') {
-                                  if (_studentType.toLowerCase() == 'online') {
-                                    final hasData = await _hasStoredReadingData();
-                                    if (hasData) {
-                                      _sendStoredReadingDataToAPI();
-                                    }
-                                  }
-                                  if (mounted) {
-                                    Navigator.pop(context);
-                                  }
-                                } else {
-                                  _navigateBack();
-                                }
+                                await _handleDeviceBackButton();
                               },
                               icon: const Icon(
                                 Icons.arrow_back_rounded,
@@ -819,14 +1052,32 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                             ),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text(
-                                _getAppBarTitle(),
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: -0.3,
-                                ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _getAppBarTitle(),
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  if (_getAppBarSubtitle().isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _getAppBarSubtitle(),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white70,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ],
@@ -836,7 +1087,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   ),
                 ),
 
-                // Subscription Message (appears only when there are locked notes)
                 if (_showSubscriptionMessage && _hasLockedNotes)
                   GestureDetector(
                     onTap: () {
@@ -887,7 +1137,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                     ),
                   ),
 
-                // Content Area
                 Expanded(
                   child: _isLoading
                       ? _buildSkeletonLoading()
@@ -901,6 +1150,21 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildCurrentPage() {
+    switch (_currentPage) {
+      case 'subjects':
+        return _buildSubjectsPage();
+      case 'units':
+        return _buildUnitsPage();
+      case 'chapters':
+        return _buildChaptersPage();
+      case 'notes':
+        return _buildNotesPage();
+      default:
+        return _buildSubjectsPage();
+    }
+  }
+
   Widget _buildSkeletonLoading() {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -909,7 +1173,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Skeleton header
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -951,7 +1214,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
             const SizedBox(height: 24),
 
-            // Skeleton cards
             Column(
               children: List.generate(5, (index) => _buildSkeletonCard()),
             ),
@@ -1027,21 +1289,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildCurrentPage() {
-    switch (_currentPage) {
-      case 'subjects':
-        return _buildSubjectsPage();
-      case 'units':
-        return _buildUnitsPage();
-      case 'chapters':
-        return _buildChaptersPage();
-      case 'notes':
-        return _buildNotesPage();
-      default:
-        return _buildSubjectsPage();
-    }
-  }
-
   Widget _buildSubjectsPage() {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -1050,7 +1297,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1153,16 +1399,37 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
             else
               Column(
                 children: _subjects
-                    .map((subject) => _buildSubjectCard(
-                          title: subject['title']?.toString() ?? 'Unknown Subject',
-                          subtitle: '${subject['units']?.length ?? 0} units available',
-                          icon: Icons.subject_rounded,
-                          color: AppColors.primaryBlue,
-                          onTap: () => _loadUnits(
-                            subject['id']?.toString() ?? '',
-                            subject['title']?.toString() ?? 'Unknown Subject',
-                          ),
-                        ))
+                    .map((subject) {
+                      // Get units and chapters with proper null checking
+                      final dynamic unitsData = subject['units'];
+                      final dynamic chaptersData = subject['chapters'];
+                      
+                      final List<dynamic> units = (unitsData is List) ? unitsData : [];
+                      final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+                      
+                      final bool hasUnits = units.isNotEmpty;
+                      final bool hasChapters = chapters.isNotEmpty;
+                      
+                      String contentCount;
+                      if (hasUnits) {
+                        contentCount = '${units.length} units';
+                      } else if (hasChapters) {
+                        contentCount = '${chapters.length} chapters';
+                      } else {
+                        contentCount = 'No content';
+                      }
+                              
+                      return _buildSubjectCard(
+                        title: subject['title']?.toString() ?? 'Untitled Subject',
+                        subtitle: contentCount,
+                        icon: Icons.subject_rounded,
+                        color: AppColors.primaryBlue,
+                        onTap: () => _loadUnits(
+                          subject['id']?.toString() ?? '',
+                          subject['title']?.toString() ?? 'Unknown Subject',
+                        ),
+                      );
+                    })
                     .toList(),
               ),
           ],
@@ -1179,7 +1446,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1310,7 +1576,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1340,7 +1605,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _selectedUnitName,
+                            _selectedUnitName.isNotEmpty ? _selectedUnitName : _selectedSubjectName,
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppColors.primaryBlue,
@@ -1433,112 +1698,237 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     );
   }
 
- Widget _buildNotesPage() {
-  // Sort notes before displaying
-  List<dynamic> sortedNotes = _sortNotes(_notes);
+  Widget _buildNotesPage() {
+    List<dynamic> sortedNotes = _sortNotes(_notes);
 
-  return SingleChildScrollView(
-    physics: const BouncingScrollPhysics(),
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header Section
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryBlue,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Notes',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          _selectedChapterName,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.primaryBlue,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.only(left: 16),
-                child: Text(
-                  '${sortedNotes.length} note${sortedNotes.length != 1 ? 's' : ''} available',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.grey400,
-                    fontWeight: FontWeight.w400,
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-
-          if (sortedNotes.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 40),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      width: 4,
+                      height: 24,
                       decoration: BoxDecoration(
-                        color: AppColors.primaryBlue.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        Icons.note_rounded,
-                        size: 50,
-                        color: AppColors.primaryBlue.withOpacity(0.5),
+                        color: AppColors.primaryBlue,
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'No notes available',
-                      style: TextStyle(
-                        fontSize: 16,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Notes',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedChapterName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Text(
+                    '${sortedNotes.length} note${sortedNotes.length != 1 ? 's' : ''} available',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.grey400,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            if (sortedNotes.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryBlue.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.note_rounded,
+                          size: 50,
+                          color: AppColors.primaryBlue.withOpacity(0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No notes available',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Notes for this chapter\nwill be added soon',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Column(
+                children: sortedNotes
+                    .map((note) {
+                      final fileUrl = note['file_url']?.toString() ?? '';
+                      final isLocked = fileUrl.isEmpty || fileUrl == 'null';
+                      
+                      return _buildNoteCard(
+                        noteId: note['id']?.toString() ?? '',
+                        title: note['title']?.toString() ?? 'Untitled Note',
+                        fileUrl: fileUrl,
+                        uploadedAt: note['uploaded_at']?.toString() ?? '',
+                        isLocked: isLocked,
+                      );
+                    })
+                    .toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<dynamic> _sortNotes(List<dynamic> notes) {
+    if (notes.isEmpty) return notes;
+
+    List<dynamic> sortedNotes = List.from(notes);
+
+    sortedNotes.sort((a, b) {
+      final fileUrlA = a['file_url']?.toString() ?? '';
+      final fileUrlB = b['file_url']?.toString() ?? '';
+      final isLockedA = fileUrlA.isEmpty || fileUrlA == 'null';
+      final isLockedB = fileUrlB.isEmpty || fileUrlB == 'null';
+
+      if (_studentType.toLowerCase() == 'public') {
+        if (isLockedA != isLockedB) {
+          return isLockedA ? 1 : -1;
+        }
+      }
+
+      try {
+        final dateA = a['uploaded_at']?.toString() ?? '';
+        final dateB = b['uploaded_at']?.toString() ?? '';
+
+        if (dateA.isEmpty && dateB.isEmpty) return 0;
+        if (dateA.isEmpty) return 1;
+        if (dateB.isEmpty) return -1;
+
+        final parsedDateA = DateTime.parse(dateA);
+        final parsedDateB = DateTime.parse(dateB);
+
+        return parsedDateB.compareTo(parsedDateA);
+      } catch (e) {
+        debugPrint('Error parsing dates for sorting: $e');
+        return 0;
+      }
+    });
+
+    return sortedNotes;
+  }
+
+  Widget _buildSubjectCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                height: 40,
+                width: 40,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: color,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
-                        letterSpacing: -0.2,
+                        letterSpacing: -0.1,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Notes for this chapter\nwill be added soon',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 13,
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
                         color: AppColors.textGrey,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1546,159 +1936,26 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
-            )
-          else
-            Column(
-              children: sortedNotes
-                  .map((note) {
-                    final fileUrl = note['file_url']?.toString() ?? '';
-                    final isLocked = fileUrl.isEmpty || fileUrl == 'null';
-                    
-                    return _buildNoteCard(
-                      noteId: note['id']?.toString() ?? '',
-                      title: note['title']?.toString() ?? 'Untitled Note',
-                      fileUrl: fileUrl,
-                      uploadedAt: note['uploaded_at']?.toString() ?? '',
-                      isLocked: isLocked,
-                    );
-                  })
-                  .toList(),
-            ),
-        ],
-      ),
-    ),
-  );
-}
-
-List<dynamic> _sortNotes(List<dynamic> notes) {
-  if (notes.isEmpty) return notes;
-
-  // Create a copy to avoid modifying the original list
-  List<dynamic> sortedNotes = List.from(notes);
-
-  // Parse dates and determine locked status for sorting
-  sortedNotes.sort((a, b) {
-    final fileUrlA = a['file_url']?.toString() ?? '';
-    final fileUrlB = b['file_url']?.toString() ?? '';
-    final isLockedA = fileUrlA.isEmpty || fileUrlA == 'null';
-    final isLockedB = fileUrlB.isEmpty || fileUrlB == 'null';
-
-    // For public students, prioritize unlocked notes first
-    if (_studentType.toLowerCase() == 'public') {
-      if (isLockedA != isLockedB) {
-        return isLockedA ? 1 : -1; // Unlocked notes come first
-      }
-    }
-
-    // Sort by date (most recent first)
-    try {
-      final dateA = a['uploaded_at']?.toString() ?? '';
-      final dateB = b['uploaded_at']?.toString() ?? '';
-
-      if (dateA.isEmpty && dateB.isEmpty) return 0;
-      if (dateA.isEmpty) return 1; // Notes without date go to bottom
-      if (dateB.isEmpty) return -1;
-
-      final parsedDateA = DateTime.parse(dateA);
-      final parsedDateB = DateTime.parse(dateB);
-
-      // Most recent first (descending order)
-      return parsedDateB.compareTo(parsedDateA);
-    } catch (e) {
-      debugPrint('Error parsing dates for sorting: $e');
-      return 0;
-    }
-  });
-
-  return sortedNotes;
-}
-
-  Widget _buildSubjectCard({
-  required String title,
-  required String subtitle,
-  required IconData icon,
-  required Color color,
-  required VoidCallback onTap,
-}) {
-  return GestureDetector(
-    onTap: onTap,
-    child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
+              const SizedBox(width: 12),
+              Container(
+                height: 32,
+                width: 32,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: color,
+                  size: 14,
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Container(
-              height: 40,
-              width: 40,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textDark,
-                      letterSpacing: -0.1,
-                    ),
-                    
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.textGrey,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Container(
-              height: 32,
-              width: 32,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                Icons.arrow_forward_ios_rounded,
-                color: color,
-                size: 14,
-              ),
-            ),
-          ],
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   String _formatDate(String dateString) {
     try {
@@ -1737,177 +1994,176 @@ List<dynamic> _sortNotes(List<dynamic> notes) {
     }
   }
 
-Widget _buildNoteCard({
-  required String noteId,
-  required String title,
-  required String fileUrl,
-  required String uploadedAt,
-  required bool isLocked,
-}) {
-  return GestureDetector(
-    onTap: () {
-      if (isLocked) {
-        _showSubscriptionPopup(context);
-        return;
-      }
+  Widget _buildNoteCard({
+    required String noteId,
+    required String title,
+    required String fileUrl,
+    required String uploadedAt,
+    required bool isLocked,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        if (isLocked) {
+          _showSubscriptionPopup(context);
+          return;
+        }
 
-      debugPrint('=== NOTE CARD CLICKED ===');
-      debugPrint('Note ID: $noteId');
-      debugPrint('Title: $title');
-      debugPrint('Raw File URL from API: "$fileUrl"');
-      debugPrint('Student Type: $_studentType');
-      
-      if (fileUrl.isEmpty) {
-        debugPrint('❌ File URL is empty');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('PDF URL is empty'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      
-      if (_accessToken == null || _accessToken!.isEmpty) {
-        debugPrint('❌ Access token is null or empty');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Access token not available. Please login again.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
-      
-      debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
-      debugPrint('Reading data collection enabled for student type: $_studentType');
-      debugPrint('=== END NOTE CARD CLICK ===\n');
-      
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PDFViewerScreen(
-            pdfUrl: fileUrl,
-            title: title,
-            accessToken: _accessToken!,
-            noteId: noteId,
-            enableReadingData: _studentType.toLowerCase() == 'online', 
-          ),
-        ),
-      );
-    },
-    child: Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: isLocked 
-                ? Colors.grey.withOpacity(0.1)
-                : AppColors.primaryYellow.withOpacity(0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              children: [
-                Container(
-                  height: 40,
-                  width: 40,
-                  decoration: BoxDecoration(
-                    color: isLocked 
-                        ? Colors.grey.withOpacity(0.1)
-                        : AppColors.primaryBlue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    isLocked ? Icons.lock_outline_rounded : Icons.picture_as_pdf_rounded,
-                    size: 20,
-                    color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: isLocked ? Colors.grey : AppColors.textDark,
-                          letterSpacing: -0.1,
-                        ),
-                      ),
-                      if (uploadedAt.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          _formatDate(uploadedAt),
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: isLocked ? Colors.grey : AppColors.grey400,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  height: 32,
-                  width: 32,
-                  decoration: BoxDecoration(
-                    color: isLocked 
-                        ? Colors.grey.withOpacity(0.1)
-                        : AppColors.primaryBlue.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    isLocked ? Icons.lock_rounded : Icons.open_in_new_rounded,
-                    color: isLocked ? Colors.grey : AppColors.primaryBlue,
-                    size: 16,
-                  ),
-                ),
-              ],
+        debugPrint('=== NOTE CARD CLICKED ===');
+        debugPrint('Note ID: $noteId');
+        debugPrint('Title: $title');
+        debugPrint('Raw File URL from API: "$fileUrl"');
+        debugPrint('Student Type: $_studentType');
+        
+        if (fileUrl.isEmpty) {
+          debugPrint('❌ File URL is empty');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('PDF URL is empty'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+        
+        if (_accessToken == null || _accessToken!.isEmpty) {
+          debugPrint('❌ Access token is null or empty');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Access token not available. Please login again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+        
+        debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
+        debugPrint('Reading data collection enabled for student type: $_studentType');
+        debugPrint('=== END NOTE CARD CLICK ===\n');
+        
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PDFViewerScreen(
+              pdfUrl: fileUrl,
+              title: title,
+              accessToken: _accessToken!,
+              noteId: noteId,
+              enableReadingData: _studentType.toLowerCase() == 'online', 
             ),
           ),
-          
-          // Blur effect for locked notes - only on the content area
-          if (isLocked)
-            Positioned.fill(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: BackdropFilter(
-                  filter: ColorFilter.mode(
-                    Colors.grey.withOpacity(0.3),
-                    BlendMode.srcOver,
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: isLocked 
+                  ? Colors.grey.withOpacity(0.1)
+                  : AppColors.primaryYellow.withOpacity(0.15),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Container(
+                    height: 40,
+                    width: 40,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      isLocked ? Icons.lock_outline_rounded : Icons.picture_as_pdf_rounded,
+                      size: 20,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                    ),
                   ),
-                  child: Container(
-                    color: Colors.white.withOpacity(0.7),
-                    child: const Center(
-                      child: Icon(
-                        Icons.lock_rounded,
-                        color: AppColors.primaryBlue,
-                        size: 18,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: isLocked ? Colors.grey : AppColors.textDark,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                        if (uploadedAt.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatDate(uploadedAt),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isLocked ? Colors.grey : AppColors.grey400,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    height: 32,
+                    width: 32,
+                    decoration: BoxDecoration(
+                      color: isLocked 
+                          ? Colors.grey.withOpacity(0.1)
+                          : AppColors.primaryBlue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      isLocked ? Icons.lock_rounded : Icons.open_in_new_rounded,
+                      color: isLocked ? Colors.grey : AppColors.primaryBlue,
+                      size: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            if (isLocked)
+              Positioned.fill(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: BackdropFilter(
+                    filter: ColorFilter.mode(
+                      Colors.grey.withOpacity(0.3),
+                      BlendMode.srcOver,
+                    ),
+                    child: Container(
+                      color: Colors.white.withOpacity(0.7),
+                      child: const Center(
+                        child: Icon(
+                          Icons.lock_rounded,
+                          color: AppColors.primaryBlue,
+                          size: 18,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 class CurvedHeaderClipper extends CustomClipper<Path> {
@@ -1916,7 +2172,6 @@ class CurvedHeaderClipper extends CustomClipper<Path> {
     Path path = Path();
     path.lineTo(0, size.height - 30);
     
-    // Create a quadratic bezier curve for smooth bottom
     path.quadraticBezierTo(
       size.width / 2,
       size.height,

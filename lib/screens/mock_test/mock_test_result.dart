@@ -5,7 +5,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 
 class MockTestResultScreen extends StatelessWidget {
   final Map<String, dynamic> resultData;
-  final String unitName;
+  final String chapterName; 
   final int totalQuestions;
   final int answeredQuestions;
   final List<dynamic> questions;
@@ -15,15 +15,13 @@ class MockTestResultScreen extends StatelessWidget {
   const MockTestResultScreen({
     super.key,
     required this.resultData,
-    required this.unitName,
+    required this.chapterName, 
     required this.totalQuestions,
     required this.answeredQuestions,
     required this.questions,
     required this.selectedAnswers,
     this.onBackPressed,
   });
-
-  
 
   @override
  Widget build(BuildContext context) {
@@ -105,7 +103,7 @@ class MockTestResultScreen extends StatelessWidget {
                     child: Column(
                       children: [
                         Text(
-                          unitName,
+                          chapterName,
                           style: const TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -412,7 +410,7 @@ class MockTestResultScreen extends StatelessWidget {
                             ),
                           ),
                           child: const Text(
-                            'Back to Units',
+                            'Back to Chapters', 
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -609,16 +607,16 @@ class MockTestResultScreen extends StatelessWidget {
   Future<void> _clearHiveData() async {
     try {
       final mockTestBox = await Hive.openBox('mockTestData');
-      await mockTestBox.delete('${_getUnitIdFromData()}_test_data');
+      await mockTestBox.delete('${_getChapterIdFromData()}_test_data'); 
       debugPrint('✅ Hive data cleared when leaving result screen');
     } catch (e) {
       debugPrint('Error clearing Hive data: $e');
     }
   }
 
-  String _getUnitIdFromData() {
-    // Extract unit ID from the data or use a placeholder
+  String _getChapterIdFromData() { 
+    // Extract chapter ID from the data or use a placeholder
     // You might need to modify this based on your actual data structure
-    return unitName.toLowerCase().replaceAll(' ', '_');
+    return chapterName.toLowerCase().replaceAll(' ', '_');
   }
 }

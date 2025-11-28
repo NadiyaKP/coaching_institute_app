@@ -11,6 +11,32 @@ import '../view_profile.dart';
 import '../settings/settings.dart';
 import '../../../service/http_interceptor.dart';
 
+class NavigationState {
+  final String pageType; 
+  final String subjectId;
+  final String subjectName;
+  final String? unitId;
+  final String? unitName;
+  final String? chapterId;
+  final String? chapterName;
+  final bool hasDirectChapters; 
+  final List<dynamic> unitsData; 
+  final List<dynamic> chaptersData; 
+
+  NavigationState({
+    required this.pageType,
+    required this.subjectId,
+    required this.subjectName,
+    this.unitId,
+    this.unitName,
+    this.chapterId,
+    this.chapterName,
+    this.hasDirectChapters = false,
+    this.unitsData = const [],
+    this.chaptersData = const [],
+  });
+}
+
 class MockTestScreen extends StatefulWidget {
   const MockTestScreen({super.key});
 
@@ -24,7 +50,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
   bool _showPremiumBanner = false;
   
   // Navigation state
-  String _currentPage = 'subjects'; // subjects, units
+  String _currentPage = 'subjects'; 
   
   // Course data from SharedPreferences
   String _courseName = '';
@@ -36,20 +62,30 @@ class _MockTestScreenState extends State<MockTestScreen> {
   String _userEmail = '';
   bool _profileCompleted = false;
   
-  // Data lists
+  // Data lists - Updated to include chapters
   List<dynamic> _subjects = [];
   List<dynamic> _units = [];
+  List<dynamic> _chapters = [];
   
-  // Selected IDs for navigation
+  // Selected IDs for navigation - Updated to include chapters
   String? _selectedSubjectId;
+  String? _selectedUnitId;
   String _selectedSubjectName = '';
+  String _selectedUnitName = '';
+  String _selectedChapterName = '';
 
   // Bottom Navigation Bar
   int _currentIndex = 2; // Mock Test is at index 2
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   String _studentType = '';
 
+  // Practice type selection
+  String _selectedPracticeType = 'mcq'; // Default to MCQ Practice
+
   final AuthService _authService = AuthService();
+
+  // Enhanced navigation stack to track the complete path
+  final List<NavigationState> _navigationStack = [];
 
   @override
   void initState() {
@@ -115,6 +151,14 @@ class _MockTestScreenState extends State<MockTestScreen> {
       // Load subjects data from stored JSON
       await _reloadSubjectsFromSharedPreferences();
 
+      // Initialize navigation stack with subjects
+      _navigationStack.add(NavigationState(
+        pageType: 'subjects',
+        subjectId: '',
+        subjectName: 'Subjects',
+        unitsData: _subjects,
+      ));
+
       setState(() {
         _isLoading = false;
       });
@@ -141,196 +185,249 @@ class _MockTestScreenState extends State<MockTestScreen> {
       final prefs = await SharedPreferences.getInstance();
       final String? subjectsDataJson = prefs.getString('subjects_data');
       
+      debugPrint('📦 Loading subjects data from SharedPreferences for Mock Tests...');
+      debugPrint('Subjects data JSON exists: ${subjectsDataJson != null && subjectsDataJson.isNotEmpty}');
+      
       if (subjectsDataJson != null && subjectsDataJson.isNotEmpty) {
-        final List<dynamic> subjects = json.decode(subjectsDataJson);
-        setState(() {
-          _subjects = subjects;
-        });
-        debugPrint('✅ Reloaded ${_subjects.length} subjects from SharedPreferences for Mock Tests');
+        try {
+          final decodedData = json.decode(subjectsDataJson);
+          debugPrint('📦 Decoded data type: ${decodedData.runtimeType}');
+          
+          List<dynamic> subjects = [];
+          
+          // Handle different possible data structures
+          if (decodedData is List<dynamic>) {
+            subjects = decodedData;
+            debugPrint('✅ Data is List, subjects count: ${subjects.length}');
+          } else if (decodedData is Map<String, dynamic>) {
+            if (decodedData.containsKey('subjects') && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in Map, count: ${subjects.length}');
+            } else if (decodedData.containsKey('success') && decodedData['success'] == true && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in API response structure, count: ${subjects.length}');
+            } else {
+              subjects = decodedData.values.toList();
+              debugPrint('✅ Using Map values as subjects, count: ${subjects.length}');
+            }
+          }
+          
+          // Debug print all subjects with their titles and COMPLETE structure
+          debugPrint('=== COMPLETE SUBJECTS STRUCTURE FOR MOCK TESTS ===');
+          for (var i = 0; i < subjects.length; i++) {
+            final subject = subjects[i];
+            final title = subject['title']?.toString() ?? 'No Title';
+            final id = subject['id']?.toString() ?? 'No ID';
+            
+            // Get units and chapters with proper null checking
+            final dynamic unitsData = subject['units'];
+            final dynamic chaptersData = subject['chapters'];
+            
+            final List<dynamic> units = (unitsData is List) ? unitsData : [];
+            final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+            
+            debugPrint('Subject $i:');
+            debugPrint('  - Title: "$title"');
+            debugPrint('  - ID: $id');
+            debugPrint('  - Units count: ${units.length}');
+            debugPrint('  - Chapters count: ${chapters.length}');
+            
+            // Print actual units if they exist
+            if (units.isNotEmpty) {
+              debugPrint('  - Units:');
+              for (var j = 0; j < units.length; j++) {
+                final unit = units[j];
+                debugPrint('    [${j + 1}] ${unit['title']} (${unit['chapters']?.length ?? 0} chapters)');
+              }
+            }
+            
+            // Print actual chapters if they exist
+            if (chapters.isNotEmpty) {
+              debugPrint('  - Direct Chapters:');
+              for (var j = 0; j < chapters.length; j++) {
+                final chapter = chapters[j];
+                debugPrint('    [${j + 1}] ${chapter['title']}');
+              }
+            }
+            
+            if (units.isEmpty && chapters.isEmpty) {
+              debugPrint('  - No content available');
+            }
+          }
+          debugPrint('=== END COMPLETE SUBJECTS STRUCTURE FOR MOCK TESTS ===');
+          
+          // Store the properly parsed subjects
+          setState(() {
+            _subjects = subjects;
+          });
+          
+          debugPrint('✅ Successfully loaded ${_subjects.length} subjects from SharedPreferences for Mock Tests');
+          
+        } catch (e) {
+          debugPrint('❌ Error parsing subjects data JSON: $e');
+          setState(() {
+            _subjects = [];
+          });
+        }
       } else {
         debugPrint('⚠️ No subjects data found in SharedPreferences for Mock Tests');
+        debugPrint('Available keys in SharedPreferences: ${prefs.getKeys()}');
         setState(() {
           _subjects = [];
         });
       }
     } catch (e) {
-      debugPrint('Error reloading subjects from SharedPreferences: $e');
+      debugPrint('❌ Error reloading subjects from SharedPreferences: $e');
       setState(() {
         _subjects = [];
       });
     }
   }
 
-  // Fetch subjects from API and store in SharedPreferences
-  Future<void> _fetchAndStoreSubjects() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+  // ENHANCED: Load units/chapters for selected subject with proper navigation
+  void _loadUnits(String subjectId, String subjectName) {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      debugPrint('=== LOADING UNITS/CHAPTERS FOR MOCK TEST SUBJECT ===');
+      debugPrint('Subject ID: $subjectId');
+      debugPrint('Subject Name: $subjectName');
       
-      final String? encryptedId = prefs.getString('profile_subcourse_id');
-      final String? accessToken = prefs.getString('accessToken');
-      
-      if (encryptedId == null || encryptedId.isEmpty) {
-        debugPrint('Error: profile_subcourse_id not found in SharedPreferences');
-        setState(() {
-          _isLoading = false;
-        });
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Please login and select a course first'),
-              backgroundColor: AppColors.warningOrange,
-            ),
-          );
-        }
+      // Find the subject in the stored data
+      final subject = _subjects.firstWhere(
+        (subject) => subject['id']?.toString() == subjectId,
+        orElse: () => null,
+      );
+
+      if (subject == null) {
+        _showError('Subject not found in stored data');
         return;
       }
 
-      if (accessToken == null || accessToken.isEmpty) {
-        debugPrint('Error: accessToken not found in SharedPreferences');
+      // Get units and chapters with proper null checking
+      final dynamic unitsData = subject['units'];
+      final dynamic chaptersData = subject['chapters'];
+      
+      final List<dynamic> units = (unitsData is List) ? unitsData : [];
+      final List<dynamic> directChapters = (chaptersData is List) ? chaptersData : [];
+
+      debugPrint('Units found: ${units.length}');
+      debugPrint('Direct chapters found: ${directChapters.length}');
+      
+      // Check if units exist and are not empty
+      final bool hasUnits = units.isNotEmpty;
+      
+      // Check if direct chapters exist and are not empty  
+      final bool hasDirectChapters = directChapters.isNotEmpty;
+
+      debugPrint('Has units: $hasUnits');
+      debugPrint('Has direct chapters: $hasDirectChapters');
+
+      // If subject has units, show units page
+      if (hasUnits) {
+        debugPrint('📚 Showing UNITS page for subject: $subjectName');
         setState(() {
+          _units = units;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _currentPage = 'units';
           _isLoading = false;
         });
-        _navigateToLogin();
-        return;
-      }
-
-      String encodedId = Uri.encodeComponent(encryptedId);
-      String apiUrl = '${ApiConfig.baseUrl}/api/course/all/?subcourse_id=$encodedId';
-      
-      debugPrint('Fetching subjects from: $apiUrl');
-      
-      final response = await  globalHttpClient.get(
-        Uri.parse(apiUrl),
-        headers: {
-          ...ApiConfig.commonHeaders,
-          'Authorization': 'Bearer $accessToken',
-        },
-      ).timeout(ApiConfig.requestTimeout);
-
-      debugPrint('Response Status Code: ${response.statusCode}');
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> responseData = json.decode(response.body);
         
-        if (responseData['success'] == true) {
-          await prefs.setString('subjects_data', json.encode(responseData['subjects']));
-          
-          final List<dynamic> subjects = responseData['subjects'];
-          await prefs.setInt('subjects_count', subjects.length);
-          
-          debugPrint('✅ Subjects data stored successfully!');
-          debugPrint('Total subjects: ${subjects.length}');
-          
-          // Reload subjects from SharedPreferences
-          await _reloadSubjectsFromSharedPreferences();
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Subjects loaded successfully!'),
-                backgroundColor: AppColors.successGreen,
-                duration: Duration(seconds: 2),
-              ),
-            );
-          }
-        } else {
-          debugPrint('Error: API returned success: false');
-        }
-      } else if (response.statusCode == 401) {
-        _handleTokenExpiration();
-      } else {
-        debugPrint('Error: Failed to fetch subjects. Status code: ${response.statusCode}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to load subjects: ${response.statusCode}'),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-        }
+        // Add to navigation stack with units data
+        _navigationStack.add(NavigationState(
+          pageType: 'units',
+          subjectId: subjectId,
+          subjectName: subjectName,
+          hasDirectChapters: false,
+          unitsData: units,
+        ));
+      } 
+      // If subject has direct chapters but no units, show chapters directly
+      else if (hasDirectChapters) {
+        debugPrint('📖 Showing DIRECT CHAPTERS page for subject: $subjectName');
+        setState(() {
+          _chapters = directChapters;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _selectedUnitName = ''; // No unit name since we're going directly to chapters
+          _currentPage = 'chapters';
+          _isLoading = false;
+        });
+        
+        // Add to navigation stack with direct chapters flag and chapters data
+        _navigationStack.add(NavigationState(
+          pageType: 'chapters',
+          subjectId: subjectId,
+          subjectName: subjectName,
+          hasDirectChapters: true,
+          chaptersData: directChapters,
+        ));
       }
+      // If subject has neither units nor chapters
+      else {
+        debugPrint('❌ No content available for subject: $subjectName');
+        _showError('No mock tests available for this subject');
+        setState(() {
+          _isLoading = false;
+        });
+      }
+
     } catch (e) {
-      debugPrint('Exception occurred while fetching subjects: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-    } finally {
+      debugPrint('❌ Error loading units/chapters: $e');
+      _showError('Failed to load content: $e');
       setState(() {
         _isLoading = false;
       });
     }
   }
 
-  void _handleTokenExpiration() async {
-    await _authService.logout();
-    _showError('Session expired. Please login again.');
-    _navigateToLogin();
-  }
-
-  // Load units for selected subject
-  void _loadUnits(String subjectId, String subjectName) {
-    debugPrint('========== LOADING UNITS ==========');
-    debugPrint('Subject ID: $subjectId');
-    debugPrint('Subject Name: $subjectName');
-    debugPrint('Available subjects count: ${_subjects.length}');
-    
-    // Find the subject
-    dynamic subject;
+  // Load chapters for selected unit from SharedPreferences
+  void _loadChapters(String unitId, String unitName) {
     try {
-      subject = _subjects.firstWhere(
-        (s) => s['id']?.toString() == subjectId,
+      debugPrint('=== LOADING CHAPTERS FOR MOCK TEST UNIT ===');
+      debugPrint('Unit ID: $unitId');
+      debugPrint('Unit Name: $unitName');
+      
+      // Find the unit in the current subject's units
+      final unit = _units.firstWhere(
+        (unit) => unit['id']?.toString() == unitId,
         orElse: () => null,
       );
-    } catch (e) {
-      debugPrint('Error finding subject: $e');
-      subject = null;
-    }
 
-    if (subject != null) {
-      debugPrint('✅ Found subject: ${subject['title']}');
-      debugPrint('Subject data keys: ${subject.keys.toList()}');
-      
-      if (subject['units'] != null) {
-        final List<dynamic> units = subject['units'] is List 
-            ? subject['units'] 
-            : [];
-        
-        debugPrint('Units count: ${units.length}');
-        
-        if (units.isNotEmpty) {
-          setState(() {
-            _units = List.from(units); // Create a new list copy
-            _selectedSubjectId = subjectId;
-            _selectedSubjectName = subjectName;
-            _currentPage = 'units';
-            _showPremiumBanner = false; // Reset banner when navigating
-          });
-          
-          debugPrint('✅ Successfully loaded ${_units.length} units for subject: $subjectName');
-          debugPrint('Units: ${_units.map((u) => u['title']).toList()}');
-        } else {
-          debugPrint('⚠️ Units list is empty');
-          _showError('No units found for this subject');
-        }
-      } else {
-        debugPrint('⚠️ No units field found in subject');
-        _showError('No units found for this subject');
+      if (unit == null) {
+        _showError('Unit not found in stored data');
+        return;
       }
-    } else {
-      debugPrint('❌ Subject not found with ID: $subjectId');
-      debugPrint('Available subject IDs: ${_subjects.map((s) => s['id']?.toString()).toList()}');
-      _showError('Subject not found. Please try again.');
+
+      final List<dynamic> chapters = unit['chapters'] ?? [];
+      
+      debugPrint('Chapters found: ${chapters.length}');
+
+      setState(() {
+        _chapters = chapters;
+        _selectedUnitId = unitId;
+        _selectedUnitName = unitName;
+        _currentPage = 'chapters';
+        _isLoading = false;
+      });
+
+      // Add to navigation stack with chapters data
+      _navigationStack.add(NavigationState(
+        pageType: 'chapters',
+        subjectId: _selectedSubjectId!,
+        subjectName: _selectedSubjectName,
+        unitId: unitId,
+        unitName: unitName,
+        hasDirectChapters: false,
+        chaptersData: chapters,
+      ));
+
+    } catch (e) {
+      debugPrint('Error loading chapters: $e');
+      _showError('Failed to load chapters: $e');
+      setState(() {
+        _isLoading = false;
+      });
     }
-    debugPrint('===================================');
   }
 
   // Navigate to View Profile
@@ -365,7 +462,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
   }
 
   // Navigate to Mock Test View
-  void _navigateToMockTest(String unitId, String unitName) async {
+  void _navigateToMockTest(String chapterId, String chapterName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found. Please login again.');
       _navigateToLogin();
@@ -376,9 +473,10 @@ class _MockTestScreenState extends State<MockTestScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => MockTestViewScreen(
-          unitId: unitId,
-          unitName: unitName,
+          chapterId: chapterId, 
+          chapterName: chapterName,
           accessToken: _accessToken!,
+          practiceType: _selectedPracticeType, 
         ),
       ),
     );
@@ -447,33 +545,99 @@ class _MockTestScreenState extends State<MockTestScreen> {
     }
   }
 
+  // FIXED: Enhanced proper hierarchical backward navigation with bottom nav reset
   void _navigateBack() {
-    setState(() {
-      switch (_currentPage) {
-        case 'units':
-          _currentPage = 'subjects';
-          _units.clear();
-          _selectedSubjectId = null;
-          _selectedSubjectName = '';
-          _showPremiumBanner = false; // Reset banner when going back
-          break;
-      }
-    });
+    debugPrint('=== MOCK TEST BACK NAVIGATION START ===');
+    debugPrint('Current stack length: ${_navigationStack.length}');
+    debugPrint('Current page: $_currentPage');
+    
+    if (_navigationStack.length > 1) {
+      // Remove current state
+      final currentState = _navigationStack.removeLast();
+      debugPrint('Removed current state: ${currentState.pageType}');
+      
+      // Get previous state
+      final previousState = _navigationStack.last;
+      debugPrint('Previous state: ${previousState.pageType}');
+      
+      // Restore the previous state properly based on page type
+      setState(() {
+        _currentPage = previousState.pageType;
+        _selectedSubjectId = previousState.subjectId;
+        _selectedSubjectName = previousState.subjectName;
+        
+        switch (previousState.pageType) {
+          case 'subjects':
+            // Going back to subjects - restore subjects data
+            _units = [];
+            _chapters = [];
+            _selectedUnitId = null;
+            _selectedUnitName = '';
+            _selectedChapterName = '';
+            break;
+            
+          case 'units':
+            // Going back to units from chapters
+            _units = previousState.unitsData;
+            _chapters = [];
+            _selectedUnitId = null;
+            _selectedUnitName = '';
+            _selectedChapterName = '';
+            break;
+            
+          case 'chapters':
+            // Going back to chapters from mock test selection
+            if (previousState.hasDirectChapters) {
+              // Direct chapters (no units)
+              _chapters = previousState.chaptersData;
+              _selectedUnitId = null;
+              _selectedUnitName = '';
+            } else {
+              // Chapters with units
+              _chapters = previousState.chaptersData;
+              _selectedUnitId = previousState.unitId;
+              _selectedUnitName = previousState.unitName ?? '';
+            }
+            _selectedChapterName = '';
+            break;
+        }
+        _isLoading = false;
+      });
+      
+      debugPrint('=== MOCK TEST BACK NAVIGATION COMPLETE ===');
+      debugPrint('New current page: $_currentPage');
+      debugPrint('Stack length after: ${_navigationStack.length}');
+    } else {
+      // If we're at the root (subjects), exit the screen and reset bottom nav to home
+      debugPrint('At root level - exiting screen and resetting bottom nav to home');
+      _exitScreenAndResetNav();
+    }
   }
 
-  // Handle device back button press
-  Future<bool> _handleDeviceBackButton() async {
-    if (_currentPage == 'subjects') {
-      // On subjects page - navigate back to home with proper route clearing
+  // FIXED: Exit screen and properly reset bottom navigation to home
+  void _exitScreenAndResetNav() {
+    if (mounted) {
+      // Navigate to home screen with proper route clearing to reset bottom nav
       Navigator.of(context).pushNamedAndRemoveUntil(
         '/home',
         (Route<dynamic> route) => false,
       );
-      return false; // Prevent default back behavior since we're handling navigation
+    }
+  }
+
+  // Handle device back button press - FIXED to properly reset bottom nav
+  Future<bool> _handleDeviceBackButton() async {
+    debugPrint('=== MOCK TEST DEVICE BACK BUTTON PRESSED ===');
+    debugPrint('Current page: $_currentPage');
+    debugPrint('Stack length: ${_navigationStack.length}');
+    
+    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
+      debugPrint('At root subjects - exiting screen and resetting bottom nav');
+      _exitScreenAndResetNav();
+      return false; // Don't allow default back behavior
     } else {
-      // For units page, navigate back to subjects
       _navigateBack();
-      return false; // Prevent default back behavior
+      return false; // Don't allow default back behavior
     }
   }
 
@@ -499,154 +663,49 @@ class _MockTestScreenState extends State<MockTestScreen> {
   }
 
   String _getAppBarTitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'subjects':
+          return 'Mock Tests';
+        case 'units':
+          return 'Units';
+        case 'chapters':
+          return 'Chapters';
+        default:
+          return 'Mock Tests';
+      }
+    }
+    
     switch (_currentPage) {
       case 'subjects':
         return 'Mock Tests';
       case 'units':
-        return 'Units - $_selectedSubjectName';
+        return 'Units';
+      case 'chapters':
+        return 'Chapters';
       default:
         return 'Mock Tests';
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.backgroundLight,
-      endDrawer: CommonProfileDrawer(
-        name: _userName,
-        email: _userEmail,
-        course: _courseName,
-        subcourse: _subcourseName,
-        profileCompleted: _profileCompleted,
-        onViewProfile: () {
-          Navigator.of(context).pop(); // Close drawer first
-          _navigateToViewProfile();
-        },
-        onSettings: () {
-          Navigator.of(context).pop(); // Close drawer first
-          _navigateToSettings();
-        },
-        onClose: () {
-          Navigator.of(context).pop(); // Close drawer
-        },
-      ),
-      body: PopScope(
-        canPop: false,
-        onPopInvoked: (bool didPop) async {
-          if (didPop) {
-            return;
+  String _getAppBarSubtitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'units':
+          return currentState.subjectName;
+        case 'chapters':
+          if (currentState.hasDirectChapters) {
+            return currentState.subjectName;
+          } else {
+            return currentState.unitName ?? currentState.subjectName;
           }
-          
-          await _handleDeviceBackButton();
-        },
-        child: Stack(
-          children: [
-            // Gradient background
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.primaryYellow.withOpacity(0.08),
-                    AppColors.backgroundLight,
-                    Colors.white,
-                  ],
-                  stops: const [0.0, 0.4, 1.0],
-                ),
-              ),
-            ),
-            
-            // Main content
-            Column(
-              children: [
-                // Header Section with Curved Bottom (Reduced size)
-                ClipPath(
-                  clipper: CurvedHeaderClipper(),
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.primaryYellow,
-                          AppColors.primaryYellowDark,
-                        ],
-                      ),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          onPressed: () async {
-                            await _handleDeviceBackButton();
-                          },
-                          icon: const Icon(
-                            Icons.arrow_back_rounded,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            _getAppBarTitle(),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Premium Banner (shown when needed)
-                if (_showPremiumBanner)
-                  _buildPremiumBanner(),
-
-                // Content Area
-                Expanded(
-                  child: _isLoading
-                      ? const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
-                              ),
-                              SizedBox(height: 16),
-                              Text(
-                                'Loading...',
-                                style: TextStyle(
-                                  color: AppColors.textGrey,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : _buildCurrentPage(),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-      bottomNavigationBar: CommonBottomNavBar(
-        currentIndex: _currentIndex,
-        onTabSelected: _onTabTapped,
-        studentType: _studentType,
-        scaffoldKey: _scaffoldKey,
-      ),
-    );
+        default:
+          return '';
+      }
+    }
+    return '';
   }
 
   void _showLogoutDialog() {
@@ -729,6 +788,237 @@ class _MockTestScreenState extends State<MockTestScreen> {
         );
       }
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: _scaffoldKey,
+      backgroundColor: AppColors.backgroundLight,
+      endDrawer: CommonProfileDrawer(
+        name: _userName,
+        email: _userEmail,
+        course: _courseName,
+        subcourse: _subcourseName,
+        profileCompleted: _profileCompleted,
+        onViewProfile: () {
+          Navigator.of(context).pop(); 
+          _navigateToViewProfile();
+        },
+        onSettings: () {
+          Navigator.of(context).pop(); 
+          _navigateToSettings();
+        },
+        onClose: () {
+          Navigator.of(context).pop();
+        },
+      ),
+      body: PopScope(
+        canPop: false,
+        onPopInvoked: (bool didPop) async {
+          if (didPop) {
+            return;
+          }
+          
+          await _handleDeviceBackButton();
+        },
+        child: Stack(
+          children: [
+            // Gradient background
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.primaryYellow.withOpacity(0.08),
+                    AppColors.backgroundLight,
+                    Colors.white,
+                  ],
+                  stops: const [0.0, 0.4, 1.0],
+                ),
+              ),
+            ),
+            
+            // Main content
+            Column(
+              children: [
+                // Header Section with Curved Bottom
+                ClipPath(
+                  clipper: CurvedHeaderClipper(),
+                  child: Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          AppColors.primaryYellow,
+                          AppColors.primaryYellowDark,
+                        ],
+                      ),
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            IconButton(
+                              onPressed: () async {
+                                await _handleDeviceBackButton();
+                              },
+                              icon: const Icon(
+                                Icons.arrow_back_rounded,
+                                color: Colors.white,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _getAppBarTitle(),
+                                    style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                      letterSpacing: -0.3,
+                                    ),
+                                  ),
+                                  if (_getAppBarSubtitle().isNotEmpty) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _getAppBarSubtitle(),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white70,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Practice Type Selector - Only show on chapters page
+                if (_currentPage == 'chapters')
+                  _buildPracticeTypeSelector(),
+
+                // Premium Banner 
+                if (_showPremiumBanner)
+                  _buildPremiumBanner(),
+
+                // Content Area
+                Expanded(
+                  child: _isLoading
+                      ? _buildSkeletonLoading()
+                      : _buildCurrentPage(),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: CommonBottomNavBar(
+        currentIndex: _currentIndex,
+        onTabSelected: _onTabTapped,
+        studentType: _studentType,
+        scaffoldKey: _scaffoldKey,
+      ),
+    );
+  }
+
+  Widget _buildPracticeTypeSelector() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildPracticeTypeButton(
+              title: 'MCQ Practice',
+              type: 'mcq',
+              icon: Icons.quiz_rounded,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _buildPracticeTypeButton(
+              title: 'Descriptive Practice',
+              type: 'descriptive',
+              icon: Icons.description_rounded,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPracticeTypeButton({
+    required String title,
+    required String type,
+    required IconData icon,
+  }) {
+    final isSelected = _selectedPracticeType == type;
+    
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedPracticeType = type;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primaryYellow : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : AppColors.textGrey,
+              size: 18,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : AppColors.textGrey,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildPremiumBanner() {
@@ -814,12 +1104,138 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
+  Widget _buildSkeletonLoading() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 120,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Container(
+                    width: 200,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            Column(
+              children: List.generate(5, (index) => _buildSkeletonCard()),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkeletonCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              height: 40,
+              width: 40,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 100,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              height: 32,
+              width: 32,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildCurrentPage() {
     switch (_currentPage) {
       case 'subjects':
         return _buildSubjectsPage();
       case 'units':
         return _buildUnitsPage();
+      case 'chapters':
+        return _buildChaptersPage();
       default:
         return _buildSubjectsPage();
     }
@@ -833,21 +1249,20 @@ class _MockTestScreenState extends State<MockTestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section (Reduced spacing)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 3,
-                      height: 22,
+                      width: 4,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryYellow,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 12),
                     const Text(
                       'Subjects',
                       style: TextStyle(
@@ -859,9 +1274,9 @@ class _MockTestScreenState extends State<MockTestScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 Padding(
-                  padding: const EdgeInsets.only(left: 13),
+                  padding: const EdgeInsets.only(left: 16),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -874,11 +1289,11 @@ class _MockTestScreenState extends State<MockTestScreen> {
                           letterSpacing: 0.1,
                         ),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Text(
                         '${_subjects.length} subject${_subjects.length != 1 ? 's' : ''} available',
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           color: AppColors.grey400,
                           fontWeight: FontWeight.w400,
                         ),
@@ -889,7 +1304,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
               ],
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             if (_subjects.isEmpty)
               Center(
@@ -920,7 +1335,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
                           letterSpacing: -0.2,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       const Text(
                         'Please load study materials first',
                         style: TextStyle(
@@ -936,16 +1351,37 @@ class _MockTestScreenState extends State<MockTestScreen> {
             else
               Column(
                 children: _subjects
-                    .map((subject) => _buildSubjectCard(
-                          title: subject['title']?.toString() ?? 'Unknown Subject',
-                          subtitle: '${subject['units']?.length ?? 0} units available',
-                          icon: Icons.subject_rounded,
-                          color: AppColors.primaryBlue,
-                          onTap: () => _loadUnits(
-                            subject['id']?.toString() ?? '',
-                            subject['title']?.toString() ?? 'Unknown Subject',
-                          ),
-                        ))
+                    .map((subject) {
+                      // Get units and chapters with proper null checking
+                      final dynamic unitsData = subject['units'];
+                      final dynamic chaptersData = subject['chapters'];
+                      
+                      final List<dynamic> units = (unitsData is List) ? unitsData : [];
+                      final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+                      
+                      final bool hasUnits = units.isNotEmpty;
+                      final bool hasChapters = chapters.isNotEmpty;
+                      
+                      String contentCount;
+                      if (hasUnits) {
+                        contentCount = '${units.length} units';
+                      } else if (hasChapters) {
+                        contentCount = '${chapters.length} chapters';
+                      } else {
+                        contentCount = 'No content';
+                      }
+                              
+                      return _buildSubjectCard(
+                        title: subject['title']?.toString() ?? 'Untitled Subject',
+                        subtitle: contentCount,
+                        icon: Icons.subject_rounded,
+                        color: AppColors.primaryBlue,
+                        onTap: () => _loadUnits(
+                          subject['id']?.toString() ?? '',
+                          subject['title']?.toString() ?? 'Unknown Subject',
+                        ),
+                      );
+                    })
                     .toList(),
               ),
           ],
@@ -962,21 +1398,20 @@ class _MockTestScreenState extends State<MockTestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Section (Reduced spacing)
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 3,
-                      height: 22,
+                      width: 4,
+                      height: 24,
                       decoration: BoxDecoration(
                         color: AppColors.primaryBlue,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -999,21 +1434,19 @@ class _MockTestScreenState extends State<MockTestScreen> {
                               fontWeight: FontWeight.w600,
                               letterSpacing: -0.1,
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 Padding(
-                  padding: const EdgeInsets.only(left: 13),
+                  padding: const EdgeInsets.only(left: 16),
                   child: Text(
                     '${_units.length} unit${_units.length != 1 ? 's' : ''} available',
                     style: const TextStyle(
-                      fontSize: 11,
+                      fontSize: 12,
                       color: AppColors.grey400,
                       fontWeight: FontWeight.w400,
                     ),
@@ -1022,7 +1455,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
               ],
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             if (_units.isEmpty)
               Center(
@@ -1038,7 +1471,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
-                          Icons.quiz_rounded,
+                          Icons.library_books_rounded,
                           size: 50,
                           color: AppColors.primaryBlue.withOpacity(0.5),
                         ),
@@ -1053,9 +1486,9 @@ class _MockTestScreenState extends State<MockTestScreen> {
                           letterSpacing: -0.2,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       const Text(
-                        'Mock tests for this subject will be added soon',
+                        'Units for this subject will be added soon',
                         style: TextStyle(
                           fontSize: 13,
                           color: AppColors.textGrey,
@@ -1069,19 +1502,155 @@ class _MockTestScreenState extends State<MockTestScreen> {
             else
               Column(
                 children: _units
-                    .map((unit) => _buildUnitCard(
+                    .map((unit) => _buildSubjectCard(
                           title: unit['title']?.toString() ?? 'Unknown Unit',
-                          subtitle: 'Take mock test for this unit',
-                          icon: Icons.quiz_rounded,
+                          subtitle: '${unit['chapters']?.length ?? 0} chapters available',
+                          icon: Icons.library_books_rounded,
                           color: AppColors.primaryBlue,
+                          onTap: () => _loadChapters(
+                            unit['id']?.toString() ?? '',
+                            unit['title']?.toString() ?? 'Unknown Unit',
+                          ),
+                        ))
+                    .toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChaptersPage() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryBlue,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Chapters',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _selectedUnitName.isNotEmpty ? _selectedUnitName : _selectedSubjectName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Text(
+                    '${_chapters.length} chapter${_chapters.length != 1 ? 's' : ''} available',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.grey400,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            if (_chapters.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.warningOrange.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.quiz_rounded,
+                          size: 50,
+                          color: AppColors.primaryBlue.withOpacity(0.5),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No chapters available',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Mock tests for this unit will be added soon',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textGrey,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Column(
+                children: _chapters
+                    .map((chapter) => _buildChapterCard(
+                          title: chapter['title']?.toString() ?? 'Unknown Chapter',
+                          subtitle: _selectedPracticeType == 'mcq' 
+                              ? 'Take MCQ mock test for this chapter'
+                              : 'Take descriptive practice for this chapter',
+                          icon: _selectedPracticeType == 'mcq' 
+                              ? Icons.quiz_rounded 
+                              : Icons.description_rounded,
+                          color: _selectedPracticeType == 'mcq' 
+                              ? AppColors.primaryBlue 
+                              : AppColors.primaryYellow,
                           onTap: () {
-                            final unitId = unit['id']?.toString();
-                            final unitName = unit['title']?.toString() ?? 'Unknown Unit';
+                            final chapterId = chapter['id']?.toString();
+                            final chapterName = chapter['title']?.toString() ?? 'Unknown Chapter';
                             
-                            if (unitId != null && unitId.isNotEmpty) {
-                              _navigateToMockTest(unitId, unitName);
+                            if (chapterId != null && chapterId.isNotEmpty) {
+                              _navigateToMockTest(chapterId, chapterName);
                             } else {
-                              _showError('Invalid unit ID');
+                              _showError('Invalid chapter ID');
                             }
                           },
                         ))
@@ -1106,33 +1675,33 @@ class _MockTestScreenState extends State<MockTestScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.12),
+              color: color.withOpacity(0.15),
               blurRadius: 10,
               offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
+          padding: const EdgeInsets.all(12),
+        child: Row(
             children: [
               Container(
-                height: 44,
-                width: 44,
+                height: 40,
+                width: 40,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   icon,
                   color: color,
-                  size: 22,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1140,15 +1709,13 @@ class _MockTestScreenState extends State<MockTestScreen> {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.1,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: const TextStyle(
@@ -1160,13 +1727,13 @@ class _MockTestScreenState extends State<MockTestScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Container(
-                height: 36,
-                width: 36,
+                height: 32,
+                width: 32,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   Icons.arrow_forward_ios_rounded,
@@ -1181,7 +1748,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
-  Widget _buildUnitCard({
+  Widget _buildChapterCard({
     required String title,
     required String subtitle,
     required IconData icon,
@@ -1194,33 +1761,33 @@ class _MockTestScreenState extends State<MockTestScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: color.withOpacity(0.12),
+              color: color.withOpacity(0.15),
               blurRadius: 10,
               offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(12),
           child: Row(
             children: [
               Container(
-                height: 44,
-                width: 44,
+                height: 40,
+                width: 40,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
                   icon,
                   color: color,
-                  size: 22,
+                  size: 20,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1228,15 +1795,13 @@ class _MockTestScreenState extends State<MockTestScreen> {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
                         letterSpacing: -0.1,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 4),
                     Text(
                       subtitle,
                       style: const TextStyle(
@@ -1248,13 +1813,13 @@ class _MockTestScreenState extends State<MockTestScreen> {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 12),
               Container(
-                height: 36,
-                width: 36,
+                height: 32,
+                width: 32,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Icon(
                   Icons.arrow_forward_ios_rounded,
@@ -1274,14 +1839,13 @@ class CurvedHeaderClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
     Path path = Path();
-    path.lineTo(0, size.height - 20);
+    path.lineTo(0, size.height - 30);
     
-    // Create a quadratic bezier curve for smooth bottom
     path.quadraticBezierTo(
       size.width / 2,
       size.height,
       size.width,
-      size.height - 20,
+      size.height - 30,
     );
     
     path.lineTo(size.width, 0);

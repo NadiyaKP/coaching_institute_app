@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
+import 'package:provider/provider.dart';
 import '../service/api_config.dart';
 import '../service/auth_service.dart';
 import '../common/theme_color.dart';
@@ -101,70 +103,41 @@ class ResponsiveUtils {
   }
 }
 
-// ============= GET IN SCREEN =============
-class GetInScreen extends StatefulWidget {
-  const GetInScreen({super.key});
-
-  @override
-  State<GetInScreen> createState() => _GetInScreenState();
-}
-
-class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin {
+// ==================== PROVIDER CLASS ====================
+class GetInProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
+  
+  // State variables
   bool _isLoading = false;
   String _userEmail = '';
-  AnimationController? _fadeController;
-  AnimationController? _slideController;
-  Animation<double>? _fadeAnimation;
-  Animation<Offset>? _slideAnimation;
+  bool _isInitialized = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeAnimations();
-    _loadUserEmail();
-  }
+  // Getters
+  bool get isLoading => _isLoading;
+  String get userEmail => _userEmail;
+  bool get isInitialized => _isInitialized;
 
-  void _initializeAnimations() {
-    _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 1200),
-      vsync: this,
-    );
-    _slideController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
+  // Initialize and load user email
+  Future<void> initialize() async {
+    if (_isInitialized) return;
     
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _fadeController!, curve: Curves.easeOut),
-    );
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _slideController!, curve: Curves.easeOutCubic));
-    
-    _fadeController?.forward();
-    _slideController?.forward();
+    await _loadUserEmail();
+    _isInitialized = true;
+    notifyListeners();
   }
 
   Future<void> _loadUserEmail() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _userEmail = prefs.getString('username') ?? 
-                   prefs.getString('email') ?? 
-                   'User';
-    });
+    _userEmail = prefs.getString('username') ?? 
+                 prefs.getString('email') ?? 
+                 'User';
+    notifyListeners();
   }
 
-  @override
-  void dispose() {
-    _fadeController?.dispose();
-    _slideController?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _getInToAccount() async {
-    setState(() => _isLoading = true);
+  // Get into account
+  Future<Map<String, dynamic>> getInToAccount() async {
+    _isLoading = true;
+    notifyListeners();
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -172,9 +145,11 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
       final profileCompleted = prefs.getBool('profileCompleted') ?? false;
 
       if (accessToken == null || accessToken.isEmpty) {
-        _showSnackBar('Session expired. Please login again.', AppColors.errorRed);
-        await _performLogout();
-        return;
+        return {
+          'success': false,
+          'message': 'Session expired. Please login again.',
+          'should_logout': true,
+        };
       }
 
       // Reset attendance tracking timestamps
@@ -183,49 +158,31 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
       await prefs.remove('end_time');
       await prefs.remove('last_active_time');
 
-      if (!mounted) return;
-
-      _showSnackBar('Welcome back!', AppColors.successGreen);
-      
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (!mounted) return;
-        
-        if (profileCompleted) {
-          Navigator.pushReplacementNamed(context, '/home');
-        } else {
-          Navigator.pushReplacementNamed(context, '/profile_completion_page');
-        }
-      });
+      return {
+        'success': true,
+        'message': 'Welcome back!',
+        'profile_completed': profileCompleted,
+      };
     } catch (e) {
       debugPrint('Get In error: $e');
-      _showSnackBar('Failed to access account. Please try again.', AppColors.errorRed);
+      return {
+        'success': false,
+        'message': 'Failed to access account. Please try again.',
+      };
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
-  Future<void> _performLogout() async {
+  // Perform logout
+  Future<Map<String, dynamic>> performLogout() async {
+    _isLoading = true;
+    notifyListeners();
+    
     String? accessToken;
     
     try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Text('Logging out...'),
-              ],
-            ),
-          );
-        },
-      );
-
       accessToken = await _authService.getAccessToken();
       
       String endTime = DateTime.now().toIso8601String();
@@ -247,22 +204,26 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
         debugPrint('Logout API error: $e');
       }
       
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
       await _clearLogoutData();
       
+      return {
+        'success': true,
+        'message': 'Logged out successfully!',
+      };
     } catch (e) {
       debugPrint('Logout error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
       
       String endTime = DateTime.now().toIso8601String();
       await _sendAttendanceData(accessToken, endTime);
       await _clearLogoutData();
+      
+      return {
+        'success': true,
+        'message': 'Logout completed (Error: ${e.toString()})',
+      };
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
@@ -335,73 +296,60 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
       await prefs.remove('end_time');
       await prefs.remove('last_active_time');
       debugPrint('🗑️ SharedPreferences timestamps cleared');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logged out successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
     } catch (e) {
       debugPrint('❌ Error in _clearLogoutData: $e');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logout completed (Error: ${e.toString()})'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
+      rethrow;
     }
   }
+}
 
-  void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirm Logout'),
-          content: const Text('Are you sure you want to logout?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Colors.grey),
-              ),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _performLogout();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF4B400),
-              ),
-              child: const Text(
-                'Logout',
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ],
-        );
-      },
+// ==================== SCREEN WIDGET ====================
+class GetInScreen extends StatefulWidget {
+  const GetInScreen({super.key});
+
+  @override
+  State<GetInScreen> createState() => _GetInScreenState();
+}
+
+class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin {
+  AnimationController? _fadeController;
+  AnimationController? _slideController;
+  Animation<double>? _fadeAnimation;
+  Animation<Offset>? _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeAnimations();
+  }
+
+  void _initializeAnimations() {
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
     );
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _fadeController!, curve: Curves.easeOut),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _slideController!, curve: Curves.easeOutCubic));
+    
+    _fadeController?.forward();
+    _slideController?.forward();
+  }
+
+  @override
+  void dispose() {
+    _fadeController?.dispose();
+    _slideController?.dispose();
+    super.dispose();
   }
 
   void _showSnackBar(String message, Color color) {
@@ -458,7 +406,6 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
       ),
       child: Stack(
         children: [
-          // Decorative circles
           Positioned(
             top: -30,
             right: -20,
@@ -495,7 +442,6 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
               ),
             ),
           ),
-          
           // Logo
           Positioned(
             left: 0,
@@ -558,16 +504,20 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
               ),
             ],
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildWelcomeText(),
-              SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 16)),
-              _buildEmailDisplay(),
-              SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 24)),
-              _buildGetInButton(),
-            ],
+          child: Consumer<GetInProvider>(
+            builder: (context, provider, child) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildWelcomeText(),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 16)),
+                  _buildEmailDisplay(provider),
+                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 24)),
+                  _buildGetInButton(provider),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -595,7 +545,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildEmailDisplay() {
+  Widget _buildEmailDisplay(GetInProvider provider) {
     final fontSize = ResponsiveUtils.getFontSize(context, 14);
     final iconSize = ResponsiveUtils.getFontSize(context, 16);
     
@@ -643,7 +593,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _userEmail,
+                  provider.userEmail,
                   style: TextStyle(
                     fontSize: fontSize,
                     fontWeight: FontWeight.w700,
@@ -659,7 +609,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildGetInButton() {
+  Widget _buildGetInButton(GetInProvider provider) {
     final fontSize = ResponsiveUtils.getFontSize(context, 16);
     final isLandscape = ResponsiveUtils.isLandscape(context);
     final isTabletDevice = ResponsiveUtils.isTablet(context);
@@ -689,7 +639,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
         ],
       ),
       child: ElevatedButton(
-        onPressed: _isLoading ? null : _getInToAccount,
+        onPressed: provider.isLoading ? null : () => _handleGetInToAccount(provider),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.transparent,
           shadowColor: Colors.transparent,
@@ -698,7 +648,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
           ),
           padding: EdgeInsets.zero,
         ),
-        child: _isLoading
+        child: provider.isLoading
             ? SizedBox(
                 height: isLandscape ? 20 : 24,
                 width: isLandscape ? 20 : 24,
@@ -720,7 +670,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
     );
   }
 
-  Widget _buildLogoutOption() {
+  Widget _buildLogoutOption(GetInProvider provider) {
     final fontSize = ResponsiveUtils.getFontSize(context, 14);
     
     return Padding(
@@ -746,7 +696,7 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
             ),
           ),
           GestureDetector(
-            onTap: _isLoading ? null : _showLogoutDialog,
+            onTap: provider.isLoading ? null : () => _showLogoutDialog(provider),
             child: Text(
               "Logout",
               style: TextStyle(
@@ -762,71 +712,177 @@ class _GetInScreenState extends State<GetInScreen> with TickerProviderStateMixin
     );
   }
 
+  // Method to handle Get In action
+  Future<void> _handleGetInToAccount(GetInProvider provider) async {
+    final result = await provider.getInToAccount();
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      _showSnackBar(result['message'], AppColors.successGreen);
+      
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!mounted) return;
+        
+        if (result['profile_completed'] == true) {
+          Navigator.pushReplacementNamed(context, '/home');
+        } else {
+          Navigator.pushReplacementNamed(context, '/profile_completion_page');
+        }
+      });
+    } else {
+      _showSnackBar(result['message'], AppColors.errorRed);
+
+      if (result['should_logout'] == true) {
+        await _handleLogout(provider);
+      }
+    }
+  }
+
+  // Method to handle logout
+  Future<void> _handleLogout(GetInProvider provider) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Logging out...'),
+            ],
+          ),
+        );
+      },
+    );
+
+    final result = await provider.performLogout();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pop(); 
+
+    _showSnackBar(result['message'], 
+        result['success'] == true ? AppColors.successGreen : AppColors.errorRed);
+    
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  }
+
+  // Method to show logout confirmation dialog
+  void _showLogoutDialog(GetInProvider provider) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _handleLogout(provider);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4B400),
+              ),
+              child: const Text(
+                'Logout',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isLandscape = ResponsiveUtils.isLandscape(context);
     final verticalSpacing = ResponsiveUtils.getVerticalSpacing(context, 25);
     
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            if (isLandscape) {
-              return Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          _buildHeader(),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Expanded(
-                    flex: 3,
-                    child: Center(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
-                          ),
+    return ChangeNotifierProvider(
+      create: (context) => GetInProvider()..initialize(),
+      builder: (context, child) {
+        final provider = Provider.of<GetInProvider>(context);
+        
+        return Scaffold(
+          backgroundColor: const Color(0xFFF5F5F5),
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                if (isLandscape) {
+                  return Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: SingleChildScrollView(
                           child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              _buildGetInContainer(),
-                              _buildLogoutOption(),
+                              _buildHeader(),
                             ],
                           ),
                         ),
                       ),
-                    ),
+                      Expanded(
+                        flex: 3,
+                        child: Center(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
+                              ),
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildGetInContainer(),
+                                  _buildLogoutOption(provider),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }
+                
+                return SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _buildHeader(),
+                      SizedBox(height: verticalSpacing),
+                      _buildGetInContainer(),
+                      _buildLogoutOption(provider),
+                      SizedBox(
+                        height: MediaQuery.of(context).viewInsets.bottom + 20,
+                      ),
+                    ],
                   ),
-                ],
-              );
-            }
-            
-            return SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  SizedBox(height: verticalSpacing),
-                  _buildGetInContainer(),
-                  _buildLogoutOption(),
-                  SizedBox(
-                    height: MediaQuery.of(context).viewInsets.bottom + 20,
-                  ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-      resizeToAvoidBottomInset: true,
+                );
+              },
+            ),
+          ),
+          resizeToAvoidBottomInset: true,
+        );
+      },
     );
   }
 }

@@ -14,15 +14,17 @@ import '../../screens/subscription/subscription.dart';
 import '../../../service/http_interceptor.dart';
 
 class MockTestViewScreen extends StatefulWidget {
-  final String unitId;
-  final String unitName;
+  final String chapterId; 
+  final String chapterName; 
   final String accessToken;
+  final String practiceType;
 
   const MockTestViewScreen({
     super.key,
-    required this.unitId,
-    required this.unitName,
+    required this.chapterId, 
+    required this.chapterName, 
     required this.accessToken,
+    required this.practiceType, 
   });
 
   @override
@@ -36,10 +38,11 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
   bool _isReattempt = false;
   bool _hasPreviousResult = false;
   bool _isLoadingResult = false;
+  bool _noQuestionsAvailable = false;
   
   int _studentId = 0;
-  String _unit = '';
-  int _totalQuestions = 10; 
+  String _chapter = ''; 
+  int _totalQuestions = 0; 
   List<dynamic> _questions = [];
   
   int _currentQuestionIndex = 0;
@@ -90,7 +93,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     if (!_hiveInitialized) return;
     
     try {
-      final testData = _mockTestBox.get('${widget.unitId}_test_data');
+      final testData = _mockTestBox.get('${widget.chapterId}_test_data'); 
       if (testData != null) {
         final lastAttemptDate = testData['last_attempt_date'] ?? '';
         final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -112,12 +115,13 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
   Future<void> _fetchMockTestQuestions() async {
     setState(() {
       _isLoading = true;
+      _noQuestionsAvailable = false;
     });
 
     try {
-      // Encode the unit ID
-      String encodedId = Uri.encodeComponent(widget.unitId);
-      String apiUrl = '${ApiConfig.baseUrl}/api/performance/mock-test/start?unit_id=$encodedId';
+    
+      String encodedId = Uri.encodeComponent(widget.chapterId);
+      String apiUrl = '${ApiConfig.baseUrl}/api/performance/mock-test/start/?chapter_id=$encodedId'; 
       
       debugPrint('Fetching mock test questions from: $apiUrl');
       debugPrint('Using access token: ${widget.accessToken.substring(0, 20)}...');
@@ -151,11 +155,24 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           return;
         }
         
+        // Check if questions array exists and has questions
+        final List<dynamic> questions = responseData['questions'] ?? [];
+        
+        if (questions.isEmpty) {
+          setState(() {
+            _isLoading = false;
+            _noQuestionsAvailable = true;
+          });
+          return;
+        }
+        
         setState(() {
           _studentId = responseData['student_id'] ?? 0;
-          _unit = responseData['unit'] ?? widget.unitName;
-          _questions = responseData['questions'] ?? [];
+          _chapter = responseData['chapter'] ?? widget.chapterName;
+          _questions = questions;
+          _totalQuestions = questions.length; 
           _isLoading = false;
+          _noQuestionsAvailable = false;
         });
         
         // Store complete test data in Hive for result screen
@@ -168,6 +185,13 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       } else if (response.statusCode == 401) {
         _handleError('Session expired. Please login again.');
         _navigateBack();
+      } else if (response.statusCode == 404) {
+        // Handle 404 - No questions available
+        setState(() {
+          _isLoading = false;
+          _noQuestionsAvailable = true;
+        });
+        debugPrint('❌ No questions available for this chapter (404)');
       } else {
         // Try to parse error response
         try {
@@ -191,7 +215,15 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       }
     } catch (e) {
       debugPrint('Exception occurred while fetching mock test: $e');
-      _handleError('Error loading mock test: $e');
+      // Check if it's a 404 error in the exception
+      if (e.toString().contains('404')) {
+        setState(() {
+          _isLoading = false;
+          _noQuestionsAvailable = true;
+        });
+      } else {
+        _handleError('Error loading mock test: $e');
+      }
     }
   }
 
@@ -329,15 +361,15 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     
     try {
       final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      await _mockTestBox.put('${widget.unitId}_test_data', {
+      await _mockTestBox.put('${widget.chapterId}_test_data', { 
         'last_attempt_date': today,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
         'student_id': _studentId,
-        'unit': _unit,
+        'chapter': _chapter, 
         'total_questions': _totalQuestions,
         'questions': _questions,
         'selected_answers': _selectedAnswers,
-        'unit_name': widget.unitName,
+        'chapter_name': widget.chapterName, 
       });
       debugPrint('✅ Complete test data stored in Hive');
     } catch (e) {
@@ -385,11 +417,17 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
   void _startTest() async {
     setState(() {
       _isLoading = true;
+      _noQuestionsAvailable = false;
     });
     
     // Fetch questions only when start button is clicked
     await _fetchMockTestQuestions();
     
+    if (_noQuestionsAvailable) {
+      _handleError('No questions available for this chapter.');
+      return;
+    }
+
     if (_questions.isEmpty) {
       _handleError('No questions available for this test.');
       return;
@@ -440,8 +478,8 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     if (!_hiveInitialized) return;
     
     try {
-      final existingData = _mockTestBox.get('${widget.unitId}_test_data') ?? {};
-      await _mockTestBox.put('${widget.unitId}_test_data', {
+      final existingData = _mockTestBox.get('${widget.chapterId}_test_data') ?? {}; 
+      await _mockTestBox.put('${widget.chapterId}_test_data', { 
         ...existingData,
         'selected_answers': _selectedAnswers,
       });
@@ -607,7 +645,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       final answers = _prepareAnswersData();
       
       final requestBody = {
-        "unit_id": widget.unitId,
+        "chapter_id": widget.chapterId,
         "answers": answers,
       };
       
@@ -651,8 +689,8 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     if (!_hiveInitialized) return;
     
     try {
-      final existingData = _mockTestBox.get('${widget.unitId}_test_data') ?? {};
-      await _mockTestBox.put('${widget.unitId}_test_data', {
+      final existingData = _mockTestBox.get('${widget.chapterId}_test_data') ?? {}; 
+      await _mockTestBox.put('${widget.chapterId}_test_data', {
         ...existingData,
         'api_response': responseData,
       });
@@ -753,14 +791,14 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     
     if (resultData != null && mounted) {
       // Navigate to result screen with the API response data and Hive data
-      final hiveData = _mockTestBox.get('${widget.unitId}_test_data') ?? {};
+      final hiveData = _mockTestBox.get('${widget.chapterId}_test_data') ?? {}; 
       
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (context) => MockTestResultScreen(
             resultData: resultData,
-            unitName: widget.unitName,
+            chapterName: widget.chapterName, 
             totalQuestions: _totalQuestions,
             answeredQuestions: _selectedAnswers.length,
             questions: hiveData['questions'] ?? [],
@@ -779,10 +817,10 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     
     try {
       // Keep only the last attempt date, remove all other data
-      final existingData = _mockTestBox.get('${widget.unitId}_test_data') ?? {};
+      final existingData = _mockTestBox.get('${widget.chapterId}_test_data') ?? {}; 
       final lastAttemptDate = existingData['last_attempt_date'];
       
-      await _mockTestBox.put('${widget.unitId}_test_data', {
+      await _mockTestBox.put('${widget.chapterId}_test_data', { 
         'last_attempt_date': lastAttemptDate,
       });
       
@@ -799,7 +837,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
     });
 
     try {
-      final hiveData = _mockTestBox.get('${widget.unitId}_test_data') ?? {};
+      final hiveData = _mockTestBox.get('${widget.chapterId}_test_data') ?? {};
       final lastAttemptDate = hiveData['last_attempt_date'];
       
       if (lastAttemptDate == null) {
@@ -811,9 +849,9 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
         return;
       }
 
-      // Encode the unit ID
-      String encodedId = Uri.encodeComponent(widget.unitId);
-      String apiUrl = '${ApiConfig.baseUrl}/api/test/results?unit_id=$encodedId&date=$lastAttemptDate';
+      // Encode the chapter ID instead of unit ID
+      String encodedId = Uri.encodeComponent(widget.chapterId);
+      String apiUrl = '${ApiConfig.baseUrl}/api/test/results/?chapter_id=$encodedId&date=$lastAttemptDate'; 
       
       debugPrint('Fetching detailed results from: $apiUrl');
       
@@ -831,7 +869,6 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);
         
-        // Check if this is a FREE_USER_LIMIT error
         if (responseData['success'] == false && 
             responseData['error_code'] == 'FREE_USER_LIMIT') {
           setState(() {
@@ -857,7 +894,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
             MaterialPageRoute(
               builder: (context) => MockTestResultDetailScreen(
                 resultData: responseData,
-                unitName: widget.unitName,
+                chapterName: widget.chapterName,
                 attemptDate: lastAttemptDate,
               ),
             ),
@@ -925,7 +962,9 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            _testStarted ? 'Question ${_currentQuestionIndex + 1}/$_totalQuestions' : widget.unitName,
+            _testStarted 
+              ? 'Question ${_currentQuestionIndex + 1}/$_totalQuestions' 
+              : widget.chapterName, 
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.w600,
@@ -1002,9 +1041,11 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                     ? 'Evaluating your test...' 
                     : 'Preparing questions for you...'
                 )
-              : _testStarted
-                  ? _buildTestScreen()
-                  : _buildStartScreen(),
+              : _noQuestionsAvailable
+                  ? _buildNoQuestionsScreen()
+                  : _testStarted
+                      ? _buildTestScreen()
+                      : _buildStartScreen(),
         ),
       ),
     );
@@ -1028,6 +1069,70 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNoQuestionsScreen() {
+    return SafeArea(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.quiz_outlined,
+                size: 80,
+                color: Colors.grey[400],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'No Questions Available',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[600],
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'There are no questions available for ${widget.chapterName} at the moment.',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[500],
+                  height: 1.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primaryBlue,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text(
+                    'Go Back',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1062,7 +1167,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    widget.unitName,
+                    widget.chapterName, 
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -1072,27 +1177,6 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                   ),
                   const SizedBox(height: 12),
                   
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _isReattempt ? Colors.grey[300] : AppColors.primaryYellow.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _isReattempt ? Colors.grey[500]! : AppColors.primaryYellow,
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      '$_totalQuestions Questions',
-                      style: TextStyle(
-                        color: _isReattempt ? Colors.grey[700] : AppColors.primaryYellow,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 16),
                   Divider(color: Colors.grey[300]),
                   const SizedBox(height: 16),
                   Container(

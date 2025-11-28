@@ -1235,7 +1235,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Subcourse',
+                  'Level',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -1291,7 +1291,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
                     hint: Text(
                       profileProvider.selectedCourse == null 
                           ? 'Select course first'
-                          : 'Select Subcourse (Optional)',
+                          : 'Select Level (Optional)',
                       style: const TextStyle(fontSize: 14),
                     ),
                   )

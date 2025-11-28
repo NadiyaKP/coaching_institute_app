@@ -3,25 +3,40 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'package:provider/provider.dart';
 import '../../../service/api_config.dart';
 import '../../../service/auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../common/theme_color.dart';
 import '../../../service/http_interceptor.dart';
 
-class ResultsScreen extends StatefulWidget {
-  const ResultsScreen({Key? key}) : super(key: key);
+// ==================== NAVIGATION STATE CLASS ====================
+class ResultsNavigationState {
+  final String pageType; 
+  final String subjectId;
+  final String subjectName;
+  final List<dynamic> subjectsData; 
+  final List<dynamic> resultsData; 
 
-  @override
-  State<ResultsScreen> createState() => _ResultsScreenState();
+  ResultsNavigationState({
+    required this.pageType,
+    required this.subjectId,
+    required this.subjectName,
+    this.subjectsData = const [],
+    this.resultsData = const [],
+  });
 }
 
-class _ResultsScreenState extends State<ResultsScreen> {
+// ==================== PROVIDER CLASS ====================
+class ResultsProvider extends ChangeNotifier {
+  final AuthService _authService = AuthService();
+  
+  // State variables
   bool _isLoading = true;
   String? _accessToken;
   
   // Navigation state
-  String _currentPage = 'subjects'; // subjects, results
+  String _currentPage = 'subjects';
   String _selectedSubjectName = '';
   
   // Data lists
@@ -31,29 +46,33 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // Selected IDs for navigation
   String? _selectedSubjectId;
 
-  final AuthService _authService = AuthService();
+  // Enhanced navigation stack to track the complete path
+  final List<ResultsNavigationState> _navigationStack = [];
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeData();
-  }
+  // Getters
+  bool get isLoading => _isLoading;
+  String? get accessToken => _accessToken;
+  String get currentPage => _currentPage;
+  String get selectedSubjectName => _selectedSubjectName;
+  List<dynamic> get subjects => _subjects;
+  List<dynamic> get results => _results;
+  List<ResultsNavigationState> get navigationStack => _navigationStack;
 
-  Future<void> _initializeData() async {
+  Future<void> initialize() async {
     await _getAccessToken();
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _loadSubjectsFromSharedPreferences();
     } else {
       _showError('Access token not found. Please login again.');
-      _navigateToLogin();
     }
   }
 
   Future<void> _getAccessToken() async {
     try {
       _accessToken = await _authService.getAccessToken();
+      notifyListeners();
     } catch (e) {
-      _showError('Failed to retrieve access token: $e');
+      debugPrint('Failed to retrieve access token: $e');
     }
   }
 
@@ -63,27 +82,79 @@ class _ResultsScreenState extends State<ResultsScreen> {
       final prefs = await SharedPreferences.getInstance();
       final String? subjectsDataJson = prefs.getString('subjects_data');
       
+      debugPrint('📦 Loading subjects data from SharedPreferences for Results...');
+      debugPrint('Subjects data JSON exists: ${subjectsDataJson != null && subjectsDataJson.isNotEmpty}');
+      
       if (subjectsDataJson != null && subjectsDataJson.isNotEmpty) {
-        final List<dynamic> subjects = json.decode(subjectsDataJson);
-        setState(() {
+        try {
+          final decodedData = json.decode(subjectsDataJson);
+          debugPrint('📦 Decoded data type: ${decodedData.runtimeType}');
+          
+          List<dynamic> subjects = [];
+          
+          // Handle different possible data structures (same as question papers)
+          if (decodedData is List<dynamic>) {
+            subjects = decodedData;
+            debugPrint('✅ Data is List, subjects count: ${subjects.length}');
+          } else if (decodedData is Map<String, dynamic>) {
+            if (decodedData.containsKey('subjects') && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in Map, count: ${subjects.length}');
+            } else if (decodedData.containsKey('success') && decodedData['success'] == true && decodedData['subjects'] is List) {
+              subjects = decodedData['subjects'];
+              debugPrint('✅ Found subjects in API response structure, count: ${subjects.length}');
+            } else {
+              subjects = decodedData.values.toList();
+              debugPrint('✅ Using Map values as subjects, count: ${subjects.length}');
+            }
+          }
+          
+          // Debug print all subjects with their titles and structure
+          debugPrint('=== SUBJECTS STRUCTURE FOR RESULTS ===');
+          for (var i = 0; i < subjects.length; i++) {
+            final subject = subjects[i];
+            final title = subject['title']?.toString() ?? 'No Title';
+            final id = subject['id']?.toString() ?? 'No ID';
+            
+            debugPrint('Subject $i:');
+            debugPrint('  - Title: "$title"');
+            debugPrint('  - ID: $id');
+          }
+          debugPrint('=== END SUBJECTS STRUCTURE ===');
+          
+          // Store the properly parsed subjects
           _subjects = subjects;
+
+          // Initialize navigation stack with subjects
+          _navigationStack.add(ResultsNavigationState(
+            pageType: 'subjects',
+            subjectId: '',
+            subjectName: 'Subjects',
+            subjectsData: _subjects,
+          ));
+
           _isLoading = false;
-        });
-        debugPrint('✅ Loaded ${_subjects.length} subjects from SharedPreferences for Results');
-      } else {
-        debugPrint('⚠️ No subjects data found in SharedPreferences for Results');
-        setState(() {
+          notifyListeners();
+          
+          debugPrint('✅ Successfully loaded ${_subjects.length} subjects from SharedPreferences for Results');
+          
+        } catch (e) {
+          debugPrint('❌ Error parsing subjects data JSON: $e');
           _subjects = [];
           _isLoading = false;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading subjects from SharedPreferences: $e');
-      _showError('Failed to load subjects data: $e');
-      setState(() {
+          notifyListeners();
+        }
+      } else {
+        debugPrint('⚠️ No subjects data found in SharedPreferences for Results');
         _subjects = [];
         _isLoading = false;
-      });
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading subjects from SharedPreferences: $e');
+      _subjects = [];
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
@@ -108,27 +179,16 @@ class _ResultsScreenState extends State<ResultsScreen> {
   // Helper method to handle token expiration
   void _handleTokenExpiration() async {
     await _authService.logout();
-    _showError('Session expired. Please login again.');
-    _navigateToLogin();
-  }
-
-  void _navigateToLogin() {
-    if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        '/signup',
-        (Route<dynamic> route) => false,
-      );
-    }
   }
 
   // Fetch exam results for a subject from API
-  Future<void> _fetchResults(String subjectId, String subjectName) async {
+  Future<void> fetchResults(String subjectId, String subjectName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
-      _showError('Access token not found');
       return;
     }
 
-    setState(() => _isLoading = true);
+    _isLoading = true;
+    notifyListeners();
 
     final client = _createHttpClientWithCustomCert();
 
@@ -176,232 +236,310 @@ class _ResultsScreenState extends State<ResultsScreen> {
             }
           });
           
-          setState(() {
-            _results = results;
-            _selectedSubjectId = subjectId;
-            _selectedSubjectName = subjectName;
-            _currentPage = 'results';
-            _isLoading = false;
-          });
+          _results = results;
+          _selectedSubjectId = subjectId;
+          _selectedSubjectName = subjectName;
+          _currentPage = 'results';
+          _isLoading = false;
+          notifyListeners();
+
+          // Add to navigation stack with results data
+          _navigationStack.add(ResultsNavigationState(
+            pageType: 'results',
+            subjectId: subjectId,
+            subjectName: subjectName,
+            resultsData: results,
+          ));
+
         } else {
-          _showError(data['message'] ?? 'Failed to fetch results');
-          setState(() => _isLoading = false);
+          debugPrint('Failed to fetch results: ${data['message'] ?? 'Unknown error'}');
+          _isLoading = false;
+          notifyListeners();
         }
       } else if (response.statusCode == 401) {
         _handleTokenExpiration();
       } else {
-        _showError('Failed to fetch results: ${response.statusCode}');
-        setState(() => _isLoading = false);
+        debugPrint('Failed to fetch results: ${response.statusCode}');
+        _isLoading = false;
+        notifyListeners();
       }
     } on HandshakeException catch (e) {
       debugPrint('SSL Handshake error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SSL certificate issue - this is normal in development'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      _isLoading = false;
+      notifyListeners();
     } on SocketException catch (e) {
       debugPrint('Network error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No network connection'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _isLoading = false;
+      notifyListeners();
     } catch (e) {
       debugPrint('Error fetching results: $e');
-      _showError('Error fetching results: $e');
-      setState(() => _isLoading = false);
+      _isLoading = false;
+      notifyListeners();
     } finally {
       client.close();
     }
   }
 
   void _showError(String message) {
-    setState(() => _isLoading = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'Dismiss',
-            textColor: Colors.white,
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
-        ),
-      );
-    }
+    _isLoading = false;
+    notifyListeners();
   }
 
-  void _navigateBack() {
-    setState(() {
-      switch (_currentPage) {
+  // ENHANCED: Proper hierarchical backward navigation
+  void navigateBack() {
+    debugPrint('=== RESULTS BACK NAVIGATION START ===');
+    debugPrint('Current stack length: ${_navigationStack.length}');
+    debugPrint('Current page: $_currentPage');
+    
+    if (_navigationStack.length > 1) {
+      // Remove current state
+      final currentState = _navigationStack.removeLast();
+      debugPrint('Removed current state: ${currentState.pageType}');
+      
+      // Get previous state
+      final previousState = _navigationStack.last;
+      debugPrint('Previous state: ${previousState.pageType}');
+      
+      // Restore the previous state properly based on page type
+      _currentPage = previousState.pageType;
+      _selectedSubjectId = previousState.subjectId;
+      _selectedSubjectName = previousState.subjectName;
+      
+      switch (previousState.pageType) {
         case 'subjects':
-          if (mounted) {
-            Navigator.pop(context);
-          }
-          break;
-        case 'results':
-          _currentPage = 'subjects';
-          _results.clear();
+          // Going back to subjects - restore subjects data
+          _results = [];
           _selectedSubjectId = null;
           _selectedSubjectName = '';
           break;
+          
+        case 'results':
+          // Going back to results from individual result view (if needed)
+          _results = previousState.resultsData;
+          break;
       }
-    });
-  }
-
-  // Handle device back button press
-  Future<bool> _handleDeviceBackButton() async {
-    if (_currentPage == 'subjects') {
-      return true; // Allow normal back navigation
+      _isLoading = false;
+      notifyListeners();
+      
+      debugPrint('=== RESULTS BACK NAVIGATION COMPLETE ===');
+      debugPrint('New current page: $_currentPage');
+      debugPrint('Stack length after: ${_navigationStack.length}');
     } else {
-      _navigateBack();
-      return false; // Prevent default back behavior
+      // If we're at the root (subjects), exit the screen
+      debugPrint('At root level - exiting screen');
+      _exitScreen();
     }
   }
 
-  String _getAppBarTitle() {
+  void _exitScreen() {
+    // Navigation will be handled by the widget
+  }
+
+  // Handle device back button press
+  Future<bool> handleDeviceBackButton(BuildContext context) async {
+    debugPrint('=== RESULTS DEVICE BACK BUTTON PRESSED ===');
+    debugPrint('Current page: $_currentPage');
+    debugPrint('Stack length: ${_navigationStack.length}');
+    
+    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
+      debugPrint('At root subjects - exiting screen and navigating to home');
+      
+      // Navigate back to home page
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+      return false; // Don't allow default back behavior
+    } else {
+      navigateBack();
+      return false; // Don't allow default back behavior
+    }
+  }
+
+  // Method to handle back button from subjects page to home
+  void navigateBackToHome(BuildContext context) {
+    debugPrint('=== NAVIGATING BACK TO HOME FROM RESULTS SUBJECTS ===');
+    
+    // Navigate back to home page
+    if (context.mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  String getAppBarTitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'subjects':
+          return 'Results';
+        case 'results':
+          return 'Results';
+        default:
+          return 'Results';
+      }
+    }
+    
     switch (_currentPage) {
       case 'subjects':
         return 'Results';
       case 'results':
-        return 'Results - $_selectedSubjectName';
+        return 'Results';
       default:
         return 'Results';
     }
   }
 
-  String _formatDate(String dateString) {
-    try {
-      if (dateString.isEmpty) return 'Unknown date';
-      
-      final DateTime date = DateTime.parse(dateString);
-      final List<String> months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-      ];
-      
-      return '${date.day} ${months[date.month - 1]}, ${date.year}';
-    } catch (e) {
-      return dateString;
+  String getAppBarSubtitle() {
+    if (_navigationStack.isNotEmpty) {
+      final currentState = _navigationStack.last;
+      switch (currentState.pageType) {
+        case 'results':
+          return currentState.subjectName;
+        default:
+          return '';
+      }
     }
+    return '';
   }
+}
+
+// ==================== SCREEN WIDGET ====================
+class ResultsScreen extends StatefulWidget {
+  const ResultsScreen({Key? key}) : super(key: key);
 
   @override
+  State<ResultsScreen> createState() => _ResultsScreenState();
+}
+
+class _ResultsScreenState extends State<ResultsScreen> {
+  @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvoked: (bool didPop) async {
-        if (didPop) {
-          return;
-        }
-        
-        final shouldPop = await _handleDeviceBackButton();
-        if (shouldPop && mounted) {
-          Navigator.of(context).pop();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: AppColors.backgroundLight,
-        body: Stack(
-          children: [
-            // Gradient background
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.primaryYellow.withOpacity(0.08),
-                    AppColors.backgroundLight,
-                    Colors.white,
-                  ],
-                  stops: const [0.0, 0.4, 1.0],
-                ),
-              ),
-            ),
-            
-            // Main content
-            Column(
-              children: [
-                // Header Section with Curved Bottom
-                ClipPath(
-                  clipper: CurvedHeaderClipper(),
-                  child: Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          AppColors.primaryYellow,
-                          AppColors.primaryYellowDark,
-                        ],
+    return ChangeNotifierProvider(
+      create: (context) => ResultsProvider()..initialize(),
+      builder: (context, child) {
+        return Consumer<ResultsProvider>(
+          builder: (context, provider, child) {
+            return PopScope(
+              canPop: false,
+              onPopInvoked: (bool didPop) async {
+                if (didPop) {
+                  return;
+                }
+                
+                await provider.handleDeviceBackButton(context);
+              },
+              child: Scaffold(
+                backgroundColor: AppColors.backgroundLight,
+                body: Stack(
+                  children: [
+                    // Gradient background
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            AppColors.primaryYellow.withOpacity(0.08),
+                            AppColors.backgroundLight,
+                            Colors.white,
+                          ],
+                          stops: const [0.0, 0.4, 1.0],
+                        ),
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    
+                    // Main content
+                    Column(
                       children: [
-                        // Back button and title row
-                        Row(
-                          children: [
-                            IconButton(
-                              onPressed: () async {
-                                if (_currentPage == 'subjects') {
-                                  Navigator.pop(context);
-                                } else {
-                                  _navigateBack();
-                                }
-                              },
-                              icon: const Icon(
-                                Icons.arrow_back_rounded,
-                                color: Colors.white,
-                                size: 24,
+                        // Header Section with Curved Bottom
+                        ClipPath(
+                          clipper: CurvedHeaderClipper(),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  AppColors.primaryYellow,
+                                  AppColors.primaryYellowDark,
+                                ],
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _getAppBarTitle(),
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: -0.3,
+                            padding: const EdgeInsets.fromLTRB(20, 60, 20, 24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Back button and title row
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      onPressed: () async {
+                                        if (provider.currentPage == 'subjects' && provider.navigationStack.length <= 1) {
+                                          // On subjects page - navigate back to home
+                                          provider.navigateBackToHome(context);
+                                        } else {
+                                          // Use normal back navigation for other pages
+                                          await provider.handleDeviceBackButton(context);
+                                        }
+                                      },
+                                      icon: const Icon(
+                                        Icons.arrow_back_rounded,
+                                        color: Colors.white,
+                                        size: 24,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            provider.getAppBarTitle(),
+                                            style: const TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                              letterSpacing: -0.3,
+                                            ),
+                                          ),
+                                          if (provider.getAppBarSubtitle().isNotEmpty) ...[
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              provider.getAppBarSubtitle(),
+                                              style: const TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.white70,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
+                              ],
                             ),
-                          ],
+                          ),
+                        ),
+
+                        // Content Area
+                        Expanded(
+                          child: provider.isLoading
+                              ? _buildSkeletonLoading()
+                              : _buildCurrentPage(context, provider),
                         ),
                       ],
                     ),
-                  ),
+                  ],
                 ),
-
-                // Content Area
-                Expanded(
-                  child: _isLoading
-                      ? _buildSkeletonLoading()
-                      : _buildCurrentPage(),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -531,18 +669,18 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildCurrentPage() {
-    switch (_currentPage) {
+  Widget _buildCurrentPage(BuildContext context, ResultsProvider provider) {
+    switch (provider.currentPage) {
       case 'subjects':
-        return _buildSubjectsPage();
+        return _buildSubjectsPage(context, provider);
       case 'results':
-        return _buildResultsPage();
+        return _buildResultsPage(context, provider);
       default:
-        return _buildSubjectsPage();
+        return _buildSubjectsPage(context, provider);
     }
   }
 
-  Widget _buildSubjectsPage() {
+  Widget _buildSubjectsPage(BuildContext context, ResultsProvider provider) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
@@ -593,7 +731,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${_subjects.length} subject${_subjects.length != 1 ? 's' : ''} available',
+                        '${provider.subjects.length} subject${provider.subjects.length != 1 ? 's' : ''} available',
                         style: const TextStyle(
                           fontSize: 12,
                           color: AppColors.grey400,
@@ -608,7 +746,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
             const SizedBox(height: 24),
 
-            if (_subjects.isEmpty)
+            if (provider.subjects.isEmpty)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 40),
@@ -652,13 +790,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
               )
             else
               Column(
-                children: _subjects
+                children: provider.subjects
                     .map((subject) => _buildSubjectCard(
                           title: subject['title']?.toString() ?? 'Unknown Subject',
                           subtitle: 'View exam results',
                           icon: Icons.assessment_rounded,
                           color: AppColors.primaryBlue,
-                          onTap: () => _fetchResults(
+                          onTap: () => provider.fetchResults(
                             subject['id']?.toString() ?? '',
                             subject['title']?.toString() ?? 'Unknown Subject',
                           ),
@@ -671,7 +809,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
     );
   }
 
-  Widget _buildResultsPage() {
+  Widget _buildResultsPage(BuildContext context, ResultsProvider provider) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Padding(
@@ -694,13 +832,30 @@ class _ResultsScreenState extends State<ResultsScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Text(
-                      'Exam Results',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textDark,
-                        letterSpacing: -0.3,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Exam Results',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            provider.selectedSubjectName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.primaryBlue,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.1,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -708,28 +863,13 @@ class _ResultsScreenState extends State<ResultsScreen> {
                 const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.only(left: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _selectedSubjectName,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppColors.primaryBlue,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: -0.1,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_results.length} exam${_results.length != 1 ? 's' : ''} found',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.grey400,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    '${provider.results.length} exam${provider.results.length != 1 ? 's' : ''} found',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.grey400,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
                 ),
               ],
@@ -737,7 +877,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
 
             const SizedBox(height: 24),
 
-            if (_results.isEmpty)
+            if (provider.results.isEmpty)
               Center(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(vertical: 40),
@@ -782,7 +922,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
               )
             else
               Column(
-                children: _results
+                children: provider.results
                     .map((result) => _buildResultCard(
                           examTitle: result['exam_title']?.toString() ?? 'Unknown Exam',
                           marks: (result['marks'] ?? 0).toDouble(),
@@ -883,6 +1023,22 @@ class _ResultsScreenState extends State<ResultsScreen> {
         ),
       ),
     );
+  }
+
+  String _formatDate(String dateString) {
+    try {
+      if (dateString.isEmpty) return 'Unknown date';
+      
+      final DateTime date = DateTime.parse(dateString);
+      final List<String> months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+      ];
+      
+      return '${date.day} ${months[date.month - 1]}, ${date.year}';
+    } catch (e) {
+      return dateString;
+    }
   }
 
   Widget _buildResultCard({

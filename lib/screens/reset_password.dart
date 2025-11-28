@@ -4,6 +4,7 @@ import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'package:provider/provider.dart';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 
@@ -117,92 +118,65 @@ class ResponsiveUtils {
   }
 }
 
-class ResetPasswordScreen extends StatefulWidget {
-  const ResetPasswordScreen({super.key});
-
-  @override
-  State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
-}
-
-class _ResetPasswordScreenState extends State<ResetPasswordScreen>
-    with SingleTickerProviderStateMixin {
+// ==================== PROVIDER CLASS ====================
+class ResetPasswordProvider extends ChangeNotifier {
+  // Controllers
   final TextEditingController newPasswordController = TextEditingController();
   final TextEditingController confirmPasswordController = TextEditingController();
   
-  bool isLoading = false;
-  AnimationController? _animationController;
-  Animation<double>? _scaleAnimation;
-  Animation<double>? _fadeAnimation;
+  // State variables
+  bool _isLoading = false;
   
   // Validation variables
-  String? newPasswordError;
-  String? confirmPasswordError;
-  bool isNewPasswordValid = false;
-  bool isConfirmPasswordValid = false;
-  bool obscureNewPassword = true;
-  bool obscureConfirmPassword = true;
+  String? _newPasswordError;
+  String? _confirmPasswordError;
+  bool _isNewPasswordValid = false;
+  bool _isConfirmPasswordValid = false;
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
   
   // Variables to store data from route arguments
-  String email = '';
-  String resetToken = '';
+  String _email = '';
+  String _resetToken = '';
+  bool _isInitialized = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _initializeAnimations();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    
-    // Extract arguments passed from OTP verification screen
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    
-    if (args != null) {
-      email = args['email'] ?? '';
-      resetToken = args['reset_token'] ?? '';
-      
-      // Debug prints to verify data
-      _debugLog('RESET PASSWORD - ROUTE ARGUMENTS RECEIVED', {
-        'email': email,
-        'reset_token_received': resetToken.isNotEmpty ? '***TOKEN_RECEIVED***' : 'NOT_FOUND',
-        'verified': args['verified'] ?? false,
-      });
-    } else {
-      debugPrint('WARNING: No route arguments received for Reset Password');
-    }
-  }
-
-  void _initializeAnimations() {
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    
-    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController!, 
-        curve: Curves.easeOutBack,
-      ),
-    );
-    
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController!, 
-        curve: Curves.easeOut,
-      ),
-    );
-    
-    _animationController?.forward();
-  }
+  // Getters
+  bool get isLoading => _isLoading;
+  String? get newPasswordError => _newPasswordError;
+  String? get confirmPasswordError => _confirmPasswordError;
+  bool get isNewPasswordValid => _isNewPasswordValid;
+  bool get isConfirmPasswordValid => _isConfirmPasswordValid;
+  bool get obscureNewPassword => _obscureNewPassword;
+  bool get obscureConfirmPassword => _obscureConfirmPassword;
+  String get email => _email;
+  String get resetToken => _resetToken;
+  bool get isInitialized => _isInitialized;
 
   @override
   void dispose() {
     newPasswordController.dispose();
     confirmPasswordController.dispose();
-    _animationController?.dispose();
     super.dispose();
+  }
+
+  // Initialize with route arguments
+  void initialize(Map<String, dynamic>? args) {
+    if (_isInitialized) return;
+    
+    if (args != null) {
+      _email = args['email'] ?? '';
+      _resetToken = args['reset_token'] ?? '';
+      
+      _debugLog('RESET PASSWORD - ROUTE ARGUMENTS RECEIVED', {
+        'email': _email,
+        'reset_token_received': _resetToken.isNotEmpty ? '***TOKEN_RECEIVED***' : 'NOT_FOUND',
+        'verified': args['verified'] ?? false,
+      });
+    } else {
+      debugPrint('WARNING: No route arguments received for Reset Password');
+    }
+    
+    _isInitialized = true;
   }
 
   // Helper method for detailed debug logging
@@ -216,118 +190,130 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
     debugPrint('=' * (42 + title.length));
   }
 
-  // Create HTTP client using ApiConfig
-  static http.Client createHttpClient() {
-    return IOClient(ApiConfig.createHttpClient());
-  }
-
-  void _validateNewPassword() {
+  // Password validation methods
+  void validateNewPassword() {
     final password = newPasswordController.text;
     
     if (password.isEmpty) {
-      setState(() {
-        newPasswordError = null;
-        isNewPasswordValid = false;
-      });
+      _newPasswordError = null;
+      _isNewPasswordValid = false;
+      notifyListeners();
       return;
     }
     
     // Password validation: minimum 4 characters
     if (password.length < 4) {
-      setState(() {
-        newPasswordError = 'Password must be at least 4 characters';
-        isNewPasswordValid = false;
-      });
+      _newPasswordError = 'Password must be at least 4 characters';
+      _isNewPasswordValid = false;
+      notifyListeners();
       return;
     }
     
-    setState(() {
-      newPasswordError = null;
-      isNewPasswordValid = true;
-    });
+    _newPasswordError = null;
+    _isNewPasswordValid = true;
+    notifyListeners();
     
     // Re-validate confirm password if it has content
     if (confirmPasswordController.text.isNotEmpty) {
-      _validateConfirmPassword();
+      validateConfirmPassword();
     }
   }
 
-  void _validateConfirmPassword() {
+  void validateConfirmPassword() {
     final confirmPassword = confirmPasswordController.text;
     final newPassword = newPasswordController.text;
     
     if (confirmPassword.isEmpty) {
-      setState(() {
-        confirmPasswordError = null;
-        isConfirmPasswordValid = false;
-      });
+      _confirmPasswordError = null;
+      _isConfirmPasswordValid = false;
+      notifyListeners();
       return;
     }
     
     if (confirmPassword != newPassword) {
-      setState(() {
-        confirmPasswordError = 'Passwords do not match';
-        isConfirmPasswordValid = false;
-      });
+      _confirmPasswordError = 'Passwords do not match';
+      _isConfirmPasswordValid = false;
+      notifyListeners();
       return;
     }
     
-    setState(() {
-      confirmPasswordError = null;
-      isConfirmPasswordValid = true;
-    });
+    _confirmPasswordError = null;
+    _isConfirmPasswordValid = true;
+    notifyListeners();
   }
 
-  Future<void> _resetPassword() async {
-    _validateNewPassword();
-    _validateConfirmPassword();
+  // Toggle password visibility
+  void toggleNewPasswordVisibility() {
+    _obscureNewPassword = !_obscureNewPassword;
+    notifyListeners();
+  }
+
+  void toggleConfirmPasswordVisibility() {
+    _obscureConfirmPassword = !_obscureConfirmPassword;
+    notifyListeners();
+  }
+
+  // Reset password API call
+  Future<Map<String, dynamic>> resetPassword() async {
+    validateNewPassword();
+    validateConfirmPassword();
     
-    if (!isNewPasswordValid) {
+    if (!_isNewPasswordValid) {
       if (newPasswordController.text.trim().isEmpty) {
-        _showSnackBar('Please enter your new password', AppColors.errorRed);
+        return {
+          'success': false,
+          'message': 'Please enter your new password',
+        };
       }
-      return;
+      return {
+        'success': false,
+        'message': _newPasswordError ?? 'Invalid password',
+      };
     }
     
-    if (!isConfirmPasswordValid) {
+    if (!_isConfirmPasswordValid) {
       if (confirmPasswordController.text.trim().isEmpty) {
-        _showSnackBar('Please confirm your password', AppColors.errorRed);
+        return {
+          'success': false,
+          'message': 'Please confirm your password',
+        };
       }
-      return;
+      return {
+        'success': false,
+        'message': _confirmPasswordError ?? 'Passwords do not match',
+      };
     }
 
-    if (resetToken.isEmpty) {
-      _showSnackBar('Invalid reset token. Please try again.', AppColors.errorRed);
-      Navigator.pushReplacementNamed(context, '/forgot_password');
-      return;
+    if (_resetToken.isEmpty) {
+      return {
+        'success': false,
+        'message': 'Invalid reset token. Please try again.',
+        'navigate_back': true,
+      };
     }
 
-    setState(() {
-      isLoading = true;
-    });
+    _isLoading = true;
+    notifyListeners();
 
     final newPassword = newPasswordController.text.trim();
     
     debugPrint('\n🔒 RESET PASSWORD INITIATED');
-    debugPrint('Email: $email');
+    debugPrint('Email: $_email');
     debugPrint('New Password Length: ${newPassword.length}');
 
-    // Create HTTP client using ApiConfig
-    final client = createHttpClient();
+    final client = _createHttpClient();
     final stopwatch = Stopwatch()..start();
 
     try {
       String requestUrl = '${ApiConfig.baseUrl}/api/admin/reset-password/';
       
       final requestData = {
-        'reset_token': resetToken,
+        'reset_token': _resetToken,
         'new_password': newPassword,
       };
 
-      // Use ApiConfig for common headers
       final requestHeaders = ApiConfig.commonHeaders;
 
-      // Log complete request details
       _debugLog('🚀 RESET PASSWORD API REQUEST', {
         'method': 'POST',
         'url': requestUrl,
@@ -341,7 +327,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
         'timestamp': DateTime.now().toIso8601String(),
       });
 
-      // Make the API call with ApiConfig timeout
       final response = await client.post(
         Uri.parse(requestUrl),
         headers: requestHeaders,
@@ -355,7 +340,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
 
       stopwatch.stop();
 
-      // Log complete response details
       _debugLog('📥 RESET PASSWORD API RESPONSE', {
         'status_code': response.statusCode,
         'status_message': response.reasonPhrase,
@@ -365,7 +349,6 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
         'timestamp': DateTime.now().toIso8601String(),
       });
 
-      // Try to parse response body as JSON
       dynamic responseData;
       try {
         responseData = json.decode(response.body);
@@ -375,18 +358,11 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
         responseData = {'raw_body': response.body};
       }
 
-      setState(() {
-        isLoading = false;
-      });
+      _isLoading = false;
+      notifyListeners();
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        // Check if success is true
-        bool isSuccess = false;
-        if (responseData['success'] is bool) {
-          isSuccess = responseData['success'];
-        } else if (responseData['success'] is String) {
-          isSuccess = responseData['success'].toString().toLowerCase() == 'true';
-        }
+        bool isSuccess = _parseSuccessFlag(responseData['success']);
         
         debugPrint('✅ Password reset success status: $isSuccess (HTTP ${response.statusCode})');
         
@@ -394,65 +370,56 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
           final successMessage = responseData['message'] ?? 'Password reset successful!';
           debugPrint('🎉 Password reset successful: $successMessage');
           
-          if (mounted) {
-            _showSnackBar(successMessage, AppColors.successGreen);
-
-            // Navigate to login screen after successful password reset
-            Future.delayed(const Duration(milliseconds: 1500), () {
-              debugPrint('🧭 Navigating to: /signup');
-              Navigator.pushNamedAndRemoveUntil(
-                context, 
-                 '/signup',
-                (route) => false,
-              );
-            });
-          }
+          return {
+            'success': true,
+            'message': successMessage,
+          };
         } else {
           final errorMessage = responseData['message'] ?? 'Failed to reset password';
           debugPrint('❌ Password reset failed: $errorMessage');
           
-          if (mounted) {
-            _showSnackBar(errorMessage, AppColors.errorRed);
-          }
+          return {
+            'success': false,
+            'message': errorMessage,
+          };
         }
       } else if (response.statusCode == 400) {
         final errorMessage = responseData['message'] ?? 'Invalid request. Please try again.';
         debugPrint('❌ Bad Request (400): $errorMessage');
         
-        if (mounted) {
-          _showSnackBar(errorMessage, AppColors.errorRed);
-        }
+        return {
+          'success': false,
+          'message': errorMessage,
+        };
       } else if (response.statusCode == 401) {
         final errorMessage = responseData['message'] ?? 'Reset token expired. Please request a new one.';
         debugPrint('❌ Unauthorized (401): $errorMessage');
         
-        if (mounted) {
-          _showSnackBar(errorMessage, AppColors.errorRed);
-          
-          // Navigate back to forgot password screen
-          Future.delayed(const Duration(milliseconds: 1500), () {
-            Navigator.pushReplacementNamed(context, '/forgot_password');
-          });
-        }
+        return {
+          'success': false,
+          'message': errorMessage,
+          'navigate_back': true,
+        };
       } else if (response.statusCode == 404) {
         final errorMessage = responseData['message'] ?? 'User not found.';
         debugPrint('❌ Not Found (404): $errorMessage');
         
-        if (mounted) {
-          _showSnackBar(errorMessage, AppColors.errorRed);
-        }
+        return {
+          'success': false,
+          'message': errorMessage,
+        };
       } else {
         debugPrint('❌ HTTP Error ${response.statusCode}: ${response.reasonPhrase}');
         
-        if (mounted) {
-          _showSnackBar('Network error. Please try again.', AppColors.errorRed);
-        }
+        return {
+          'success': false,
+          'message': 'Network error. Please try again.',
+        };
       }
     } on TimeoutException catch (e) {
       stopwatch.stop();
-      setState(() {
-        isLoading = false;
-      });
+      _isLoading = false;
+      notifyListeners();
       
       _debugLog('⏰ REQUEST TIMEOUT', {
         'error': e.toString(),
@@ -460,17 +427,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
         'timeout_duration': ApiConfig.requestTimeout.inSeconds.toString() + ' seconds',
       });
       
-      if (mounted) {
-        _showSnackBar(
-          'Request timeout. Please check your connection and try again.',
-          AppColors.errorRed,
-        );
-      }
+      return {
+        'success': false,
+        'message': 'Request timeout. Please check your connection and try again.',
+      };
     } on SocketException catch (e) {
       stopwatch.stop();
-      setState(() {
-        isLoading = false;
-      });
+      _isLoading = false;
+      notifyListeners();
       
       _debugLog('🌐 NETWORK ERROR', {
         'error': e.toString(),
@@ -479,17 +443,14 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
         'duration_ms': stopwatch.elapsedMilliseconds,
       });
       
-      if (mounted) {
-        _showSnackBar(
-          'No internet connection. Please check your network.',
-          AppColors.errorRed,
-        );
-      }
+      return {
+        'success': false,
+        'message': 'No internet connection. Please check your network.',
+      };
     } catch (e, stackTrace) {
       stopwatch.stop();
-      setState(() {
-        isLoading = false;
-      });
+      _isLoading = false;
+      notifyListeners();
       
       _debugLog('💥 UNEXPECTED ERROR', {
         'error': e.toString(),
@@ -497,16 +458,78 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
         'duration_ms': stopwatch.elapsedMilliseconds,
       });
       
-      if (mounted) {
-        _showSnackBar(
-          'Password reset failed: ${e.toString()}',
-          AppColors.errorRed,
-        );
-      }
+      return {
+        'success': false,
+        'message': 'Password reset failed: ${e.toString()}',
+      };
     } finally {
       client.close();
       debugPrint('🔒 HTTP client closed');
     }
+  }
+
+  // Helper methods
+  http.Client _createHttpClient() {
+    return IOClient(ApiConfig.createHttpClient());
+  }
+
+  bool _parseSuccessFlag(dynamic success) {
+    if (success is bool) {
+      return success;
+    } else if (success is String) {
+      return success.toLowerCase() == 'true';
+    }
+    return false;
+  }
+}
+
+// ==================== SCREEN WIDGET ====================
+class ResetPasswordScreen extends StatefulWidget {
+  const ResetPasswordScreen({super.key});
+
+  @override
+  State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
+}
+
+class _ResetPasswordScreenState extends State<ResetPasswordScreen>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _fadeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeAnimations();
+  }
+
+  void _initializeAnimations() {
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController, 
+        curve: Curves.easeOutBack,
+      ),
+    );
+    
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController, 
+        curve: Curves.easeOut,
+      ),
+    );
+    
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   void _showSnackBar(String message, Color color) {
@@ -523,6 +546,40 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
           ),
         ),
       );
+    }
+  }
+
+  Future<void> _handleResetPassword(BuildContext context) async {
+    final provider = context.read<ResetPasswordProvider>();
+    final result = await provider.resetPassword();
+
+    if (!mounted) return;
+
+    if (result['success'] == true) {
+      _showSnackBar(result['message'], AppColors.successGreen);
+
+      // Navigate to login screen after successful password reset
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          debugPrint('🧭 Navigating to: /signup');
+          Navigator.pushNamedAndRemoveUntil(
+            context, 
+            '/signup',
+            (route) => false,
+          );
+        }
+      });
+    } else {
+      _showSnackBar(result['message'], AppColors.errorRed);
+
+      if (result['navigate_back'] == true) {
+        // Navigate back to forgot password screen
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          if (mounted) {
+            Navigator.pushReplacementNamed(context, '/forgot_password');
+          }
+        });
+      }
     }
   }
 
@@ -595,6 +652,20 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                 shape: BoxShape.circle,
                 color: AppColors.white.withOpacity(0.06),
               ),
+            ),
+          ),
+
+          // Back button
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 16,
+            child: IconButton(
+              icon: Icon(
+                Icons.arrow_back_ios_new,
+                color: AppColors.primaryBlue,
+                size: ResponsiveUtils.getFontSize(context, 20),
+              ),
+              onPressed: () => Navigator.pop(context),
             ),
           ),
 
@@ -675,9 +746,9 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
     );
     
     return ScaleTransition(
-      scale: _scaleAnimation!,
+      scale: _scaleAnimation,
       child: FadeTransition(
-        opacity: _fadeAnimation!,
+        opacity: _fadeAnimation,
         child: Center(
           child: Container(
             constraints: BoxConstraints(maxWidth: maxWidth),
@@ -702,44 +773,40 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
                   ),
                 ],
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildPasswordField(
-                    context,
-                    title: "New Password",
-                    controller: newPasswordController,
-                    obscureText: obscureNewPassword,
-                    isValid: isNewPasswordValid,
-                    errorText: newPasswordError,
-                    hintText: "Enter new password",
-                    onToggleVisibility: () {
-                      setState(() {
-                        obscureNewPassword = !obscureNewPassword;
-                      });
-                    },
-                    onChanged: (_) => _validateNewPassword(),
-                  ),
-                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
-                  _buildPasswordField(
-                    context,
-                    title: "Confirm Password",
-                    controller: confirmPasswordController,
-                    obscureText: obscureConfirmPassword,
-                    isValid: isConfirmPasswordValid,
-                    errorText: confirmPasswordError,
-                    hintText: "Re-enter new password",
-                    onToggleVisibility: () {
-                      setState(() {
-                        obscureConfirmPassword = !obscureConfirmPassword;
-                      });
-                    },
-                    onChanged: (_) => _validateConfirmPassword(),
-                  ),
-                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
-                  _buildContinueButton(context),
-                ],
+              child: Consumer<ResetPasswordProvider>(
+                builder: (context, provider, child) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildPasswordField(
+                        context,
+                        title: "New Password",
+                        controller: provider.newPasswordController,
+                        obscureText: provider.obscureNewPassword,
+                        isValid: provider.isNewPasswordValid,
+                        errorText: provider.newPasswordError,
+                        hintText: "Enter new password",
+                        onToggleVisibility: provider.toggleNewPasswordVisibility,
+                        onChanged: (_) => provider.validateNewPassword(),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
+                      _buildPasswordField(
+                        context,
+                        title: "Confirm Password",
+                        controller: provider.confirmPasswordController,
+                        obscureText: provider.obscureConfirmPassword,
+                        isValid: provider.isConfirmPasswordValid,
+                        errorText: provider.confirmPasswordError,
+                        hintText: "Re-enter new password",
+                        onToggleVisibility: provider.toggleConfirmPasswordVisibility,
+                        onChanged: (_) => provider.validateConfirmPassword(),
+                      ),
+                      SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, isLandscape ? 16 : 24)),
+                      _buildContinueButton(context, provider),
+                    ],
+                  );
+                },
               ),
             ),
           ),
@@ -913,13 +980,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
     );
   }
 
-  Widget _buildContinueButton(BuildContext context) {
+  Widget _buildContinueButton(BuildContext context, ResetPasswordProvider provider) {
     final fontSize = ResponsiveUtils.getFontSize(context, 16);
     final iconSize = ResponsiveUtils.getFontSize(context, 18);
     final isLandscape = ResponsiveUtils.isLandscape(context);
     final buttonHeight = ResponsiveUtils.getButtonHeight(context);
     
-    bool isEnabled = isNewPasswordValid && isConfirmPasswordValid;
+    bool isEnabled = provider.isNewPasswordValid && provider.isConfirmPasswordValid;
 
     return Center(
       child: Container(
@@ -947,7 +1014,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
               : [],
         ),
         child: ElevatedButton(
-          onPressed: isEnabled && !isLoading ? _resetPassword : null,
+          onPressed: isEnabled && !provider.isLoading ? () => _handleResetPassword(context) : null,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.transparent,
             shadowColor: Colors.transparent,
@@ -958,7 +1025,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
             minimumSize: Size.zero,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
-          child: isLoading
+          child: provider.isLoading
               ? SizedBox(
                   height: isLandscape ? 16 : 20,
                   width: isLandscape ? 16 : 20,
@@ -994,65 +1061,68 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen>
 
   @override
   Widget build(BuildContext context) {
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     final isLandscape = ResponsiveUtils.isLandscape(context);
     final verticalSpacing = ResponsiveUtils.getVerticalSpacing(context, 40);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F5),
-      body: GestureDetector(
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              if (isLandscape) {
-                // Landscape layout - side by side with proper flex
-                return Row(
-                  children: [
-                    // Header section - takes less space
-                    Flexible(
-                      flex: 2,
-                      child: _buildHeader(context),
-                    ),
-                    // Content section - takes more space
-                    Flexible(
-                      flex: 3,
-                      child: Center(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 16,
-                            horizontal: 16,
-                          ),
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
+    return ChangeNotifierProvider(
+      create: (_) => ResetPasswordProvider()..initialize(args),
+      child: Builder(
+        builder: (context) => Scaffold(
+          backgroundColor: const Color(0xFFF5F5F5),
+          body: GestureDetector(
+            onTap: () => FocusScope.of(context).unfocus(),
+            child: SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  if (isLandscape) {
+                    return Row(
+                      children: [
+                        Flexible(
+                          flex: 2,
+                          child: _buildHeader(context),
+                        ),
+                        Flexible(
+                          flex: 3,
+                          child: Center(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 16,
+                                horizontal: 16,
+                              ),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: ResponsiveUtils.getMaxContainerWidth(context),
+                                ),
+                                child: _buildPasswordCard(context),
+                              ),
                             ),
-                            child: _buildPasswordCard(context),
                           ),
                         ),
-                      ),
+                      ],
+                    );
+                  }
+                  
+                  // Portrait layout - stacked
+                  return SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        _buildHeader(context),
+                        SizedBox(height: verticalSpacing),
+                        _buildPasswordCard(context),
+                        SizedBox(
+                          height: MediaQuery.of(context).viewInsets.bottom + 20,
+                        ),
+                      ],
                     ),
-                  ],
-                );
-              }
-              
-              // Portrait layout - stacked
-              return SingleChildScrollView(
-                child: Column(
-                  children: [
-                    _buildHeader(context),
-                    SizedBox(height: verticalSpacing),
-                    _buildPasswordCard(context),
-                    SizedBox(
-                      height: MediaQuery.of(context).viewInsets.bottom + 20,
-                    ),
-                  ],
-                ),
-              );
-            },
+                  );
+                },
+              ),
+            ),
           ),
+          resizeToAvoidBottomInset: true,
         ),
       ),
-      resizeToAvoidBottomInset: true,
     );
   }
 }

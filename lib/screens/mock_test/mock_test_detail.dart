@@ -5,13 +5,13 @@ import 'package:intl/intl.dart';
 
 class MockTestResultDetailScreen extends StatefulWidget {
   final Map<String, dynamic> resultData;
-  final String unitName;
+  final String chapterName; 
   final String attemptDate;
 
-  const  MockTestResultDetailScreen({
+  const MockTestResultDetailScreen({
     super.key,
     required this.resultData,
-    required this.unitName,
+    required this.chapterName, 
     required this.attemptDate,
   });
 
@@ -106,7 +106,7 @@ class _MockTestResultDetailScreenState extends State<MockTestResultDetailScreen>
           child: Column(
             children: [
               Text(
-                widget.unitName,
+                widget.chapterName, 
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,

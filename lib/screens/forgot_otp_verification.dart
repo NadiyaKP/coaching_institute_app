@@ -114,9 +114,9 @@ class ResponsiveUtils {
   if (isTabletDevice && !isLandscapeMode) {
     return 60.0;
   } else if (isLandscapeMode) {
-    final availableWidth = width * 0.4; // 40% of screen width for OTP boxes
-    final boxSize = (availableWidth / 6) - 8; // 6 boxes with spacing
-    return boxSize.clamp(45.0, 55.0); // Ensure minimum 45px, maximum 55px
+    final availableWidth = width * 0.4; 
+    final boxSize = (availableWidth / 6) - 8; 
+    return boxSize.clamp(45.0, 55.0); 
   }
   return width * 0.11;
 }
@@ -125,7 +125,7 @@ class ResponsiveUtils {
     final isTabletDevice = isTablet(context);
     
     if (isLandscapeMode) {
-      return 6.0; // Reduced spacing in landscape
+      return 6.0; 
     } else if (isTabletDevice) {
       return 12.0;
     }
@@ -763,7 +763,7 @@ class _ForgotOtpVerificationScreenState extends State<ForgotOtpVerificationScree
             ),
           ),
 
-          // Title and Icon - Centered content with SingleChildScrollView for overflow protection
+          // Title and Icon
           Center(
             child: SingleChildScrollView(
               padding: EdgeInsets.symmetric(
@@ -946,7 +946,6 @@ Widget _buildOtpInputFields(BuildContext context, ForgotOtpProvider provider) {
   final fontSize = ResponsiveUtils.getFontSize(context, 18);
   final isLandscape = ResponsiveUtils.isLandscape(context);
   
-  // Use Row with Center for both landscape and portrait to ensure single line
   return Center(
     child: SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -991,14 +990,14 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
       focusNode: provider.focusNodes[index],
       keyboardType: TextInputType.number,
       textAlign: TextAlign.center,
-      textAlignVertical: TextAlignVertical.center, // Added for better vertical alignment
+      textAlignVertical: TextAlignVertical.center, 
       maxLength: 1,
       enabled: !provider.isLoading,
       style: TextStyle(
         fontSize: adjustedFontSize,
         fontWeight: FontWeight.w700,
         color: AppColors.textDark,
-        height: 1.2, // Added to control line height
+        height: 1.2,
       ),
       decoration: InputDecoration(
         counterText: '',
@@ -1006,7 +1005,7 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
         fillColor: provider.isLoading
             ? AppColors.grey200
             : AppColors.white,
-        contentPadding: EdgeInsets.zero, // Remove default padding
+        contentPadding: EdgeInsets.zero, 
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
@@ -1047,7 +1046,7 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
   
   double buttonHeight;
   if (isLandscape) {
-    buttonHeight = 42.0; // Reduced from 48.0
+    buttonHeight = 42.0; 
   } else if (isTabletDevice) {
     buttonHeight = 60.0;
   } else {
@@ -1058,8 +1057,7 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
 
   return Center(
     child: Container(
-      width: isLandscape ? 250.0 : double.infinity, // Limited width for landscape
-      height: buttonHeight,
+      width: isLandscape ? 250.0 : double.infinity,
       decoration: BoxDecoration(
         gradient: isEnabled
             ? AppGradients.primaryYellow
@@ -1184,15 +1182,12 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   if (isLandscape) {
-                    // Landscape layout - side by side with proper flex
                     return Row(
                       children: [
-                        // Header section - takes less space
                         Flexible(
                           flex: 2,
                           child: _buildHeader(context),
                         ),
-                        // Content section - takes more space
                         Flexible(
                           flex: 3,
                           child: Center(
@@ -1214,7 +1209,7 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
                     );
                   }
                   
-                  // Portrait layout - stacked
+                  // Portrait layout
                   return SingleChildScrollView(
                     child: Column(
                       children: [
