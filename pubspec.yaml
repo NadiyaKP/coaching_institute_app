@@ -56,10 +56,12 @@ dependencies:
   chewie: ^1.5.0
   video_player: ^2.7.0
   youtube_explode_dart: ^2.2.1
-  
   connectivity_plus: ^6.0.3
   network_info_plus: ^4.0.2
-  geolocator: ^10.1.0 
+  geolocator: ^10.1.0
+  workmanager: ^0.5.1
+  flutter_background_service: ^5.0.1
+ 
 
 
   

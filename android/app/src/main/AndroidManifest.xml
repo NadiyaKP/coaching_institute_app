@@ -8,17 +8,18 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
+        android:name="${applicationName}"
         android:networkSecurityConfig="@xml/network_security_config"
         android:label="Signature_Institute"
-        android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true"
-        android:supportsRtl="true"
->
+        android:supportsRtl="true">
 
         <!-- Main Activity -->
         <activity
@@ -49,6 +50,16 @@
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:theme="@style/CheckoutTheme"
             tools:replace="android:exported" />
+
+        <!-- Background Fetch Services -->
+        <service
+            android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
+            android:exported="false" />
+            
+        <service
+            android:name="com.transistorsoft.flutter.backgroundfetch.BackgroundFetchService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <!-- Flutter Generated Plugin Registrant -->
         <meta-data

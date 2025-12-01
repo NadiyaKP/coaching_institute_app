@@ -11,9 +11,12 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:workmanager/workmanager.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
 import 'service/api_config.dart';
 import 'service/auth_service.dart';
 import 'service/notification_service.dart';
+import 'service/timer_service.dart'; // 🆕 Added timer service
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/getin_screen.dart';
@@ -34,6 +37,8 @@ import './screens/Academics/academics.dart';
 import './screens/settings/about_us.dart';
 import 'hive_model.dart';
 import './screens/video_stream/videos.dart';
+import './screens/focus_mode/focus_mode_entry.dart'; // 🆕 Added focus mode entry screen
+import './screens/focus_mode/break_mode.dart'; // 🆕 Added break mode screen
 
 // 🔹 Global Navigator Key
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -112,11 +117,105 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   );
 }
 
+// 🔹 Timer background task handler
+@pragma('vm:entry-point')
+void timerCallbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    debugPrint("🕰️ Timer background task running: $task");
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final lastDate = prefs.getString('last_timer_date');
+      
+      // Check if it's a new day
+      if (lastDate != today) {
+        await prefs.setString('last_timer_date', today);
+        await prefs.setInt('focus_time_today', 0);
+        await prefs.setInt('break_time_today', 0);
+        debugPrint('🔄 Timer reset for new day: $today');
+      }
+      
+      // Update timers if active
+      final isFocusMode = prefs.getBool('is_focus_mode') ?? false;
+      final isBreakActive = prefs.getString('break_start_time') != null;
+      final isFocusActive = prefs.getString('focus_start_time') != null;
+      
+      if (isFocusMode && isFocusActive) {
+        await _updateTimerInBackground(
+          'focus_start_time',
+          'focus_elapsed_before_pause',
+          'focus_time_today',
+          prefs,
+        );
+      } else if (!isFocusMode && isBreakActive) {
+        await _updateTimerInBackground(
+          'break_start_time',
+          'break_elapsed_before_pause',
+          'break_time_today',
+          prefs,
+        );
+      }
+      
+      debugPrint('✅ Timer background update completed');
+    } catch (e) {
+      debugPrint('❌ Error in timer background task: $e');
+    }
+    
+    return Future.value(true);
+  });
+}
+
+// Helper function to update timer in background
+Future<void> _updateTimerInBackground(
+  String startTimeKey,
+  String elapsedKey,
+  String totalKey,
+  SharedPreferences prefs,
+) async {
+  final startTimeStr = prefs.getString(startTimeKey);
+  
+  if (startTimeStr != null) {
+    final startTime = DateTime.parse(startTimeStr);
+    final elapsedBeforePause = Duration(seconds: prefs.getInt(elapsedKey) ?? 0);
+    final now = DateTime.now();
+    final elapsed = now.difference(startTime) + elapsedBeforePause;
+    
+    final currentTotal = Duration(seconds: prefs.getInt(totalKey) ?? 0);
+    final newTotal = currentTotal + elapsed;
+    
+    await prefs.setInt(totalKey, newTotal.inSeconds);
+    
+    debugPrint('📈 Updated $totalKey: ${newTotal.inSeconds} seconds');
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
 
-  // ✅ Request location permission FIRST before anything else
+  // ✅ Initialize background timer service FIRST
+  await Workmanager().initialize(
+    timerCallbackDispatcher,
+    isInDebugMode: true,
+  );
+  
+  // Register periodic timer task
+  await Workmanager().registerPeriodicTask(
+    "timer_update_task",
+    "timer_background_update",
+    frequency: const Duration(minutes: 15),
+    constraints: Constraints(
+      networkType: NetworkType.not_required,
+      requiresBatteryNotLow: false,
+      requiresDeviceIdle: false,
+      requiresStorageNotLow: false,
+    ),
+  );
+  
+  debugPrint('✅ Timer background service initialized');
+
+  // ✅ Request location permission before anything else
   await _requestLocationPermission();
 
   // Initialize Firebase
@@ -212,12 +311,21 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     with WidgetsBindingObserver {
   Timer? _locationCheckTimer;
   StreamSubscription? _locationServiceSubscription;
+  final TimerService _timerService = TimerService(); // 🆕 Timer service instance
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initNotificationService();
+    
+    // 🆕 Initialize timer service
+    _timerService.initialize();
+    
+    // Check if user should be redirected to focus mode
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAndRedirectToFocusMode();
+    });
 
     // ✅ Setup API Config callbacks for UI notifications
     _setupApiConfigCallbacks();
@@ -233,6 +341,30 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
 
     // Print debug message whenever network switches
     debugPrint('🔎 Listening for network changes...');
+  }
+  
+  // 🆕 Check if user should be redirected to focus mode
+  Future<void> _checkAndRedirectToFocusMode() async {
+    await Future.delayed(const Duration(milliseconds: 500)); // Small delay for SharedPreferences
+    
+    final prefs = await SharedPreferences.getInstance();
+    final studentType = prefs.getString('profile_student_type')?.toUpperCase() ?? '';
+    
+    // Only redirect Online/Offline students who are not in focus mode
+    if (studentType == 'ONLINE' || studentType == 'OFFLINE') {
+      final isFocusActive = prefs.getBool('is_focus_mode') ?? false;
+      
+      if (!isFocusActive && mounted) {
+        // Check if we're already on focus mode or home screen
+        final currentRoute = ModalRoute.of(navigatorKey.currentContext!);
+        if (currentRoute == null || 
+            (currentRoute.settings.name != '/focus_mode' && 
+             currentRoute.settings.name != '/home')) {
+          
+          navigatorKey.currentState?.pushReplacementNamed('/focus_mode');
+        }
+      }
+    }
   }
 
   // ✅ Real-time listener for location service status changes
@@ -444,10 +576,11 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     WidgetsBinding.instance.removeObserver(this);
     _locationCheckTimer?.cancel();
     _locationServiceSubscription?.cancel();
+    TimerService().stopAllTimers();
     ApiConfig.stopAutoListen();
     ApiConfig.onApiSwitch = null;
     ApiConfig.onLocationRequired = null;
-    ApiConfig.onShowSnackbar = null; // ✅ Clean up new callback
+    ApiConfig.onShowSnackbar = null;
     super.dispose();
   }
 
@@ -469,6 +602,12 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       
       await NotificationService.checkBadgeStateOnResume();
       debugPrint('🔄 Badge state reloaded on app resume');
+      
+      // 🆕 Check if user should see focus mode on resume
+      _checkAndRedirectToFocusMode();
+      
+      // 🆕 Resume timer if active
+      _checkAndResumeTimer();
     }
 
     final bool isOnlineStudent = await _isOnlineStudent();
@@ -480,6 +619,42 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
 
     if (state == AppLifecycleState.resumed) {
       _checkLastActiveTimeOnResume();
+    }
+  }
+  
+  // 🆕 Check and resume timer if it was active
+  Future<void> _checkAndResumeTimer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isFocusActive = prefs.getBool('is_focus_mode') ?? false;
+    
+    if (isFocusActive) {
+      final startTimeStr = prefs.getString('focus_start_time');
+      if (startTimeStr != null) {
+        final startTime = DateTime.parse(startTimeStr);
+        final elapsedBeforePause = Duration(seconds: prefs.getInt('focus_elapsed_before_pause') ?? 0);
+        final now = DateTime.now();
+        final elapsed = now.difference(startTime) + elapsedBeforePause;
+        
+        // Update the timer service
+        _timerService.focusTimeToday.value += elapsed;
+        
+        // Restart the timer
+        _timerService.startFocusMode();
+      }
+    } else {
+      final startTimeStr = prefs.getString('break_start_time');
+      if (startTimeStr != null) {
+        final startTime = DateTime.parse(startTimeStr);
+        final elapsedBeforePause = Duration(seconds: prefs.getInt('break_elapsed_before_pause') ?? 0);
+        final now = DateTime.now();
+        final elapsed = now.difference(startTime) + elapsedBeforePause;
+        
+        // Update the timer service
+        _timerService.breakTimeToday.value += elapsed;
+        
+        // Restart the break timer
+        _timerService.pauseFocusMode();
+      }
     }
   }
 
@@ -640,6 +815,16 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       }
     }
 
+    // 🆕 Also clear focus mode data on logout
+    await prefs.remove('is_focus_mode');
+    await prefs.remove('focus_start_time');
+    await prefs.remove('break_start_time');
+    await prefs.remove('focus_elapsed_before_pause');
+    await prefs.remove('break_elapsed_before_pause');
+    await prefs.remove('focus_time_today');
+    await prefs.remove('break_time_today');
+    await prefs.remove('last_timer_date');
+
     // Safe navigation using global key with mounted check
     if (navigatorKey.currentState?.mounted ?? false) {
       navigatorKey.currentState?.pushReplacementNamed('/getin');
@@ -682,6 +867,8 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         '/academics': (context) => const AcademicsScreen(),
         '/about_us': (context) => const AboutUsScreen(),
         '/videos': (context) => const VideosScreen(),
+        '/focus_mode': (context) => const FocusModeEntryScreen(), // 🆕 Added focus mode route
+        '/break_mode': (context) => const BreakModeScreen(), // 🆕 Added break mode route
       },
     );
   }

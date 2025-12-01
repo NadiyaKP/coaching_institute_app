@@ -16,6 +16,7 @@ import 'streak_challenge_sheet.dart';
 import '../common/bottom_navbar.dart'; 
 import '../service/notification_service.dart';
 import '../../../service/http_interceptor.dart';
+import '../service/timer_service.dart'; // 🆕 Added timer service
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -41,6 +42,8 @@ class _HomeScreenState extends State<HomeScreen> {
   String enrollmentStatus = '';
   String subscriptionType = '';
   String subscriptionEndDate = '';
+  bool _isInitialLoadComplete = false;
+  bool _isFetchingProfile = false;
   String studentType = ''; 
   bool isSubscriptionActive = false;
   bool profileCompleted = false;
@@ -60,6 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
   final AuthService _authService = AuthService();
+  final TimerService _timerService = TimerService(); // 🆕 Timer service instance
+  bool _isFocusModeActive = false;
+  Timer? _uiUpdateTimer;
 
   // SharedPreferences keys
   static const String _keyName = 'profile_name';
@@ -78,6 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _keyLongestStreak = 'profile_longest_streak'; 
   static const String _keyUnreadNotifications = 'unread_notifications';
   static const String _keyDeviceRegistered = 'device_registered_for_session';
+  static const String _keyFirstLoginSubjectsFetched = 'first_login_subjects_fetched';
 
   // 🆕 Flag to prevent duplicate notification API calls
   bool _isFetchingNotifications = false;
@@ -87,14 +94,71 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _pageController = PageController(viewportFraction: 0.75);
     _startAutoScroll();
+    
+    // 🆕 Initialize and check focus mode status
+    _checkFocusModeStatus();
+    
+    // 🆕 Start UI timer for focus mode updates
+    _startUiTimer();
   }
 
   @override
   void dispose() {
     _autoScrollTimer?.cancel();
+    _uiUpdateTimer?.cancel(); // 🆕 Dispose UI timer
     _pageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // 🆕 Check focus mode status
+  Future<void> _checkFocusModeStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    _isFocusModeActive = prefs.getBool('is_focus_mode') ?? false;
+    
+    // If in focus mode, ensure timer is running
+    if (_isFocusModeActive) {
+      _timerService.startFocusMode();
+    }
+    
+    if (mounted) setState(() {});
+  }
+
+  // 🆕 Start UI timer for focus mode updates
+  void _startUiTimer() {
+    _uiUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_isFocusModeActive && mounted) {
+        setState(() {}); // Update UI every second for timer
+      }
+    });
+  }
+
+  // 🆕 Pause focus mode (navigate to break mode)
+  Future<void> _pauseFocusMode() async {
+    await _timerService.pauseFocusMode();
+    
+    // Navigate to break mode screen
+    if (mounted) {
+      await Navigator.of(context).pushReplacementNamed('/break_mode');
+    }
+  }
+
+  // 🆕 Format duration for display
+  String _formatTimerDuration(Duration duration) {
+    final hours = duration.inHours.toString().padLeft(2, '0');
+    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+    return '$hours:$minutes:$seconds';
+  }
+
+  // 🆕 Get today's focus time
+  String getTodayFocusTime() {
+    return _formatTimerDuration(_timerService.focusTimeToday.value);
+  }
+
+  // 🆕 Get today's break time
+  String getTodayBreakTime() {
+    return _formatTimerDuration(_timerService.breakTimeToday.value);
   }
 
   // Helper method to capitalize first letter of each word
@@ -160,7 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
-   void didChangeDependencies() {
+  void didChangeDependencies() {
     super.didChangeDependencies();
     
     // Update page controller based on orientation
@@ -173,24 +237,32 @@ class _HomeScreenState extends State<HomeScreen> {
       _startAutoScroll();
     }
     
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-    
-    if (args != null) {
-      phoneNumber = args['phone_number'] ?? '';
-      countryCode = args['country_code'] ?? '+91';
-      name = args['name'] ?? '';
-      email = args['email'] ?? '';
+    // Only fetch data once during initial load
+    if (!_isInitialLoadComplete) {
+      _isInitialLoadComplete = true;
       
-      debugPrint('HomeScreen - Received phone_number: $phoneNumber');
-      debugPrint('HomeScreen - Received country_code: $countryCode');
-      debugPrint('HomeScreen - Received name: $name');
-      debugPrint('HomeScreen - Received email: $email');
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      
+      if (args != null) {
+        phoneNumber = args['phone_number'] ?? '';
+        countryCode = args['country_code'] ?? '+91';
+        name = args['name'] ?? '';
+        email = args['email'] ?? '';
+        
+        debugPrint('HomeScreen - Received phone_number: $phoneNumber');
+        debugPrint('HomeScreen - Received country_code: $countryCode');
+        debugPrint('HomeScreen - Received name: $name');
+        debugPrint('HomeScreen - Received email: $email');
+      }
+      
+      _loadCachedProfileData().then((_) async {
+        _storeStartTime();
+        await _fetchProfileData();
+        
+        // 🆕 Register device token AFTER profile is fetched
+        await _registerDeviceTokenOnce();
+      });
     }
-    
-    _loadCachedProfileData().then((_) {
-      _storeStartTime();
-      _fetchProfileData();
-    });
   }
 
   // 🆕 IMPROVED: Main refresh method with better error handling and duplicate prevention
@@ -219,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Fetch profile data first
       await _fetchProfileData();
 
-      // 🆕 FORCE refresh subjects data - this will replace SharedPreferences content
+      // 🆕 MODIFIED: FORCE refresh subjects data only during manual refresh
       if (subcourseId.isNotEmpty) {
         debugPrint('📚 Force refreshing subjects data for subcourse: $subcourseId');
         await _fetchAndStoreSubjects(forceRefresh: true);
@@ -237,10 +309,10 @@ class _HomeScreenState extends State<HomeScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Data refreshed successfully!'),
+          const SnackBar(
+            content:  Text('Data refreshed successfully!'),
             backgroundColor: AppColors.successGreen,
-            duration: const Duration(seconds: 2),
+            duration: Duration(seconds: 2),
           ),
         );
       }
@@ -265,100 +337,100 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
- Future<void> _loadCachedProfileData() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    
-    setState(() {
-      name = prefs.getString(_keyName) ?? name;
-      email = prefs.getString(_keyEmail) ?? email;
-      phoneNumber = prefs.getString(_keyPhoneNumber) ?? phoneNumber;
-      profileCompleted = prefs.getBool(_keyProfileCompleted) ?? false;
-      course = prefs.getString(_keyCourse) ?? '';
-      subcourse = prefs.getString(_keySubcourse) ?? '';
-      subcourseId = prefs.getString(_keySubcourseId) ?? '';
-      enrollmentStatus = prefs.getString(_keyEnrollmentStatus) ?? '';
-      subscriptionType = prefs.getString(_keySubscriptionType) ?? '';
-      subscriptionEndDate = prefs.getString(_keySubscriptionEndDate) ?? '';
-      isSubscriptionActive = prefs.getBool(_keyIsSubscriptionActive) ?? false;
-      studentType = prefs.getString(_keyStudentType) ?? '';
-      currentStreak = prefs.getInt(_keyCurrentStreak) ?? 0;  
-      longestStreak = prefs.getInt(_keyLongestStreak) ?? 0;  
-    });
-    
-    debugPrint('========== CACHED PROFILE DATA ==========');
-    debugPrint('Name: ${prefs.getString(_keyName) ?? "N/A"}');
-    debugPrint('Email: ${prefs.getString(_keyEmail) ?? "N/A"}');
-    debugPrint('Phone Number: ${prefs.getString(_keyPhoneNumber) ?? "N/A"}');
-    debugPrint('Profile Completed: ${prefs.getBool(_keyProfileCompleted) ?? false}');
-    debugPrint('Course: ${prefs.getString(_keyCourse) ?? "N/A"}');
-    debugPrint('Subcourse: ${prefs.getString(_keySubcourse) ?? "N/A"}');
-    debugPrint('Subcourse ID: ${prefs.getString(_keySubcourseId) ?? "N/A"}');
-    debugPrint('Enrollment Status: ${prefs.getString(_keyEnrollmentStatus) ?? "N/A"}');
-    debugPrint('Subscription Type: ${prefs.getString(_keySubscriptionType) ?? "N/A"}');
-    debugPrint('Subscription End Date: ${prefs.getString(_keySubscriptionEndDate) ?? "N/A"}');
-    debugPrint('Is Subscription Active: ${prefs.getBool(_keyIsSubscriptionActive) ?? false}');
-    debugPrint('Student Type: ${prefs.getString(_keyStudentType) ?? "N/A"}');
-    debugPrint('Current Streak: ${prefs.getInt(_keyCurrentStreak) ?? 0}');  
-    debugPrint('Longest Streak: ${prefs.getInt(_keyLongestStreak) ?? 0}');  
-    debugPrint('=========================================');
-  } catch (e) {
-    debugPrint('Error loading cached profile data: $e');
+  Future<void> _loadCachedProfileData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      setState(() {
+        name = prefs.getString(_keyName) ?? name;
+        email = prefs.getString(_keyEmail) ?? email;
+        phoneNumber = prefs.getString(_keyPhoneNumber) ?? phoneNumber;
+        profileCompleted = prefs.getBool(_keyProfileCompleted) ?? false;
+        course = prefs.getString(_keyCourse) ?? '';
+        subcourse = prefs.getString(_keySubcourse) ?? '';
+        subcourseId = prefs.getString(_keySubcourseId) ?? '';
+        enrollmentStatus = prefs.getString(_keyEnrollmentStatus) ?? '';
+        subscriptionType = prefs.getString(_keySubscriptionType) ?? '';
+        subscriptionEndDate = prefs.getString(_keySubscriptionEndDate) ?? '';
+        isSubscriptionActive = prefs.getBool(_keyIsSubscriptionActive) ?? false;
+        studentType = prefs.getString(_keyStudentType) ?? '';
+        currentStreak = prefs.getInt(_keyCurrentStreak) ?? 0;  
+        longestStreak = prefs.getInt(_keyLongestStreak) ?? 0;  
+      });
+      
+      debugPrint('========== CACHED PROFILE DATA ==========');
+      debugPrint('Name: ${prefs.getString(_keyName) ?? "N/A"}');
+      debugPrint('Email: ${prefs.getString(_keyEmail) ?? "N/A"}');
+      debugPrint('Phone Number: ${prefs.getString(_keyPhoneNumber) ?? "N/A"}');
+      debugPrint('Profile Completed: ${prefs.getBool(_keyProfileCompleted) ?? false}');
+      debugPrint('Course: ${prefs.getString(_keyCourse) ?? "N/A"}');
+      debugPrint('Subcourse: ${prefs.getString(_keySubcourse) ?? "N/A"}');
+      debugPrint('Subcourse ID: ${prefs.getString(_keySubcourseId) ?? "N/A"}');
+      debugPrint('Enrollment Status: ${prefs.getString(_keyEnrollmentStatus) ?? "N/A"}');
+      debugPrint('Subscription Type: ${prefs.getString(_keySubscriptionType) ?? "N/A"}');
+      debugPrint('Subscription End Date: ${prefs.getString(_keySubscriptionEndDate) ?? "N/A"}');
+      debugPrint('Is Subscription Active: ${prefs.getBool(_keyIsSubscriptionActive) ?? false}');
+      debugPrint('Student Type: ${prefs.getString(_keyStudentType) ?? "N/A"}');
+      debugPrint('Current Streak: ${prefs.getInt(_keyCurrentStreak) ?? 0}');  
+      debugPrint('Longest Streak: ${prefs.getInt(_keyLongestStreak) ?? 0}');  
+      debugPrint('=========================================');
+    } catch (e) {
+      debugPrint('Error loading cached profile data: $e');
+    }
   }
-}
 
- Future<void> _saveProfileDataToCache(Map<String, dynamic> profile) async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    
-    await prefs.setString(_keyName, profile['name'] ?? '');
-    await prefs.setString(_keyEmail, profile['email'] ?? '');
-    await prefs.setString(_keyPhoneNumber, profile['phone_number'] ?? '');
-    await prefs.setBool(_keyProfileCompleted, profile['profile_completed'] ?? false);
-    
-    // Save student type
-    if (profile['student_type'] != null) {
-      await prefs.setString(_keyStudentType, profile['student_type']);
-      debugPrint('Saving Student Type to SharedPreferences: ${profile['student_type']}');
-    }
-    
-    // Save streak data
-    if (profile['streak'] != null) {
-      final streak = profile['streak'];
-      await prefs.setInt(_keyCurrentStreak, streak['current_streak'] ?? 0);
-      await prefs.setInt(_keyLongestStreak, streak['longest_streak'] ?? 0);
-      debugPrint('Saving Streak to SharedPreferences: Current=${streak['current_streak']}, Longest=${streak['longest_streak']}');
-    }
-    
-    // Save enrollment data
-    if (profile['enrollments'] != null) {
-      final enrollments = profile['enrollments'];
-      await prefs.setString(_keyCourse, enrollments['course'] ?? '');
-      await prefs.setString(_keySubcourse, enrollments['subcourse'] ?? '');
+  Future<void> _saveProfileDataToCache(Map<String, dynamic> profile) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
       
-      String subcourseIdValue = '';
-      if (enrollments['subcourse_id'] != null) {
-        subcourseIdValue = enrollments['subcourse_id'].toString();
+      await prefs.setString(_keyName, profile['name'] ?? '');
+      await prefs.setString(_keyEmail, profile['email'] ?? '');
+      await prefs.setString(_keyPhoneNumber, profile['phone_number'] ?? '');
+      await prefs.setBool(_keyProfileCompleted, profile['profile_completed'] ?? false);
+      
+      // Save student type
+      if (profile['student_type'] != null) {
+        await prefs.setString(_keyStudentType, profile['student_type']);
+        debugPrint('Saving Student Type to SharedPreferences: ${profile['student_type']}');
       }
-      await prefs.setString(_keySubcourseId, subcourseIdValue);
       
-      await prefs.setString(_keyEnrollmentStatus, enrollments['status'] ?? '');
+      // Save streak data
+      if (profile['streak'] != null) {
+        final streak = profile['streak'];
+        await prefs.setInt(_keyCurrentStreak, streak['current_streak'] ?? 0);
+        await prefs.setInt(_keyLongestStreak, streak['longest_streak'] ?? 0);
+        debugPrint('Saving Streak to SharedPreferences: Current=${streak['current_streak']}, Longest=${streak['longest_streak']}');
+      }
       
-      debugPrint('Saving Subcourse ID to SharedPreferences: $subcourseIdValue');
+      // Save enrollment data
+      if (profile['enrollments'] != null) {
+        final enrollments = profile['enrollments'];
+        await prefs.setString(_keyCourse, enrollments['course'] ?? '');
+        await prefs.setString(_keySubcourse, enrollments['subcourse'] ?? '');
+        
+        String subcourseIdValue = '';
+        if (enrollments['subcourse_id'] != null) {
+          subcourseIdValue = enrollments['subcourse_id'].toString();
+        }
+        await prefs.setString(_keySubcourseId, subcourseIdValue);
+        
+        await prefs.setString(_keyEnrollmentStatus, enrollments['status'] ?? '');
+        
+        debugPrint('Saving Subcourse ID to SharedPreferences: $subcourseIdValue');
+      }
+      
+      // Save subscription data
+      if (profile['subscription'] != null) {
+        await prefs.setString(_keySubscriptionType, profile['subscription']['type'] ?? '');
+        await prefs.setString(_keySubscriptionEndDate, profile['subscription']['end_date'] ?? '');
+        await prefs.setBool(_keyIsSubscriptionActive, profile['subscription']['is_active'] ?? false);
+      }
+      
+      debugPrint('Profile data saved to SharedPreferences successfully');
+    } catch (e) {
+      debugPrint('Error saving profile data to SharedPreferences: $e');
     }
-    
-    // Save subscription data
-    if (profile['subscription'] != null) {
-      await prefs.setString(_keySubscriptionType, profile['subscription']['type'] ?? '');
-      await prefs.setString(_keySubscriptionEndDate, profile['subscription']['end_date'] ?? '');
-      await prefs.setBool(_keyIsSubscriptionActive, profile['subscription']['is_active'] ?? false);
-    }
-    
-    debugPrint('Profile data saved to SharedPreferences successfully');
-  } catch (e) {
-    debugPrint('Error saving profile data to SharedPreferences: $e');
   }
-}
 
   Future<void> _clearCachedProfileData() async {
     try {
@@ -380,6 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
       await prefs.remove(_keyLongestStreak);  
       await prefs.remove(_keyUnreadNotifications);
       await prefs.remove(_keyDeviceRegistered);
+      await prefs.remove(_keyFirstLoginSubjectsFetched);
       
       debugPrint('Cached profile data cleared');
     } catch (e) {
@@ -392,204 +465,212 @@ class _HomeScreenState extends State<HomeScreen> {
     return IOClient(client);
   }
 
-Future<void> _fetchProfileData() async {
-  try {
-    if (!isRefreshing) {
-      setState(() {
-        isLoading = true;
-      });
-    }
-
-    String accessToken = await _authService.getAccessToken();
-
-    if (accessToken.isEmpty) {
-      debugPrint('No access token found');
-      _navigateToLogin();
+  Future<void> _fetchProfileData() async {
+    // Prevent duplicate API calls
+    if (_isFetchingProfile) {
+      debugPrint('⏳ Profile fetch already in progress, skipping...');
       return;
     }
-
-    final client = _createHttpClientWithCustomCert();
-
+    
+    _isFetchingProfile = true;
+    
     try {
-      Future<http.Response> makeProfileRequest(String token) {
-        return globalHttpClient.get(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/get_profile/'),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $token',
-          },
-        ).timeout(ApiConfig.requestTimeout);
+      if (!isRefreshing) {
+        setState(() {
+          isLoading = true;
+        });
       }
 
-      var response = await makeProfileRequest(accessToken);
+      String accessToken = await _authService.getAccessToken();
 
-      debugPrint('Get Profile response status: ${response.statusCode}');
-      debugPrint('Get Profile response body: ${response.body}');
+      if (accessToken.isEmpty) {
+        debugPrint('No access token found');
+        _navigateToLogin();
+        return;
+      }
 
-      if (response.statusCode == 401) {
-        debugPrint('⚠️ Access token expired, trying refresh...');
+      final client = _createHttpClientWithCustomCert();
 
-        final newAccessToken = await _authService.refreshAccessToken();
-
-        if (newAccessToken != null && newAccessToken.isNotEmpty) {
-          response = await makeProfileRequest(newAccessToken);
-          debugPrint('🔄 Retried with refreshed token: ${response.statusCode}');
-        } else {
-          debugPrint('❌ Token refresh failed');
-          await _authService.logout();
-          await _clearCachedProfileData();
-          _navigateToLogin();
-          return;
+      try {
+        Future<http.Response> makeProfileRequest(String token) {
+          return globalHttpClient.get(
+            Uri.parse('${ApiConfig.currentBaseUrl}/api/students/get_profile/'),
+            headers: {
+              ...ApiConfig.commonHeaders,
+              'Authorization': 'Bearer $token',
+            },
+          ).timeout(ApiConfig.requestTimeout);
         }
-      }
 
-      if (response.statusCode == 200) {
-        final responseData = json.decode(response.body);
+        var response = await makeProfileRequest(accessToken);
 
-        if (responseData['success'] == true && responseData['profile'] != null) {
-          final profile = responseData['profile'];
+        debugPrint('Get Profile response status: ${response.statusCode}');
+        debugPrint('Get Profile response body: ${response.body}');
 
-          await _saveProfileDataToCache(profile);
+        if (response.statusCode == 401) {
+          debugPrint('⚠️ Access token expired, trying refresh...');
 
-          setState(() {
-            name = profile['name'] ?? '';
-            email = profile['email'] ?? '';
-            phoneNumber = profile['phone_number'] ?? '';
-            profileCompleted = profile['profile_completed'] ?? false;
-            studentType = profile['student_type'] ?? '';
+          final newAccessToken = await _authService.refreshAccessToken();
 
-            // Streak data
-            if (profile['streak'] != null) {
-              currentStreak = profile['streak']['current_streak'] ?? 0;
-              longestStreak = profile['streak']['longest_streak'] ?? 0;
-            }
+          if (newAccessToken != null && newAccessToken.isNotEmpty) {
+            response = await makeProfileRequest(newAccessToken);
+            debugPrint('🔄 Retried with refreshed token: ${response.statusCode}');
+          } else {
+            debugPrint('❌ Token refresh failed');
+            await _authService.logout();
+            await _clearCachedProfileData();
+            _navigateToLogin();
+            return;
+          }
+        }
 
-            // Enrollment details
-            if (profile['enrollments'] != null) {
-              final enrollments = profile['enrollments'];
-              course = enrollments['course'] ?? '';
-              subcourse = enrollments['subcourse'] ?? '';
+        if (response.statusCode == 200) {
+          final responseData = json.decode(response.body);
 
-              if (enrollments['subcourse_id'] != null) {
-                subcourseId = enrollments['subcourse_id'].toString();
+          if (responseData['success'] == true && responseData['profile'] != null) {
+            final profile = responseData['profile'];
+
+            await _saveProfileDataToCache(profile);
+
+            setState(() {
+              name = profile['name'] ?? '';
+              email = profile['email'] ?? '';
+              phoneNumber = profile['phone_number'] ?? '';
+              profileCompleted = profile['profile_completed'] ?? false;
+              studentType = profile['student_type'] ?? '';
+
+              // Streak data
+              if (profile['streak'] != null) {
+                currentStreak = profile['streak']['current_streak'] ?? 0;
+                longestStreak = profile['streak']['longest_streak'] ?? 0;
               }
 
-              enrollmentStatus = enrollments['status'] ?? '';
-              debugPrint('Extracted Subcourse ID from API: $subcourseId');
+              // Enrollment details
+              if (profile['enrollments'] != null) {
+                final enrollments = profile['enrollments'];
+                course = enrollments['course'] ?? '';
+                subcourse = enrollments['subcourse'] ?? '';
+
+                if (enrollments['subcourse_id'] != null) {
+                  subcourseId = enrollments['subcourse_id'].toString();
+                }
+
+                enrollmentStatus = enrollments['status'] ?? '';
+                debugPrint('Extracted Subcourse ID from API: $subcourseId');
+              }
+
+              // Subscription details
+              if (profile['subscription'] != null) {
+                subscriptionType = profile['subscription']['type'] ?? '';
+                subscriptionEndDate = profile['subscription']['end_date'] ?? '';
+                isSubscriptionActive = profile['subscription']['is_active'] ?? false;
+              }
+
+              isLoading = false;
+            });
+
+            // Store start time AFTER we have the student type from API
+            _storeStartTime();
+
+            // 🆕 MODIFIED: After fetching profile data, fetch subjects data with first login logic
+            if (subcourseId.isNotEmpty) {
+              await _fetchAndStoreSubjects(forceRefresh: false);
             }
 
-            // Subscription details
-            if (profile['subscription'] != null) {
-              subscriptionType = profile['subscription']['type'] ?? '';
-              subscriptionEndDate = profile['subscription']['end_date'] ?? '';
-              isSubscriptionActive = profile['subscription']['is_active'] ?? false;
-            }
-
-            isLoading = false;
-          });
-
-          // Store start time AFTER we have the student type from API
-          _storeStartTime();
-
-          // After fetching profile data, fetch subjects data
-          // 🆕 During initial load, use cache if available, otherwise fetch from API
-          if (subcourseId.isNotEmpty) {
-            await _fetchAndStoreSubjects(forceRefresh: false);
+          } else {
+            debugPrint('Profile data not found in response');
+            setState(() => isLoading = false);
           }
-
-          // 🆕 MODIFIED: Register device token only once per session
-          await _registerDeviceTokenOnce();
-
         } else {
-          debugPrint('Profile data not found in response');
+          debugPrint('Failed to fetch profile: ${response.statusCode}');
           setState(() => isLoading = false);
-        }
-      } else {
-        debugPrint('Failed to fetch profile: ${response.statusCode}');
-        setState(() => isLoading = false);
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to load profile data: ${response.statusCode}'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to load profile data: ${response.statusCode}'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
         }
+      } finally {
+        client.close();
+      }
+    } on HandshakeException catch (e) {
+      debugPrint('SSL Handshake error: $e');
+      setState(() => isLoading = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SSL certificate issue - this is normal in development'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      setState(() => isLoading = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No network connection - showing cached data'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fetching profile: $e');
+      setState(() => isLoading = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading profile: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     } finally {
-      client.close();
-    }
-  } on HandshakeException catch (e) {
-    debugPrint('SSL Handshake error: $e');
-    setState(() => isLoading = false);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('SSL certificate issue - this is normal in development'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  } on SocketException catch (e) {
-    debugPrint('Network error: $e');
-    setState(() => isLoading = false);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No network connection - showing cached data'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  } catch (e) {
-    debugPrint('Error fetching profile: $e');
-    setState(() => isLoading = false);
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error loading profile: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _isFetchingProfile = false; 
     }
   }
-}
 
-Future<void> _registerDeviceTokenOnce() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    
-    // Check if device is already registered for this session
-    final bool isDeviceRegistered = prefs.getBool(_keyDeviceRegistered) ?? false;
-    
-    if (isDeviceRegistered) {
-      debugPrint('✅ Device already registered for this session, skipping registration');
+  Future<void> _registerDeviceTokenOnce() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
       
-      // Still fetch unread notifications even if device is registered
+      // Check if device is already registered for this session
+      final bool isDeviceRegistered = prefs.getBool(_keyDeviceRegistered) ?? false;
+      
+      if (isDeviceRegistered) {
+        debugPrint('✅ Device already registered for this session, skipping registration');
+        
+        // Still fetch unread notifications even if device is registered
+        await _fetchUnreadNotifications();
+        return;
+      }
+      
+      debugPrint('🆕 First time registration for this session, calling device registration API');
+      
+      // Call device registration API
+      await _registerDeviceToken();
+      
+      // Mark device as registered for this session
+      await prefs.setBool(_keyDeviceRegistered, true);
+      debugPrint('✅ Device registration flag set for this session');
+      
+      // 🆕 Fetch notifications after device registration
       await _fetchUnreadNotifications();
-      return;
+      
+    } catch (e) {
+      debugPrint('❌ Error in _registerDeviceTokenOnce: $e');
     }
-    
-    debugPrint('🆕 First time registration for this session, calling device registration API');
-    
-    // Call device registration API
-    await _registerDeviceToken();
-    
-    // Mark device as registered for this session
-    await prefs.setBool(_keyDeviceRegistered, true);
-    debugPrint('✅ Device registration flag set for this session');
-    
-  } catch (e) {
-    debugPrint('❌ Error in _registerDeviceTokenOnce: $e');
   }
-}
 
-
-  // 🆕 IMPROVED: Fetch subjects from API and store the complete response in SharedPreferences
+  // 🆕 MODIFIED: _fetchAndStoreSubjects method with first login logic
   Future<void> _fetchAndStoreSubjects({bool forceRefresh = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -610,8 +691,11 @@ Future<void> _registerDeviceTokenOnce() async {
         return;
       }
 
-      // 🆕 Check if we should use cache (only for initial load, not during refresh)
-      if (!forceRefresh) {
+      // 🆕 NEW LOGIC: Check if this is first login (flag not set)
+      final bool firstLoginSubjectsFetched = prefs.getBool(_keyFirstLoginSubjectsFetched) ?? false;
+      
+      if (!forceRefresh && firstLoginSubjectsFetched) {
+        // Not first login and not forced refresh - use cache if available
         final String? cachedSubjectsData = prefs.getString('subjects_data');
         final String? cachedSubcourseId = prefs.getString('cached_subcourse_id');
         
@@ -624,8 +708,11 @@ Future<void> _registerDeviceTokenOnce() async {
         }
       }
 
-      // 🆕 ALWAYS fetch from API during refresh OR if no cached data exists
-      debugPrint('📡 ${forceRefresh ? 'FORCE REFRESHING' : 'Fetching'} subjects from API...');
+      // 🆕 ALWAYS fetch from API during:
+      // 1. First login (flag not set)
+      // 2. Force refresh (manual refresh)
+      // 3. No cached data exists
+      debugPrint('📡 ${forceRefresh ? 'FORCE REFRESHING' : firstLoginSubjectsFetched ? 'REFRESHING' : 'FIRST LOGIN - FETCHING'} subjects from API...');
       
       // Encode the subcourse_id
       String encodedId = Uri.encodeComponent(encryptedId);
@@ -651,20 +738,24 @@ Future<void> _registerDeviceTokenOnce() async {
         final Map<String, dynamic> responseData = json.decode(response.body);
         
         if (responseData['success'] == true) {
-          // 🆕 MODIFIED: Store the complete API response as JSON string
+          // 🆕 Store the complete API response as JSON string
           await prefs.setString('subjects_data', json.encode(responseData));
           
           // Store the subcourse_id to track which data is cached
           await prefs.setString('cached_subcourse_id', encryptedId);
           
+          // 🆕 SET THE FIRST LOGIN FLAG to indicate subjects have been fetched at least once
+          await prefs.setBool(_keyFirstLoginSubjectsFetched, true);
+          
           // Also store individual subject details for easy access
           final List<dynamic> subjects = responseData['subjects'] ?? [];
           await prefs.setInt('subjects_count', subjects.length);
           
-          debugPrint('✅ Subjects data ${forceRefresh ? 'FORCE REFRESHED' : 'stored'} successfully!');
+          debugPrint('✅ Subjects data ${forceRefresh ? 'FORCE REFRESHED' : firstLoginSubjectsFetched ? 'REFRESHED' : 'FIRST LOGIN FETCHED'} successfully!');
           debugPrint('📦 Complete API response stored in SharedPreferences');
           debugPrint('📚 Total subjects: ${subjects.length}');
           debugPrint('🎯 Cached for subcourse_id: $encryptedId');
+          debugPrint('🏁 First login subjects fetched flag: ${!firstLoginSubjectsFetched ? 'SET' : 'ALREADY SET'}');
           
           // Print the stored data structure for verification
           final storedData = prefs.getString('subjects_data');
@@ -1105,6 +1196,124 @@ Future<void> _registerDeviceTokenOnce() async {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // 🆕 Focus Mode Stats Card
+                        if (_isFocusModeActive)
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              getResponsiveSize(20),
+                              getResponsiveSize(16),
+                              getResponsiveSize(20),
+                              getResponsiveSize(8),
+                            ),
+                            child: Container(
+                              padding: EdgeInsets.all(getResponsiveSize(16)),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    const Color(0xFF43E97B).withOpacity(0.1),
+                                    const Color(0xFF43E97B).withOpacity(0.05),
+                                ],
+                                ),
+                                borderRadius: BorderRadius.circular(getResponsiveSize(16)),
+                                border: Border.all(
+                                  color: const Color(0xFF43E97B).withOpacity(0.3),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: EdgeInsets.all(getResponsiveSize(10)),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF43E97B).withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                                    ),
+                                    child: Icon(
+                                      Icons.timer,
+                                      color: const Color(0xFF43E97B),
+                                      size: getResponsiveSize(24),
+                                    ),
+                                  ),
+                                  SizedBox(width: getResponsiveSize(12)),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'Focus Mode Active',
+                                              style: TextStyle(
+                                                fontSize: getResponsiveSize(16),
+                                                fontWeight: FontWeight.bold,
+                                                color: const Color(0xFF43E97B),
+                                              ),
+                                            ),
+                                            ValueListenableBuilder<Duration>(
+                                              valueListenable: _timerService.focusTimeToday,
+                                              builder: (context, focusTime, _) {
+                                                return Text(
+                                                  _formatTimerDuration(focusTime),
+                                                  style: TextStyle(
+                                                    fontSize: getResponsiveSize(14),
+                                                    fontWeight: FontWeight.bold,
+                                                    color: const Color(0xFF43E97B),
+                                                    fontFamily: 'monospace',
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                        SizedBox(height: getResponsiveSize(4)),
+                                        Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'Total focus today',
+                                              style: TextStyle(
+                                                fontSize: getResponsiveSize(12),
+                                                color: AppColors.textGrey,
+                                              ),
+                                            ),
+                                            ElevatedButton.icon(
+                                              onPressed: _pauseFocusMode,
+                                              icon: Icon(
+                                                Icons.pause,
+                                                size: getResponsiveSize(14),
+                                              ),
+                                              label: Text(
+                                                'Take Break',
+                                                style: TextStyle(
+                                                  fontSize: getResponsiveSize(12),
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFF43E97B),
+                                                foregroundColor: Colors.white,
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: getResponsiveSize(12),
+                                                  vertical: getResponsiveSize(6),
+                                                ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius: BorderRadius.circular(getResponsiveSize(20)),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
                         // Quick Access Section
                         Padding(
                           padding: EdgeInsets.fromLTRB(
@@ -1459,175 +1668,258 @@ Future<void> _registerDeviceTokenOnce() async {
   }
 
   // 🆕 MODIFIED: Build Header Section as Fixed App Bar with Curved Bottom
-Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
-  return ClipPath(
-    clipper: CurvedHeaderClipper(),
-    child: Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            AppColors.primaryYellow,
-            AppColors.primaryYellowDark,
-          ],
-        ),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        getResponsiveSize(20),
-        isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
-        getResponsiveSize(20),
-        getResponsiveSize(32),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!isLandscape) const SizedBox(height: 0),
-          // Welcome Text with Streak
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
+    return Column(
+      children: [
+        // 🆕 Focus Mode Banner (if active)
+        if (_isFocusModeActive)
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.symmetric(
+              horizontal: getResponsiveSize(16),
+              vertical: getResponsiveSize(8),
+            ),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  const Color(0xFF43E97B),
+                  const Color(0xFF3DD56C),
+                ],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF43E97B).withOpacity(0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
                   children: [
-                    RichText(
-                      text: TextSpan(
-                        style: TextStyle(
-                          fontSize: getResponsiveSize(24),
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: -0.3,
-                        ),
-                        children: [
-                          const TextSpan(text: 'Welcome, '),
-                          TextSpan(
-                            text: _getFormattedFirstName(),
-                          ),
-                        ],
+                    Icon(
+                      Icons.timer,
+                      color: Colors.white,
+                      size: getResponsiveSize(20),
+                    ),
+                    SizedBox(width: getResponsiveSize(8)),
+                    Text(
+                      'Focus Mode',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: getResponsiveSize(16),
                       ),
                     ),
-                    SizedBox(height: getResponsiveSize(4)),
-                    Text(
-                      'Everything you need to learn in one place',
-                      style: TextStyle(
-                        fontSize: getResponsiveSize(13),
-                        color: Colors.white.withOpacity(0.88),
-                        fontWeight: FontWeight.w500,
-                        letterSpacing: 0.1,
-                      ),
+                    SizedBox(width: getResponsiveSize(12)),
+                    ValueListenableBuilder<Duration>(
+                      valueListenable: _timerService.focusTimeToday,
+                      builder: (context, focusTime, _) {
+                        return Text(
+                          _formatTimerDuration(focusTime),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: getResponsiveSize(14),
+                            fontFamily: 'monospace',
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
-              ),
-              SizedBox(width: getResponsiveSize(16)),
-              // Streak Display 
-              GestureDetector(
-                onTap: () {
-                  showModalBottomSheet(
-                    context: context,
-                    isScrollControlled: true,
-                    backgroundColor: Colors.transparent,
-                    builder: (context) => StreakChallengeSheet(
-                      currentStreak: currentStreak,
-                      longestStreak: longestStreak,
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: getResponsiveSize(12),
-                    vertical: getResponsiveSize(8),
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '🔥',
-                        style: TextStyle(fontSize: getResponsiveSize(20)),
-                      ),
-                      SizedBox(width: getResponsiveSize(6)),
-                      Text(
-                        '$currentStreak',
-                        style: TextStyle(
-                          fontSize: getResponsiveSize(16),
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-
-          SizedBox(height: getResponsiveSize(18)),
-
-          // Course and Subcourse Info 
-          if (course.isNotEmpty || subcourse.isNotEmpty)
-            Row(
-              children: [
-                Container(
-                  padding: EdgeInsets.all(getResponsiveSize(4)),
-                  child: Icon(
-                    Icons.school_rounded,
+                IconButton(
+                  onPressed: _pauseFocusMode,
+                  icon: Icon(
+                    Icons.pause,
                     color: Colors.white,
                     size: getResponsiveSize(20),
                   ),
-                ),
-                SizedBox(width: getResponsiveSize(8)),
-                Expanded(
-                  child: RichText(
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    text: TextSpan(
-                      style: TextStyle(
-                        fontSize: getResponsiveSize(18),
-                        fontWeight: FontWeight.w500,
-                        color: Colors.white,
-                        letterSpacing: -0.1,
-                      ),
-                      children: [
-                        if (course.isNotEmpty)
-                          TextSpan(
-                            text: course,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        if (course.isNotEmpty && subcourse.isNotEmpty)
-                          const TextSpan(
-                            text: ' • ',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        if (subcourse.isNotEmpty)
-                          TextSpan(
-                            text: subcourse,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.85),
-                            ),
-                          ),
-                      ],
-                    ),
+                  padding: EdgeInsets.zero,
+                  constraints: BoxConstraints(
+                    maxWidth: getResponsiveSize(40),
+                    maxHeight: getResponsiveSize(40),
                   ),
                 ),
               ],
             ),
-        ],
-      ),
-    ),
-  );
-}
+          ),
+
+        // Main Curved Header
+        ClipPath(
+          clipper: CurvedHeaderClipper(),
+          child: Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.primaryYellow,
+                  AppColors.primaryYellowDark,
+                ],
+              ),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              getResponsiveSize(20),
+              isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
+              getResponsiveSize(20),
+              getResponsiveSize(32),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isLandscape) const SizedBox(height: 0),
+                // Welcome Text with Streak
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          RichText(
+                            text: TextSpan(
+                              style: TextStyle(
+                                fontSize: getResponsiveSize(24),
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: -0.3,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Welcome, '),
+                                TextSpan(
+                                  text: _getFormattedFirstName(),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: getResponsiveSize(4)),
+                          Text(
+                            'Everything you need to learn in one place',
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(13),
+                              color: Colors.white.withOpacity(0.88),
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: getResponsiveSize(16)),
+                    // Streak Display 
+                    GestureDetector(
+                      onTap: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => StreakChallengeSheet(
+                            currentStreak: currentStreak,
+                            longestStreak: longestStreak,
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: getResponsiveSize(12),
+                          vertical: getResponsiveSize(8),
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '🔥',
+                              style: TextStyle(fontSize: getResponsiveSize(20)),
+                            ),
+                            SizedBox(width: getResponsiveSize(6)),
+                            Text(
+                              '$currentStreak',
+                              style: TextStyle(
+                                fontSize: getResponsiveSize(16),
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                SizedBox(height: getResponsiveSize(18)),
+
+                // Course and Subcourse Info 
+                if (course.isNotEmpty || subcourse.isNotEmpty)
+                  Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(getResponsiveSize(4)),
+                        child: Icon(
+                          Icons.school_rounded,
+                          color: Colors.white,
+                          size: getResponsiveSize(20),
+                        ),
+                      ),
+                      SizedBox(width: getResponsiveSize(8)),
+                      Expanded(
+                        child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(18),
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white,
+                              letterSpacing: -0.1,
+                            ),
+                            children: [
+                              if (course.isNotEmpty)
+                                TextSpan(
+                                  text: course,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              if (course.isNotEmpty && subcourse.isNotEmpty)
+                                const TextSpan(
+                                  text: ' • ',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              if (subcourse.isNotEmpty)
+                                TextSpan(
+                                  text: subcourse,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.85),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 
   // Quick Access Card Widget
   Widget _buildQuickAccessCard({

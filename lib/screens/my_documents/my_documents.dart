@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:async'; 
 import 'package:intl/intl.dart';
 import 'package:file_selector/file_selector.dart';
 import '../../common/theme_color.dart';
@@ -25,6 +26,7 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
   Map<String, bool> _expandedSections = {}; // Track expanded/collapsed state
   bool _isLoading = true;
   bool _isUploading = false;
+  bool _isFetchingDocuments = false; // 🆕 Prevent multiple simultaneous fetches
   String _errorMessage = '';
   String? _accessToken;
   final AuthService _authService = AuthService();
@@ -115,6 +117,12 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
 
   // Fetch all documents from API
   Future<void> _fetchDocuments() async {
+    
+    if (_isFetchingDocuments) {
+      debugPrint('⏳ Documents fetch already in progress, skipping...');
+      return;
+    }
+
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found');
       return;
@@ -123,6 +131,7 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
     setState(() {
       _isLoading = true;
       _errorMessage = '';
+      _isFetchingDocuments = true; 
     });
 
     final client = _createHttpClientWithCustomCert();
@@ -181,23 +190,20 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
       debugPrint('SSL Handshake error: $e');
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SSL certificate issue - this is normal in development'),
-            backgroundColor: Colors.orange,
-          ),
-        );
+        _showError('SSL certificate issue - please try again');
       }
     } on SocketException catch (e) {
       debugPrint('Network error: $e');
       setState(() => _isLoading = false);
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No network connection'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showError('No network connection');
+      }
+    } on TimeoutException catch (e) {
+      debugPrint('Timeout error: $e');
+      setState(() => _isLoading = false);
+      if (mounted) {
+        _showError('Request timeout - please try again');
       }
     } catch (e) {
       debugPrint('Error fetching documents: $e');
@@ -205,8 +211,14 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
         _errorMessage = e.toString().replaceAll('Exception: ', '');
         _isLoading = false;
       });
+    
+      if (mounted) {
+        _showError('Failed to fetch documents: ${e.toString().replaceAll("Exception: ", "")}');
+      }
     } finally {
       client.close();
+     
+      _isFetchingDocuments = false;
     }
   }
 
@@ -309,6 +321,9 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
             );
           }
           
+          // 🆕 ADD DELAY to prevent rapid API calls and allow UI to update
+          await Future.delayed(const Duration(milliseconds: 800));
+          
           // Refresh documents list
           await _fetchDocuments();
         } else {
@@ -320,6 +335,18 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
         final data = json.decode(response.body);
         throw Exception(data['message'] ?? 'Server error: ${response.statusCode}');
       }
+    } on TimeoutException catch (e) {
+      setState(() {
+        _isUploading = false;
+      });
+      debugPrint('Upload timeout: $e');
+      _showError('Upload timeout - please try again');
+    } on SocketException catch (e) {
+      setState(() {
+        _isUploading = false;
+      });
+      debugPrint('Network error during upload: $e');
+      _showError('Network error - please check your connection');
     } catch (e) {
       setState(() {
         _isUploading = false;
@@ -368,6 +395,9 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
             );
           }
           
+          // 🆕 ADD DELAY before refresh
+          await Future.delayed(const Duration(milliseconds: 500));
+          
           // Refresh documents list
           await _fetchDocuments();
         } else {
@@ -378,6 +408,12 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
       } else {
         throw Exception('Server error: ${response.statusCode}');
       }
+    } on TimeoutException catch (e) {
+      debugPrint('Delete timeout: $e');
+      _showError('Delete timeout - please try again');
+    } on SocketException catch (e) {
+      debugPrint('Network error during delete: $e');
+      _showError('Network error - please check your connection');
     } catch (e) {
       debugPrint('Error deleting document: $e');
       _showError('Failed to delete document: ${e.toString().replaceAll("Exception: ", "")}');

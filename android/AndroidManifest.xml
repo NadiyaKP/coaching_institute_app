@@ -1,20 +1,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="com.example.coaching_institute_app">
+    package="com.example.coaching_institute_app"
+    xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
+        android:name="${applicationName}"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:label="Signature_Institute"
         android:icon="@mipmap/ic_launcher"
-        android:name="${applicationName}"
         android:usesCleartextTraffic="true"
+        android:hardwareAccelerated="true"
         android:supportsRtl="true">
-        
+
+        <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -24,29 +31,40 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             
+            <!-- Splash / Launch Theme -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
-                android:resource="@style/NormalTheme"/>
-                
+                android:resource="@style/NormalTheme" />
+
+            <!-- Launch Intent -->
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <!-- Razorpay Checkout Activity -->
+        <!-- Razorpay Payment Activity -->
         <activity
             android:name="com.razorpay.CheckoutActivity"
             android:exported="true"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            tools:replace="android:exported">
-        </activity>
+            android:theme="@style/CheckoutTheme"
+            tools:replace="android:exported" />
 
-        <!-- THIS IS THE KEY LINE -->
+        <!-- Background Fetch Services -->
+        <service
+            android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
+            android:exported="false" />
+            
+        <service
+            android:name="com.transistorsoft.flutter.backgroundfetch.BackgroundFetchService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- Flutter Generated Plugin Registrant -->
         <meta-data
             android:name="flutterEmbedding"
-            android:value="2"/>
-            
+            android:value="2" />
     </application>
+
 </manifest>
