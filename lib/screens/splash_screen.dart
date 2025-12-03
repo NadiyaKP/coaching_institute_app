@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'login_screen.dart';
 import '../service/auth_service.dart';
 import 'home.dart';
-import 'getin_screen.dart';
+import '../screens/focus_mode/focus_mode_entry.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 
 // ============= SCREEN CLASS =============
@@ -31,21 +31,40 @@ class _SplashScreenState extends State<SplashScreen> {
       final String? studentType = prefs.getString('profile_student_type');
       
       if (!mounted) return;
-      if (accessToken != null && accessToken.isNotEmpty) {
-        // Check if student type is 'ONLINE'
-        if (studentType != null && studentType.toUpperCase() == 'ONLINE') {
       
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const GetInScreen()),
-          );
+      if (accessToken != null && accessToken.isNotEmpty) {
+        // Check student type and navigate accordingly
+        if (studentType != null) {
+          final String studentTypeUpper = studentType.toUpperCase();
+          
+          if (studentTypeUpper == 'ONLINE' || studentTypeUpper == 'OFFLINE') {
+            // Navigate to focus mode entry for Online/Offline students
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const FocusModeEntryScreen()),
+            );
+          } else if (studentTypeUpper == 'PUBLIC') {
+            // Navigate to home for Public students
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const HomeScreen()),
+            );
+          } else {
+            // Default case: Navigate to home
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const HomeScreen()),
+            );
+          }
         } else {
+          // No student type found: Navigate to home
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => const HomeScreen()),
           );
         }
       } else {
+        // No access token: Navigate to login
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -53,7 +72,7 @@ class _SplashScreenState extends State<SplashScreen> {
       }
       
     } catch (e) {
- 
+      // Error handling: Navigate to login
       if (mounted) {
         Navigator.pushReplacement(
           context,

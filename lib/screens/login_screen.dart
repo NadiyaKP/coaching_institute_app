@@ -9,6 +9,8 @@ import 'package:coaching_institute_app/common/theme_color.dart';
 import 'dart:io';
 import '../screens/explore_student/explore.dart';
 import '../../../service/http_interceptor.dart';
+import '../../../service/timer_service.dart'; 
+import 'package:workmanager/workmanager.dart';
 
 // ============= RESPONSIVE UTILITY CLASS =============
 class ResponsiveUtils {
@@ -213,7 +215,7 @@ class LoginProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<Map<String, dynamic>?> loginUser({
+ Future<Map<String, dynamic>?> loginUser({
   required String email,
   required String password,
 }) async {
@@ -260,11 +262,21 @@ class LoginProvider extends ChangeNotifier {
         await saveEmail(username);
         final prefs = await SharedPreferences.getInstance();
         
+        // 🆕 Store all user data
         await prefs.setString('accessToken', responseData['access'] ?? '');
         await prefs.setString('studentType', responseData['student_type'] ?? '');
         await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
         await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
+        
+        // 🆕 CRITICAL: Store username (email) - This is used by TimerService
         await prefs.setString('username', username);
+        
+        // 🆕 Also store as profile_email if available
+        if (responseData.containsKey('email')) {
+          await prefs.setString('profile_email', responseData['email'].toString());
+        } else {
+          await prefs.setString('profile_email', username);
+        }
         
         debugPrint('=== STORED IN SHARED PREFERENCES ===');
         debugPrint('Stored accessToken: ${prefs.getString('accessToken')}');
@@ -272,6 +284,7 @@ class LoginProvider extends ChangeNotifier {
         debugPrint('Stored phoneNumber: ${prefs.getString('phoneNumber')}');
         debugPrint('Stored profileCompleted: ${prefs.getBool('profileCompleted')}');
         debugPrint('Stored username: ${prefs.getString('username')}');
+        debugPrint('Stored profile_email: ${prefs.getString('profile_email')}');
         
         return {
           'success': true,
@@ -349,6 +362,7 @@ class LoginProvider extends ChangeNotifier {
   }
 }
 }
+
 // ============= SCREEN CLASS =============
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -518,6 +532,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
     _loginProvider.dispose();
     super.dispose();
   }
+
 Future<void> _loginUser() async {
     _loginProvider.validateEmail(emailController.text);
     _loginProvider.validatePassword(passwordController.text);
@@ -541,21 +556,79 @@ Future<void> _loginUser() async {
     if (result != null && result['success'] == true) {
       _showSnackBar(result['message'] ?? 'Login successful!', AppColors.successGreen);
       
-      Future.delayed(const Duration(milliseconds: 800), () {
+      // 🆕 Get the response data
+      final responseData = result['response_data'] as Map<String, dynamic>;
+      
+      // 🆕 DEBUG: Print what we received
+      debugPrint('📦 Login Response Data:');
+      responseData.forEach((key, value) {
+        debugPrint('   - $key: $value');
+      });
+      
+      Future.delayed(const Duration(milliseconds: 800), () async {
         if (!mounted) return;
+        
+        // 🆕 IMPORTANT: Clear ALL timer data for fresh start
+        await TimerService.clearAllTimerData();
+        
+        debugPrint('🧹 TimerService: All timer data cleared for fresh login');
+        
+        // 🆕 Debug: Check SharedPreferences before navigation
+        final prefs = await SharedPreferences.getInstance();
+        debugPrint('🔍 SharedPreferences after login:');
+        debugPrint('   - username: ${prefs.getString('username')}');
+        debugPrint('   - profile_email: ${prefs.getString('profile_email')}');
+        debugPrint('   - studentType: ${prefs.getString('studentType')}');
+        debugPrint('   - focus_time: ${prefs.getInt(TimerService.focusKey)}');
+        debugPrint('   - is_focus_mode: ${prefs.getBool(TimerService.isFocusModeKey)}');
         
         if (result['profile_completed'] == false) {
           Navigator.pushReplacementNamed(
             context,
             '/profile_completion_page',
-            arguments: result['response_data'],
+            arguments: responseData,
           );
         } else {
-          Navigator.pushReplacementNamed(
-            context,
-            '/home',
-            arguments: result['response_data'],
-          );
+          // 🆕 Initialize TimerService to ensure it detects the new user
+          final timerService = TimerService();
+          await timerService.initialize();
+          
+          debugPrint('✅ TimerService initialized after login');
+          debugPrint('   - Current focus time: ${timerService.getFormattedFocusTime()}');
+          debugPrint('   - Focus mode active: ${timerService.isFocusMode.value}');
+          
+          // 🆕 Small delay to ensure everything is set up
+          await Future.delayed(const Duration(milliseconds: 200));
+          
+          // 🆕 GET STUDENT TYPE AND NAVIGATE ACCORDINGLY
+          final studentType = prefs.getString('studentType')?.toUpperCase() ?? '';
+          
+          debugPrint('🔀 Navigation Logic:');
+          debugPrint('   - Student Type: $studentType');
+          
+          if (studentType == 'ONLINE' || studentType == 'OFFLINE') {
+            debugPrint('   - Navigating to FocusModeEntry');
+            Navigator.pushReplacementNamed(
+              context,
+              '/focus_mode',
+              arguments: responseData,
+            );
+          } else if (studentType == 'PUBLIC') {
+            debugPrint('   - Navigating to Home (Public student)');
+            Navigator.pushReplacementNamed(
+              context,
+              '/home',
+              arguments: responseData,
+            );
+          } else {
+            // Default case: navigate to home
+            debugPrint('   - Navigating to Home (Default)');
+            Navigator.pushReplacementNamed(
+              context,
+              '/home',
+              arguments: responseData,
+            );
+          }
         }
       });
     } else {

@@ -11,6 +11,7 @@ import 'package:simple_icons/simple_icons.dart';
 import '../../service/auth_service.dart';
 import '../../service/api_config.dart';
 import '../../common/theme_color.dart';
+import '../../service/websocket_manager.dart';
 
 // ============= PROVIDER CLASS =============
 class SettingsProvider extends ChangeNotifier {
@@ -1162,93 +1163,118 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Perform Logout
-  Future<void> _performLogout(SettingsProvider settingsProvider) async {
-    String? accessToken;
+  // Perform Logout - Updated version with WebSocket disconnection
+Future<void> _performLogout(SettingsProvider settingsProvider) async {
+  String? accessToken;
+  
+  try {
+    settingsProvider.setLoggingOut(true);
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Text('Logging out...'),
+            ],
+          ),
+        );
+      },
+    );
+
+    // 1. DISCONNECT WEB SOCKET FIRST
+    try {
+      await WebSocketManager.disconnect();
+      debugPrint('✅ WebSocket disconnected successfully');
+    } catch (e) {
+      debugPrint('⚠️ Error disconnecting WebSocket: $e');
+      // Continue with logout even if WebSocket disconnection fails
+    }
+    
+    accessToken = await _authService.getAccessToken();
+    
+    String endTime = DateTime.now().toIso8601String();
+    
+    await _sendAttendanceData(accessToken, endTime);
+    
+    final client = _createHttpClientWithCustomCert();
     
     try {
-      settingsProvider.setLoggingOut(true);
-      
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 16),
-                Text('Logging out...'),
-              ],
-            ),
-          );
+      final response = await client.post(
+        Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
+        headers: {
+          ...ApiConfig.commonHeaders,
+          'Authorization': 'Bearer $accessToken',
         },
-      );
+      ).timeout(ApiConfig.requestTimeout);
 
-      accessToken = await _authService.getAccessToken();
-      
-      String endTime = DateTime.now().toIso8601String();
-      
-      await _sendAttendanceData(accessToken, endTime);
-      
-      final client = _createHttpClientWithCustomCert();
-      
-      try {
-        final response = await client.post(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
-          },
-        ).timeout(ApiConfig.requestTimeout);
-
-        debugPrint('Logout response status: ${response.statusCode}');
-        debugPrint('Logout response body: ${response.body}');
-      } finally {
-        client.close();
-      }
-      
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-      }
-      
-      await _clearLogoutData();
-      
-    } on HandshakeException catch (e) {
-      debugPrint('SSL Handshake error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-      }
-      
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      await _clearLogoutData();
-      
-    } on SocketException catch (e) {
-      debugPrint('Network error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-      }
-      
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      await _clearLogoutData();
-      
-    } catch (e) {
-      debugPrint('Logout error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop(); // Close loading dialog
-      }
-      
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      await _clearLogoutData();
+      debugPrint('Logout response status: ${response.statusCode}');
+      debugPrint('Logout response body: ${response.body}');
     } finally {
-      settingsProvider.setLoggingOut(false);
+      client.close();
     }
+    
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+    }
+    
+    await _clearLogoutData();
+    
+  } on HandshakeException catch (e) {
+    debugPrint('SSL Handshake error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+    }
+    
+    // Ensure WebSocket is disconnected even on error
+    try {
+      await WebSocketManager.disconnect();
+    } catch (_) {}
+    
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    await _clearLogoutData();
+    
+  } on SocketException catch (e) {
+    debugPrint('Network error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+    }
+    
+    // Ensure WebSocket is disconnected even on error
+    try {
+      await WebSocketManager.disconnect();
+    } catch (_) {}
+    
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    await _clearLogoutData();
+    
+  } catch (e) {
+    debugPrint('Logout error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop(); // Close loading dialog
+    }
+    
+    // Ensure WebSocket is disconnected even on error
+    try {
+      await WebSocketManager.disconnect();
+    } catch (_) {}
+    
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    await _clearLogoutData();
+  } finally {
+    settingsProvider.setLoggingOut(false);
   }
+}
 
   // Send Attendance Data
   Future<void> _sendAttendanceData(String? accessToken, String endTime) async {

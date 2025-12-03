@@ -16,7 +16,8 @@ import 'streak_challenge_sheet.dart';
 import '../common/bottom_navbar.dart'; 
 import '../service/notification_service.dart';
 import '../../../service/http_interceptor.dart';
-import '../service/timer_service.dart'; // 🆕 Added timer service
+import '../service/timer_service.dart'; 
+import '../../service/websocket_manager.dart'; 
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -63,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
 
   final AuthService _authService = AuthService();
-  final TimerService _timerService = TimerService(); // 🆕 Timer service instance
+  final TimerService _timerService = TimerService(); 
   bool _isFocusModeActive = false;
   Timer? _uiUpdateTimer;
 
@@ -89,27 +90,53 @@ class _HomeScreenState extends State<HomeScreen> {
   // 🆕 Flag to prevent duplicate notification API calls
   bool _isFetchingNotifications = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _pageController = PageController(viewportFraction: 0.75);
-    _startAutoScroll();
-    
-    // 🆕 Initialize and check focus mode status
-    _checkFocusModeStatus();
-    
-    // 🆕 Start UI timer for focus mode updates
+@override
+void initState() {
+  super.initState();
+  _pageController = PageController(viewportFraction: 0.75);
+  _startAutoScroll();
+  
+  // Initialize focus mode
+  _initializeFocusMode();
+}
+
+Future<void> _initializeFocusMode() async {
+  // Initialize timer service
+  await _timerService.initialize();
+  
+  // Check focus mode status from SharedPreferences
+  final prefs = await SharedPreferences.getInstance();
+  _isFocusModeActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+  
+  // Start UI timer if focus mode is active
+  if (_isFocusModeActive) {
     _startUiTimer();
   }
+  
+  if (mounted) setState(() {});
+}
 
-  @override
-  void dispose() {
-    _autoScrollTimer?.cancel();
-    _uiUpdateTimer?.cancel(); // 🆕 Dispose UI timer
-    _pageController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
+void _startUiTimer() {
+  _uiUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    if (_isFocusModeActive && mounted) {
+      setState(() {
+        // This triggers UI rebuild with updated timer
+      });
+    }
+  });
+}
+
+@override
+void dispose() {
+  _autoScrollTimer?.cancel();
+  _uiUpdateTimer?.cancel();
+  _pageController.dispose();
+  _scrollController.dispose();
+  
+  // Only dispose TimerService if this is the main instance
+  // We should NOT dispose it in FocusModeEntryScreen
+  super.dispose();
+}
 
   // 🆕 Check focus mode status
   Future<void> _checkFocusModeStatus() async {
@@ -122,25 +149,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     
     if (mounted) setState(() {});
-  }
-
-  // 🆕 Start UI timer for focus mode updates
-  void _startUiTimer() {
-    _uiUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_isFocusModeActive && mounted) {
-        setState(() {}); // Update UI every second for timer
-      }
-    });
-  }
-
-  // 🆕 Pause focus mode (navigate to break mode)
-  Future<void> _pauseFocusMode() async {
-    await _timerService.pauseFocusMode();
-    
-    // Navigate to break mode screen
-    if (mounted) {
-      await Navigator.of(context).pushReplacementNamed('/break_mode');
-    }
   }
 
   // 🆕 Format duration for display
@@ -156,10 +164,47 @@ class _HomeScreenState extends State<HomeScreen> {
     return _formatTimerDuration(_timerService.focusTimeToday.value);
   }
 
-  // 🆕 Get today's break time
-  String getTodayBreakTime() {
-    return _formatTimerDuration(_timerService.breakTimeToday.value);
+  // 🆕 Stop focus mode (navigate back to focus mode entry)
+Future<void> _stopFocusMode() async {
+  // Send WebSocket event for focus end BEFORE stopping
+  _sendFocusEndEvent();
+  
+  await _timerService.stopFocusMode();
+  
+  // Navigate back to focus mode entry screen
+  if (mounted) {
+    await Navigator.of(context).pushReplacementNamed('/focus_mode');
   }
+}
+
+// Method to send focus_end event via WebSocket
+void _sendFocusEndEvent() {
+  try {
+    // Always try to send the event directly
+    WebSocketManager.send({"event": "focus_end"});
+    debugPrint('📤 WebSocket event sent: {"event": "focus_end"}');
+  } catch (e) {
+    debugPrint('❌ Error sending focus_end event: $e');
+    
+    // Try to reconnect WebSocket if sending failed
+    try {
+      WebSocketManager.connect();
+      debugPrint('🔄 Attempting to reconnect WebSocket...');
+      
+      // Try sending again after a short delay
+      Future.delayed(const Duration(milliseconds: 300), () {
+        try {
+          WebSocketManager.send({"event": "focus_end"});
+          debugPrint('📤 Retry: WebSocket event sent: {"event": "focus_end"}');
+        } catch (retryError) {
+          debugPrint('❌ Retry failed: $retryError');
+        }
+      });
+    } catch (connectError) {
+      debugPrint('❌ WebSocket reconnection failed: $connectError');
+    }
+  }
+}
 
   // Helper method to capitalize first letter of each word
   String _capitalizeFirstLetter(String text) {
@@ -1196,124 +1241,131 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 🆕 Focus Mode Stats Card
-                        if (_isFocusModeActive)
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              getResponsiveSize(20),
-                              getResponsiveSize(16),
-                              getResponsiveSize(20),
-                              getResponsiveSize(8),
-                            ),
-                            child: Container(
-                              padding: EdgeInsets.all(getResponsiveSize(16)),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    const Color(0xFF43E97B).withOpacity(0.1),
-                                    const Color(0xFF43E97B).withOpacity(0.05),
-                                ],
-                                ),
-                                borderRadius: BorderRadius.circular(getResponsiveSize(16)),
-                                border: Border.all(
-                                  color: const Color(0xFF43E97B).withOpacity(0.3),
-                                  width: 1.5,
-                                ),
+                       // 🆕 Focus Mode Stats Card
+                          if (_isFocusModeActive)
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                getResponsiveSize(20),
+                                getResponsiveSize(16),
+                                getResponsiveSize(20),
+                                getResponsiveSize(8),
                               ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: EdgeInsets.all(getResponsiveSize(10)),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF43E97B).withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-                                    ),
-                                    child: Icon(
-                                      Icons.timer,
-                                      color: const Color(0xFF43E97B),
-                                      size: getResponsiveSize(24),
-                                    ),
+                              child: Container(
+                                padding: EdgeInsets.all(getResponsiveSize(16)),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      const Color(0xFF43E97B).withOpacity(0.1),
+                                      const Color(0xFF43E97B).withOpacity(0.05),
+                                    ],
                                   ),
-                                  SizedBox(width: getResponsiveSize(12)),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              'Focus Mode Active',
-                                              style: TextStyle(
-                                                fontSize: getResponsiveSize(16),
-                                                fontWeight: FontWeight.bold,
-                                                color: const Color(0xFF43E97B),
-                                              ),
-                                            ),
-                                            ValueListenableBuilder<Duration>(
-                                              valueListenable: _timerService.focusTimeToday,
-                                              builder: (context, focusTime, _) {
-                                                return Text(
-                                                  _formatTimerDuration(focusTime),
+                                  borderRadius: BorderRadius.circular(getResponsiveSize(16)),
+                                  border: Border.all(
+                                    color: const Color(0xFF43E97B).withOpacity(0.3),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: EdgeInsets.all(getResponsiveSize(10)),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF43E97B).withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                                      ),
+                                      child: Icon(
+                                        Icons.timer,
+                                        color: const Color(0xFF43E97B),
+                                        size: getResponsiveSize(24),
+                                      ),
+                                    ),
+                                    SizedBox(width: getResponsiveSize(12)),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          // Title and Timer Row
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  'Focus Mode Active',
                                                   style: TextStyle(
-                                                    fontSize: getResponsiveSize(14),
+                                                    fontSize: getResponsiveSize(16),
                                                     fontWeight: FontWeight.bold,
                                                     color: const Color(0xFF43E97B),
-                                                    fontFamily: 'monospace',
                                                   ),
-                                                );
-                                              },
-                                            ),
-                                          ],
-                                        ),
-                                        SizedBox(height: getResponsiveSize(4)),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Text(
-                                              'Total focus today',
-                                              style: TextStyle(
-                                                fontSize: getResponsiveSize(12),
-                                                color: AppColors.textGrey,
-                                              ),
-                                            ),
-                                            ElevatedButton.icon(
-                                              onPressed: _pauseFocusMode,
-                                              icon: Icon(
-                                                Icons.pause,
-                                                size: getResponsiveSize(14),
-                                              ),
-                                              label: Text(
-                                                'Take Break',
-                                                style: TextStyle(
-                                                  fontSize: getResponsiveSize(12),
-                                                  fontWeight: FontWeight.w600,
                                                 ),
                                               ),
-                                              style: ElevatedButton.styleFrom(
-                                                backgroundColor: const Color(0xFF43E97B),
-                                                foregroundColor: Colors.white,
-                                                padding: EdgeInsets.symmetric(
-                                                  horizontal: getResponsiveSize(12),
-                                                  vertical: getResponsiveSize(6),
-                                                ),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius: BorderRadius.circular(getResponsiveSize(20)),
+                                              SizedBox(width: getResponsiveSize(8)),
+                                              ValueListenableBuilder<Duration>(
+                                                valueListenable: _timerService.focusTimeToday,
+                                                builder: (context, focusTime, _) {
+                                                  return Text(
+                                                    _formatTimerDuration(focusTime),
+                                                    style: TextStyle(
+                                                      fontSize: getResponsiveSize(14),
+                                                      fontWeight: FontWeight.bold,
+                                                      color: const Color(0xFF43E97B),
+                                                      fontFamily: 'monospace',
+                                                    ),
+                                                  );
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                          SizedBox(height: getResponsiveSize(8)),
+                                          // Subtitle and Button Row
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  'Total focus today',
+                                                  style: TextStyle(
+                                                    fontSize: getResponsiveSize(12),
+                                                    color: AppColors.textGrey,
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
+                                              SizedBox(width: getResponsiveSize(8)),
+                                              ElevatedButton.icon(
+                                                onPressed: _stopFocusMode,
+                                                icon: Icon(
+                                                  Icons.stop,
+                                                  size: getResponsiveSize(14),
+                                                ),
+                                                label: Text(
+                                                  'Stop',
+                                                  style: TextStyle(
+                                                    fontSize: getResponsiveSize(12),
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFF43E97B),
+                                                  foregroundColor: Colors.white,
+                                                  padding: EdgeInsets.symmetric(
+                                                    horizontal: getResponsiveSize(12),
+                                                    vertical: getResponsiveSize(6),
+                                                  ),
+                                                  minimumSize: Size.zero,
+                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius: BorderRadius.circular(getResponsiveSize(20)),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-
                         // Quick Access Section
                         Padding(
                           padding: EdgeInsets.fromLTRB(
@@ -1667,260 +1719,181 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 🆕 MODIFIED: Build Header Section as Fixed App Bar with Curved Bottom
-  Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
-    return Column(
-      children: [
-        // 🆕 Focus Mode Banner (if active)
-        if (_isFocusModeActive)
-          Container(
-            width: double.infinity,
-            padding: EdgeInsets.symmetric(
-              horizontal: getResponsiveSize(16),
-              vertical: getResponsiveSize(8),
-            ),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-                colors: [
-                  const Color(0xFF43E97B),
-                  const Color(0xFF3DD56C),
-                ],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF43E97B).withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.timer,
-                      color: Colors.white,
-                      size: getResponsiveSize(20),
-                    ),
-                    SizedBox(width: getResponsiveSize(8)),
-                    Text(
-                      'Focus Mode',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: getResponsiveSize(16),
-                      ),
-                    ),
-                    SizedBox(width: getResponsiveSize(12)),
-                    ValueListenableBuilder<Duration>(
-                      valueListenable: _timerService.focusTimeToday,
-                      builder: (context, focusTime, _) {
-                        return Text(
-                          _formatTimerDuration(focusTime),
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: getResponsiveSize(14),
-                            fontFamily: 'monospace',
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                IconButton(
-                  onPressed: _pauseFocusMode,
-                  icon: Icon(
-                    Icons.pause,
-                    color: Colors.white,
-                    size: getResponsiveSize(20),
-                  ),
-                  padding: EdgeInsets.zero,
-                  constraints: BoxConstraints(
-                    maxWidth: getResponsiveSize(40),
-                    maxHeight: getResponsiveSize(40),
-                  ),
-                ),
+// 🆕 MODIFIED: Build Header Section WITHOUT Focus Mode Banner
+Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
+  return Column(
+    children: [
+      // Main Curved Header (removed Focus Mode Banner)
+      ClipPath(
+        clipper: CurvedHeaderClipper(),
+        child: Container(
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                AppColors.primaryYellow,
+                AppColors.primaryYellowDark,
               ],
             ),
           ),
-
-        // Main Curved Header
-        ClipPath(
-          clipper: CurvedHeaderClipper(),
-          child: Container(
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  AppColors.primaryYellow,
-                  AppColors.primaryYellowDark,
-                ],
-              ),
-            ),
-            padding: EdgeInsets.fromLTRB(
-              getResponsiveSize(20),
-              isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
-              getResponsiveSize(20),
-              getResponsiveSize(32),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (!isLandscape) const SizedBox(height: 0),
-                // Welcome Text with Streak
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          RichText(
-                            text: TextSpan(
-                              style: TextStyle(
-                                fontSize: getResponsiveSize(24),
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                letterSpacing: -0.3,
-                              ),
-                              children: [
-                                const TextSpan(text: 'Welcome, '),
-                                TextSpan(
-                                  text: _getFormattedFirstName(),
-                                ),
-                              ],
-                            ),
-                          ),
-                          SizedBox(height: getResponsiveSize(4)),
-                          Text(
-                            'Everything you need to learn in one place',
+          padding: EdgeInsets.fromLTRB(
+            getResponsiveSize(20),
+            isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
+            getResponsiveSize(20),
+            getResponsiveSize(32),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!isLandscape) const SizedBox(height: 0),
+              // Welcome Text with Streak
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RichText(
+                          text: TextSpan(
                             style: TextStyle(
-                              fontSize: getResponsiveSize(13),
-                              color: Colors.white.withOpacity(0.88),
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: 0.1,
+                              fontSize: getResponsiveSize(24),
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: -0.3,
+                            ),
+                            children: [
+                              const TextSpan(text: 'Welcome, '),
+                              TextSpan(
+                                text: _getFormattedFirstName(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(height: getResponsiveSize(4)),
+                        Text(
+                          'Everything you need to learn in one place',
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(13),
+                            color: Colors.white.withOpacity(0.88),
+                            fontWeight: FontWeight.w500,
+                            letterSpacing: 0.1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(width: getResponsiveSize(16)),
+                  // Streak Display 
+                  GestureDetector(
+                    onTap: () {
+                      showModalBottomSheet(
+                        context: context,
+                        isScrollControlled: true,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => StreakChallengeSheet(
+                          currentStreak: currentStreak,
+                          longestStreak: longestStreak,
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: getResponsiveSize(12),
+                        vertical: getResponsiveSize(8),
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '🔥',
+                            style: TextStyle(fontSize: getResponsiveSize(20)),
+                          ),
+                          SizedBox(width: getResponsiveSize(6)),
+                          Text(
+                            '$currentStreak',
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(16),
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              letterSpacing: -0.2,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    SizedBox(width: getResponsiveSize(16)),
-                    // Streak Display 
-                    GestureDetector(
-                      onTap: () {
-                        showModalBottomSheet(
-                          context: context,
-                          isScrollControlled: true,
-                          backgroundColor: Colors.transparent,
-                          builder: (context) => StreakChallengeSheet(
-                            currentStreak: currentStreak,
-                            longestStreak: longestStreak,
+                  ),
+                ],
+              ),
+
+              SizedBox(height: getResponsiveSize(18)),
+
+              // Course and Subcourse Info 
+              if (course.isNotEmpty || subcourse.isNotEmpty)
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.all(getResponsiveSize(4)),
+                      child: Icon(
+                        Icons.school_rounded,
+                        color: Colors.white,
+                        size: getResponsiveSize(20),
+                      ),
+                    ),
+                    SizedBox(width: getResponsiveSize(8)),
+                    Expanded(
+                      child: RichText(
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        text: TextSpan(
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(18),
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                            letterSpacing: -0.1,
                           ),
-                        );
-                      },
-                      child: Container(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: getResponsiveSize(12),
-                          vertical: getResponsiveSize(8),
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(
-                              '🔥',
-                              style: TextStyle(fontSize: getResponsiveSize(20)),
-                            ),
-                            SizedBox(width: getResponsiveSize(6)),
-                            Text(
-                              '$currentStreak',
-                              style: TextStyle(
-                                fontSize: getResponsiveSize(16),
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                letterSpacing: -0.2,
+                            if (course.isNotEmpty)
+                              TextSpan(
+                                text: course,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
-                            ),
+                            if (course.isNotEmpty && subcourse.isNotEmpty)
+                              const TextSpan(
+                                text: ' • ',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            if (subcourse.isNotEmpty)
+                              TextSpan(
+                                text: subcourse,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.85),
+                                ),
+                              ),
                           ],
                         ),
                       ),
                     ),
                   ],
                 ),
-
-                SizedBox(height: getResponsiveSize(18)),
-
-                // Course and Subcourse Info 
-                if (course.isNotEmpty || subcourse.isNotEmpty)
-                  Row(
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(getResponsiveSize(4)),
-                        child: Icon(
-                          Icons.school_rounded,
-                          color: Colors.white,
-                          size: getResponsiveSize(20),
-                        ),
-                      ),
-                      SizedBox(width: getResponsiveSize(8)),
-                      Expanded(
-                        child: RichText(
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          text: TextSpan(
-                            style: TextStyle(
-                              fontSize: getResponsiveSize(18),
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white,
-                              letterSpacing: -0.1,
-                            ),
-                            children: [
-                              if (course.isNotEmpty)
-                                TextSpan(
-                                  text: course,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              if (course.isNotEmpty && subcourse.isNotEmpty)
-                                const TextSpan(
-                                  text: ' • ',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              if (subcourse.isNotEmpty)
-                                TextSpan(
-                                  text: subcourse,
-                                  style: TextStyle(
-                                    color: Colors.white.withOpacity(0.85),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
+            ],
           ),
         ),
-      ],
-    );
-  }
-
+      ),
+    ],
+  );
+}
   // Quick Access Card Widget
   Widget _buildQuickAccessCard({
     required IconData icon,
