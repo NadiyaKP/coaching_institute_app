@@ -1007,6 +1007,7 @@ Widget _buildPlanDetailRow(String label, String value) {
         email: _userEmail,
         course: _courseName,
         subcourse: _subcourseName,
+        studentType: _studentType,
         profileCompleted: _profileCompleted,
         onViewProfile: () {
           Navigator.of(context).pop(); 

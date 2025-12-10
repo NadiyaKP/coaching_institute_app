@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../service/timer_service.dart';
-import '../../service/websocket_manager.dart'; // Import the WebSocket manager
-import '../home.dart';
+import '../../service/websocket_manager.dart';
 
 class FocusModeEntryScreen extends StatefulWidget {
   const FocusModeEntryScreen({super.key});
@@ -12,35 +11,171 @@ class FocusModeEntryScreen extends StatefulWidget {
   State<FocusModeEntryScreen> createState() => _FocusModeEntryScreenState();
 }
 
-class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
+class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with WidgetsBindingObserver {
   final TimerService _timerService = TimerService();
   late Future<Duration> _initializationFuture;
   Duration _focusTimeToday = Duration.zero;
   bool _hasOverlayPermission = false;
   bool _isStartingFocusMode = false;
+  bool _isRestoredFromDisconnect = false; // 🆕 Track if time was restored
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializationFuture = _initializeData();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      debugPrint('📱 AppLifecycleState.detached - App being closed');
+    }
+  }
+
   Future<Duration> _initializeData() async {
-    // Initialize timer service
-    await _timerService.initialize();
+    try {
+      debugPrint('🔄 Starting focus mode entry initialization...');
+      
+      // Initialize timer service first
+      await _timerService.initialize();
+      
+      // Get SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      
+      debugPrint('📅 Today: $today');
+      
+      // 🆕 NEW LOGIC: Check WebSocket disconnect time first
+      final disconnectTimeStr = prefs.getString(TimerService.websocketDisconnectTimeKey);
+      if (disconnectTimeStr != null) {
+        final disconnectTime = DateTime.parse(disconnectTimeStr);
+        final disconnectDate = disconnectTime.toIso8601String().split('T')[0];
+        
+        debugPrint('🔌 Found WebSocket disconnect time: $disconnectDate');
+        
+        if (disconnectDate == today) {
+          // Same day as disconnect - check for stored focus time
+          await _handleWebSocketDisconnectRecovery(prefs, today);
+        } else {
+          // Different day - clear disconnect time and proceed normally
+          debugPrint('📅 Disconnect was on different day, clearing');
+          await prefs.remove(TimerService.websocketDisconnectTimeKey);
+          await _handleNormalInitialization(prefs, today);
+        }
+      } else {
+        // No WebSocket disconnect - proceed with normal initialization
+        await _handleNormalInitialization(prefs, today);
+      }
+      
+      // Check overlay permission using TimerService
+      _hasOverlayPermission = await _timerService.checkOverlayPermission();
+      
+      debugPrint('📋 Initialization Summary:');
+      debugPrint('   - Focus time today: ${_formatDuration(_focusTimeToday)}');
+      debugPrint('   - Overlay permission: $_hasOverlayPermission');
+      debugPrint('   - Restored from disconnect: $_isRestoredFromDisconnect');
+      debugPrint('   - Date: $today');
+      
+      return _focusTimeToday;
+      
+    } catch (e) {
+      debugPrint('❌ Error initializing data: $e');
+      return Duration.zero;
+    }
+  }
+
+  // 🆕 NEW: Handle WebSocket disconnect recovery
+  Future<void> _handleWebSocketDisconnectRecovery(SharedPreferences prefs, String today) async {
+    try {
+      debugPrint('🔌 Recovering from WebSocket disconnect...');
+      
+      // Check for last stored focus time
+      final lastStoredTime = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
+      final lastStoredDate = prefs.getString(TimerService.lastStoredFocusDateKey);
+      final savedFocusTime = prefs.getInt(TimerService.focusKey) ?? 0;
+      
+      debugPrint('   - Last stored time: ${lastStoredTime}s');
+      debugPrint('   - Last stored date: $lastStoredDate');
+      debugPrint('   - Saved focus time: ${savedFocusTime}s');
+      
+      // Determine which time to use (use the maximum)
+      int focusSeconds = 0;
+      if (lastStoredDate == today) {
+        focusSeconds = lastStoredTime > savedFocusTime ? lastStoredTime : savedFocusTime;
+        _isRestoredFromDisconnect = true;
+        debugPrint('   ✅ Using restored time: ${focusSeconds}s');
+      } else {
+        focusSeconds = savedFocusTime;
+        debugPrint('   ⚠️ Last stored date mismatch, using saved time: ${focusSeconds}s');
+      }
+      
+      // Update focus time
+      _focusTimeToday = Duration(seconds: focusSeconds);
+      
+      // Ensure SharedPreferences is consistent
+      await prefs.setInt(TimerService.focusKey, focusSeconds);
+      
+      // Clear the disconnect flag since we've recovered
+      await prefs.remove(TimerService.websocketDisconnectTimeKey);
+      
+      // Also clear WebSocket disconnect tracking in TimerService
+      final bool wasStoppedByWebSocket = await _timerService.wasFocusStoppedByWebSocket();
+      if (wasStoppedByWebSocket) {
+        debugPrint('   🧹 Clearing WebSocket disconnect tracking');
+        // The timer service should handle this internally
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error in WebSocket disconnect recovery: $e');
+      await _handleNormalInitialization(prefs, today);
+    }
+  }
+
+  // 🆕 NEW: Handle normal initialization (no WebSocket disconnect)
+  Future<void> _handleNormalInitialization(SharedPreferences prefs, String today) async {
+    final lastDate = prefs.getString(TimerService.lastDateKey);
     
-    // Check overlay permission using TimerService
-    _hasOverlayPermission = await _timerService.checkOverlayPermission();
+    debugPrint('📅 Normal initialization - Last saved date: $lastDate');
     
-    // Get today's focus time
-    final prefs = await SharedPreferences.getInstance();
-    final seconds = prefs.getInt(TimerService.focusKey) ?? 0;
-    _focusTimeToday = Duration(seconds: seconds);
+    if (lastDate != today) {
+      // New day detected - Reset timer
+      debugPrint('🔄 New day detected! Resetting timer...');
+      await _resetTimerForNewDay(prefs, today);
+    } else {
+      // Same day - Load saved timer
+      final savedFocusTime = prefs.getInt(TimerService.focusKey) ?? 0;
+      final lastStoredTime = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
+      
+      // Use the greater of the two values
+      final focusSeconds = savedFocusTime > lastStoredTime ? savedFocusTime : lastStoredTime;
+      _focusTimeToday = Duration(seconds: focusSeconds);
+      
+      debugPrint('📊 Loaded focus time: ${_formatDuration(_focusTimeToday)}');
+      debugPrint('   - Saved: ${savedFocusTime}s');
+      debugPrint('   - Last stored: ${lastStoredTime}s');
+    }
+  }
+
+  // 🆕 NEW: Helper method to reset timer for new day
+  Future<void> _resetTimerForNewDay(SharedPreferences prefs, String today) async {
+    await prefs.setString(TimerService.lastDateKey, today);
+    await prefs.setString(TimerService.heartbeatDateKey, today);
+    await prefs.setInt(TimerService.focusKey, 0);
+    await prefs.setBool(TimerService.isFocusModeKey, false);
+    await prefs.remove(TimerService.focusStartTimeKey);
+    await prefs.remove(TimerService.focusElapsedKey);
+    await prefs.remove(TimerService.appStateKey);
+    await prefs.remove(TimerService.lastHeartbeatKey);
     
-    debugPrint('📊 Loaded focus time: ${_formatDuration(_focusTimeToday)}');
-    debugPrint('🎯 Overlay permission: $_hasOverlayPermission');
+    // Clear all stored times
+    await prefs.remove(TimerService.lastStoredFocusTimeKey);
+    await prefs.remove(TimerService.lastStoredFocusDateKey);
+    await prefs.remove(TimerService.websocketDisconnectTimeKey);
     
-    return _focusTimeToday;
+    _focusTimeToday = Duration.zero;
+    _isRestoredFromDisconnect = false;
+    debugPrint('✅ Timer reset to 00:00:00 for new day');
   }
 
   void _startFocusMode() async {
@@ -51,8 +186,33 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
     });
 
     try {
+      // Check WebSocket connection first
+      if (!WebSocketManager.isConnected) {
+        await _showWebSocketErrorPopup();
+        setState(() {
+          _isStartingFocusMode = false;
+        });
+        return;
+      }
+
+      // Verify date one more time before starting
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final lastDate = prefs.getString(TimerService.lastDateKey);
+      
+      if (lastDate != today) {
+        debugPrint('⚠️ Date changed during start, resetting timer');
+        await prefs.setString(TimerService.lastDateKey, today);
+        await prefs.setInt(TimerService.focusKey, 0);
+        _focusTimeToday = Duration.zero;
+        _isRestoredFromDisconnect = false;
+      }
+
       // Ensure timer service is initialized
       await _timerService.initialize();
+      
+      // 🆕 IMPORTANT: Clear any WebSocket disconnect flags before starting
+      await prefs.remove(TimerService.websocketDisconnectTimeKey);
       
       // Check overlay permission using TimerService
       final hasPermission = await _timerService.checkOverlayPermission();
@@ -74,7 +234,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
             await _actuallyStartFocusMode();
           } else {
             // User still hasn't granted permission
-            // Show another popup explaining they need it
             await _showPermissionRequiredPopup();
             setState(() {
               _isStartingFocusMode = false;
@@ -97,7 +256,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
       
       // Check if error is about overlay permission
       if (e.toString().contains('Overlay permission required')) {
-        // Show permission popup
         final shouldOpenSettings = await _showPermissionPopup();
         
         if (shouldOpenSettings == true) {
@@ -106,8 +264,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
           final newPermissionStatus = await _timerService.checkOverlayPermission();
           
           if (newPermissionStatus) {
-            // Try again with permission granted
-            await _timerService.startFocusMode(skipPermissionCheck: true);
             await _actuallyStartFocusMode();
           } else {
             await _showPermissionRequiredPopup();
@@ -126,6 +282,107 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
         _isStartingFocusMode = false;
       });
     }
+  }
+
+  Future<void> _showWebSocketErrorPopup() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.wifi_off, color: Colors.red, size: 28),
+              SizedBox(width: 10),
+              Text('Connection Error'),
+            ],
+          ),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Unable to start Focus Mode. The app is not connected to the server.',
+                style: TextStyle(fontSize: 14),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Please check your internet connection and try again.',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text(
+                'CANCEL',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Row(
+                      children: [
+                        SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Text('Reconnecting...'),
+                      ],
+                    ),
+                    duration: Duration(seconds: 3),
+                  ),
+                );
+                
+                await WebSocketManager.cleanReconnect();
+                await Future.delayed(const Duration(milliseconds: 1500));
+                
+                if (WebSocketManager.isConnected) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Connected successfully!'),
+                      backgroundColor: Colors.green,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Reconnection failed. Please check your connection.'),
+                      backgroundColor: Colors.red,
+                      duration: Duration(seconds: 3),
+                    ),
+                  );
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF43E97B),
+              ),
+              child: const Text(
+                'RETRY',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<bool?> _showPermissionPopup() async {
@@ -168,7 +425,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop(false); // Cancel
+                Navigator.of(context).pop(false);
               },
               child: const Text(
                 'CANCEL',
@@ -177,14 +434,14 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.of(context).pop(true); // OK
+                Navigator.of(context).pop(true);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF43E97B),
+              ),
               child: const Text(
                 'OK',
                 style: TextStyle(color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF43E97B),
               ),
             ),
           ],
@@ -242,11 +499,9 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
               onPressed: () async {
                 Navigator.of(context).pop();
                 await openAppSettings();
-                // Check permission again after returning
                 await Future.delayed(const Duration(milliseconds: 500));
                 final hasPermission = await _timerService.checkOverlayPermission();
                 if (hasPermission) {
-                  // Start focus mode if permission granted
                   await _actuallyStartFocusMode();
                 } else {
                   setState(() {
@@ -254,12 +509,12 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
                   });
                 }
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF43E97B),
+              ),
               child: const Text(
                 'OPEN SETTINGS',
                 style: TextStyle(color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF43E97B),
               ),
             ),
           ],
@@ -289,6 +544,11 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
 
   Future<void> _actuallyStartFocusMode() async {
     try {
+      debugPrint('🚀 Starting focus mode with current time: ${_focusTimeToday.inSeconds}s');
+      
+      // 🆕 IMPORTANT: Update TimerService with current focus time before starting
+      _timerService.focusTimeToday.value = _focusTimeToday;
+      
       // Start focus mode
       await _timerService.startFocusMode();
       
@@ -318,21 +578,17 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
     }
   }
 
-  // Method to send focus_start event via WebSocket
   void _sendFocusStartEvent() {
     try {
-      // Always try to send the event directly
       WebSocketManager.send({"event": "focus_start"});
       debugPrint('📤 WebSocket event sent: {"event": "focus_start"}');
     } catch (e) {
       debugPrint('❌ Error sending focus_start event: $e');
       
-      // Try to reconnect WebSocket if sending failed
       try {
         WebSocketManager.connect();
         debugPrint('🔄 Attempting to reconnect WebSocket...');
         
-        // Try sending again after a short delay
         Future.delayed(const Duration(milliseconds: 300), () {
           try {
             WebSocketManager.send({"event": "focus_start"});
@@ -357,6 +613,40 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
+          
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Failed to initialize timer',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    snapshot.error.toString(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _initializationFuture = _initializeData();
+                      });
+                    },
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            );
+          }
+          
+          // 🆕 Get the actual focus time with proper fallback
+          final Duration focusTime = snapshot.data ?? Duration.zero;
           
           return Padding(
             padding: const EdgeInsets.all(24.0),
@@ -423,11 +713,25 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
                     children: [
                       _buildStatItem(
                         icon: Icons.timer,
-                        value: _formatDuration(snapshot.data ?? Duration.zero),
+                        value: _formatDuration(focusTime),
                         label: 'Focus Today',
                         color: const Color(0xFF43E97B),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 8),
+                      // 🆕 Show restoration status
+                      if (_isRestoredFromDisconnect)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Restored from last session',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[700],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ),
+                      const SizedBox(height: 8),
                       _buildPermissionStatus(),
                     ],
                   ),
@@ -567,6 +871,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

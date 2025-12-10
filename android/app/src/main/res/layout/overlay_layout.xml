@@ -6,36 +6,38 @@
     android:clickable="true"
     android:focusable="true">
 
+    <!-- Main overlay content -->
     <LinearLayout
+        android:id="@+id/main_content"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:orientation="vertical"
         android:background="@android:color/white"
         android:gravity="center"
-        android:padding="32dp"
+        android:padding="24dp"
         android:elevation="8dp"
-        android:layout_margin="24dp"
+        android:layout_margin="16dp"
         android:clickable="true"
         android:focusable="true">
 
         <!-- App Icon/Logo -->
         <ImageView
-            android:layout_width="80dp"
-            android:layout_height="80dp"
+            android:layout_width="64dp"
+            android:layout_height="64dp"
             android:src="@mipmap/ic_launcher"
             android:contentDescription="App Icon"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="16dp" />
 
         <!-- Title -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Focus Mode Active"
-            android:textSize="24sp"
+            android:textSize="22sp"
             android:textStyle="bold"
             android:textColor="@android:color/black"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="12dp" />
 
         <!-- Message -->
         <TextView
@@ -43,38 +45,86 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="You are in focus mode, focus on studies"
-            android:textSize="18sp"
+            android:textSize="16sp"
             android:textColor="#666666"
             android:gravity="center"
             android:layout_marginBottom="8dp"
-            android:paddingBottom="16dp"
+            android:paddingBottom="12dp"
             android:lineSpacingExtra="4dp" />
 
-        <!-- Instructions -->
-        <TextView
+        <!-- Allowed Apps Dropdown Header -->
+        <LinearLayout
+            android:id="@+id/allowed_apps_header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Stay focused on your studies. Avoid distractions to achieve your goals."
-            android:textSize="14sp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="12dp"
+            android:layout_marginBottom="16dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Allowed Apps"
+                android:textSize="16sp"
+                android:textColor="#FF9800"
+                android:textStyle="bold" />
+
+            <!-- Dropdown Arrow -->
+            <ImageView
+                android:id="@+id/dropdown_arrow"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@android:drawable/arrow_down_float"
+                android:tint="#FF9800" />
+        </LinearLayout>
+
+        <!-- Allowed Apps List (Initially hidden) -->
+        <ScrollView
+            android:id="@+id/allowed_apps_list_container"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:id="@+id/allowed_apps_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                <!-- Allowed apps will be added dynamically here -->
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- Instructions (shown when apps list is collapsed) -->
+        <TextView
+            android:id="@+id/instructions_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Stay focused on your studies. Click on 'Allowed Apps' to see available apps."
+            android:textSize="13sp"
             android:textColor="#888888"
             android:gravity="center"
-            android:layout_marginBottom="32dp"
+            android:layout_marginBottom="24dp"
             android:lineSpacingExtra="4dp" />
 
-        <!-- Return Button -->
+        <!-- Return to Study Button -->
         <Button
             android:id="@+id/return_button"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="48dp"
             android:text="RETURN TO STUDY"
-            android:textSize="16sp"
+            android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="@android:color/white"
-            android:background="@color/colorPrimary"
+            android:background="#FF9800"
             android:gravity="center"
             android:elevation="4dp"
-            android:padding="16dp" />
-
+            android:padding="12dp" />
     </LinearLayout>
-
 </FrameLayout>

@@ -8,7 +8,7 @@ import '../../../service/auth_service.dart';
 import '../../../service/api_config.dart';
 import '../../../common/theme_color.dart';
 import 'package:intl/intl.dart';
-import '../exam_schedule/start_exam.dart';
+import '../exam_schedule/exam_instruction.dart';
 import '../../mock_test/mock_test.dart';
 import 'dart:ui' show FontFeature;
 import 'dart:async';
@@ -20,15 +20,24 @@ class ExamScheduleScreen extends StatefulWidget {
   State<ExamScheduleScreen> createState() => _ExamScheduleScreenState();
 }
 
-class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
+class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTickerProviderStateMixin {
   final AuthService _authService = AuthService();
-  List<Map<String, dynamic>> _exams = [];
-  List<Map<String, dynamic>> _filteredExams = [];
+  List<Map<String, dynamic>> _allExams = [];
   bool _isLoading = true;
   String _errorMessage = '';
   int _currentIndex = 1;
+  
+  // Tab and filter related variables
+  late TabController _tabController;
   String _selectedFilter = 'All';
-  String studentType = '';
+  
+  // Separate filtered lists for each tab
+  List<Map<String, dynamic>> _dailyExams = [];
+  List<Map<String, dynamic>> _mockExams = [];
+  
+  // Store filtered versions for each filter type
+  Map<String, List<Map<String, dynamic>>> _dailyFilteredCache = {};
+  Map<String, List<Map<String, dynamic>>> _mockFilteredCache = {};
   
   // Notification-related variables
   Set<String> _notificationExamIds = {}; // IDs from notifications
@@ -42,7 +51,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
   @override
   void initState() {
     super.initState();
-    _loadStudentType();
+    _tabController = TabController(length: 2, vsync: this);
     _loadUnreadNotifications(); // Load unread notifications first
     _fetchExamSchedule();
     _setupExamStatusRefresh();
@@ -51,6 +60,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _countdownTimer?.cancel();
     
     // Mark all exams as viewed synchronously before dispose completes
@@ -61,7 +71,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     super.dispose();
   }
 
-  // Add this new synchronous method in exam_schedule.dart
   void _markAllExamsAsViewedSync() {
     SharedPreferences.getInstance().then((prefs) {
       debugPrint('=== MARKING ALL EXAMS AS VIEWED (SYNC) ===');
@@ -74,7 +83,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       
       // Save updated unread notifications (without exam notifications)
       prefs.setString('unread_notifications', jsonEncode(_unreadNotifications));
-      debugPrint('Updated unread_notifications saved (exams removed)');
+      debugPrint('Updated unread notifications saved (exams removed)');
       
       // Send mark_read API request in background
       _sendMarkReadAPI(_examNotificationIds);
@@ -122,38 +131,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       }
     } catch (e) {
       debugPrint('Error loading unread notifications: $e');
-    }
-  }
-
-  // Mark all exams as viewed and send to API
-  Future<void> _markAllExamsAsViewed() async {
-    try {
-      if (_examNotificationIds.isEmpty) {
-        debugPrint('No exam notifications to mark as viewed');
-        return;
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      
-      debugPrint('=== MARKING ALL EXAMS AS VIEWED ===');
-      debugPrint('Notification IDs to mark: $_examNotificationIds');
-      
-      // Remove exam notifications from unread_notifications
-      _unreadNotifications.removeWhere((notification) => 
-          notification['data'] != null && 
-          notification['data']['type'] == 'exam');
-      
-      // Save updated unread notifications (without exam notifications)
-      await prefs.setString('unread_notifications', jsonEncode(_unreadNotifications));
-      debugPrint('Updated unread_notifications saved (exams removed): $_unreadNotifications');
-      
-      // Send mark_read API request
-      await _sendMarkReadAPI(_examNotificationIds);
-      
-      debugPrint('=== ALL EXAMS MARKED AS VIEWED ===\n');
-      
-    } catch (e) {
-      debugPrint('Error marking exams as viewed: $e');
     }
   }
 
@@ -256,7 +233,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     final now = DateTime.now();
     _examCountdowns.clear();
     
-    for (var exam in _filteredExams) {
+    // Update countdowns for all exams
+    for (var exam in _allExams) {
       final examStartTime = _getExamStartDateTime(exam);
       if (examStartTime != null) {
         final difference = examStartTime.difference(now);
@@ -274,7 +252,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       DateTime examDate = DateTime.parse(exam['date']);
       String? startTime = exam['start_time'];
       
-      if (startTime != null) {
+      if (startTime != null && startTime != 'None') {
         List<String> startParts = startTime.split(':');
         return DateTime(
           examDate.year,
@@ -309,13 +287,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     });
   }
 
-  Future<void> _loadStudentType() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      studentType = prefs.getString('profile_student_type') ?? '';
-    });
-  }
-
   http.Client _createHttpClientWithCustomCert() {
     final client = ApiConfig.createHttpClient();
     return IOClient(client);
@@ -341,7 +312,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       try {
         Future<http.Response> makeExamRequest(String token) {
           return client.get(
-            Uri.parse('${ApiConfig.currentBaseUrl}/api/attendance/listexam_schedul/'),
+            Uri.parse('${ApiConfig.currentBaseUrl}/api/attendance/exams/view/'),
             headers: {
               ...ApiConfig.commonHeaders,
               'Authorization': 'Bearer $token',
@@ -375,13 +346,10 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
           if (responseData['success'] == true && responseData['exams'] != null) {
             setState(() {
-              _exams = List<Map<String, dynamic>>.from(responseData['exams']);
-              _filteredExams = _exams;
+              _allExams = List<Map<String, dynamic>>.from(responseData['exams']);
+              _categorizeAndCacheExams();
               _isLoading = false;
             });
-
-            // Sort exams by date and status
-            _sortAndCategorizeExams();
           } else {
             setState(() {
               _errorMessage = 'No exams found';
@@ -427,9 +395,48 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     }
   }
 
-  void _sortAndCategorizeExams() {
+  void _categorizeAndCacheExams() {
+    // Clear existing lists
+    _dailyExams.clear();
+    _mockExams.clear();
+    _dailyFilteredCache.clear();
+    _mockFilteredCache.clear();
+    
+    // Categorize exams by type
+    for (var exam in _allExams) {
+      String examType = exam['exam_type']?.toString().toUpperCase() ?? 'DAILY';
+      if (examType == 'MOCK') {
+        _mockExams.add(exam);
+      } else {
+        _dailyExams.add(exam);
+      }
+    }
+    
+    // Sort both lists
+    _sortExams(_dailyExams);
+    _sortExams(_mockExams);
+    
+    // Cache filtered versions for all filter types
+    _cacheFilteredExams();
+  }
+
+  void _cacheFilteredExams() {
+    // Cache for Daily Exams
+    _dailyFilteredCache['All'] = _dailyExams;
+    _dailyFilteredCache['Today'] = _filterExamsByDate(_dailyExams, 'Today');
+    _dailyFilteredCache['Upcoming'] = _filterExamsByDate(_dailyExams, 'Upcoming');
+    _dailyFilteredCache['Past'] = _filterExamsByDate(_dailyExams, 'Past');
+    
+    // Cache for Mock Exams
+    _mockFilteredCache['All'] = _mockExams;
+    _mockFilteredCache['Today'] = _filterExamsByDate(_mockExams, 'Today');
+    _mockFilteredCache['Upcoming'] = _filterExamsByDate(_mockExams, 'Upcoming');
+    _mockFilteredCache['Past'] = _filterExamsByDate(_mockExams, 'Past');
+  }
+
+  void _sortExams(List<Map<String, dynamic>> examList) {
     // Sort exams: NEW exams first, then active, then upcoming, then past
-    _filteredExams.sort((a, b) {
+    examList.sort((a, b) {
       String aExamId = a['id'] ?? '';
       String bExamId = b['id'] ?? '';
       
@@ -479,11 +486,45 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     });
   }
 
+  List<Map<String, dynamic>> _filterExamsByDate(List<Map<String, dynamic>> exams, String filter) {
+    DateTime now = DateTime.now();
+    DateTime today = DateTime(now.year, now.month, now.day);
+
+    switch (filter) {
+      case 'Today':
+        return exams.where((exam) {
+          DateTime examDate = DateTime.parse(exam['date']);
+          DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
+          return examDay.isAtSameMomentAs(today);
+        }).toList();
+      case 'Upcoming':
+        return exams.where((exam) {
+          DateTime examDate = DateTime.parse(exam['date']);
+          DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
+          return examDay.isAfter(today) || 
+                 (examDay.isAtSameMomentAs(today) && 
+                  !_isExamActive(exam) &&
+                  !_isExamPast(exam));
+        }).toList();
+      case 'Past':
+        return exams.where((exam) {
+          return _isExamPast(exam);
+        }).toList();
+      default: // All
+        return exams;
+    }
+  }
+
+  List<Map<String, dynamic>> _getFilteredExams(bool isDailyTest) {
+    final cache = isDailyTest ? _dailyFilteredCache : _mockFilteredCache;
+    return cache[_selectedFilter] ?? (isDailyTest ? _dailyExams : _mockExams);
+  }
+
   DateTime _getExamEndTime(Map<String, dynamic> exam) {
     try {
       DateTime examDate = DateTime.parse(exam['date']);
       String? endTime = exam['end_time'];
-      if (endTime != null) {
+      if (endTime != null && endTime != 'None') {
         List<String> endParts = endTime.split(':');
         return DateTime(
           examDate.year,
@@ -503,60 +544,15 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
   void _filterExams(String filter) {
     setState(() {
       _selectedFilter = filter;
-      
-      DateTime now = DateTime.now();
-      DateTime today = DateTime(now.year, now.month, now.day);
-
-      switch (filter) {
-        case 'Today':
-          _filteredExams = _exams.where((exam) {
-            DateTime examDate = DateTime.parse(exam['date']);
-            DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
-            return examDay.isAtSameMomentAs(today);
-          }).toList();
-          break;
-        case 'Upcoming':
-          _filteredExams = _exams.where((exam) {
-            DateTime examDate = DateTime.parse(exam['date']);
-            DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
-            return examDay.isAfter(today) || 
-                   (examDay.isAtSameMomentAs(today) && 
-                    !_isExamActive(exam) &&
-                    !_isExamPast(exam));
-          }).toList();
-          break;
-        case 'Past':
-          _filteredExams = _exams.where((exam) {
-            return _isExamPast(exam);
-          }).toList();
-          break;
-        default: // All
-          _filteredExams = _exams;
-      }
-      
-      if (filter == 'All') {
-        _sortAndCategorizeExams();
-      } else {
-        _sortExamsByDate();
-      }
     });
   }
 
-  void _sortExamsByDate() {
-    _filteredExams.sort((a, b) {
-      DateTime dateA = DateTime.parse(a['date']);
-      DateTime dateB = DateTime.parse(b['date']);
-      return dateA.compareTo(dateB); // Chronological order for specific filters
-    });
-  }
-
-  // MODIFIED: Improved exam status detection that handles both cases (with and without end_time)
   bool _isExamActive(Map<String, dynamic> exam) {
     String date = exam['date'];
     String? startTime = exam['start_time'];
     String? endTime = exam['end_time'];
 
-    if (startTime == null) return false;
+    if (startTime == null || startTime == 'None') return false;
 
     try {
       DateTime now = DateTime.now();
@@ -573,8 +569,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
         startParts.length > 2 ? int.parse(startParts[2]) : 0,
       );
 
-      // If end_time is provided, check if current time is between start and end
-      if (endTime != null) {
+      // If end_time is provided and not 'None', check if current time is between start and end
+      if (endTime != null && endTime != 'None') {
         List<String> endParts = endTime.split(':');
         DateTime endDateTime = DateTime(
           examDate.year,
@@ -587,7 +583,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
         return now.isAfter(startDateTime) && now.isBefore(endDateTime);
       } else {
-        // If no end_time, exam is active for the entire day after start time
+        // If no end_time or end_time is 'None', exam is active for the entire day after start time
         DateTime endOfDay = DateTime(
           examDate.year,
           examDate.month,
@@ -603,7 +599,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     }
   }
 
-  // MODIFIED: Improved past exam detection that handles both cases
   bool _isExamPast(Map<String, dynamic> exam) {
     String date = exam['date'];
     String? endTime = exam['end_time'];
@@ -612,8 +607,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
       DateTime now = DateTime.now();
       DateTime examDate = DateTime.parse(date);
       
-      // If end_time is provided, check if current time is after end time
-      if (endTime != null) {
+      // If end_time is provided and not 'None', check if current time is after end time
+      if (endTime != null && endTime != 'None') {
         List<String> endParts = endTime.split(':');
         DateTime endDateTime = DateTime(
           examDate.year,
@@ -626,7 +621,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
         return now.isAfter(endDateTime);
       } else {
-        // If no end_time, exam is past after the exam date ends
+        // If no end_time or end_time is 'None', exam is past after the exam date ends
         DateTime nextDay = DateTime(
           examDate.year,
           examDate.month,
@@ -647,235 +642,41 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     }
   }
 
-  // MODIFIED: Improved upcoming exam detection
-  bool _isExamUpcoming(Map<String, dynamic> exam) {
-    String date = exam['date'];
-    String? startTime = exam['start_time'];
-
-    if (startTime == null) {
-      // If no start time, check if the date is after today
-      DateTime examDate = DateTime.parse(date);
-      DateTime today = DateTime.now();
-      DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
-      DateTime currentDay = DateTime(today.year, today.month, today.day);
-      return examDay.isAfter(currentDay);
+  void _navigateToExamInstruction(Map<String, dynamic> exam) async {
+    String examId = exam['id'] ?? '';
+    bool isNewExam = _notificationExamIds.contains(examId);
+    
+    // If this exam has NEW badge, remove it from the set
+    if (isNewExam) {
+      // Remove the exam ID from notification set immediately for UI update
+      setState(() {
+        _notificationExamIds.remove(examId);
+      });
+      
+      // Update the cached filtered lists to reflect the change
+      _categorizeAndCacheExams();
     }
-
-    try {
-      DateTime now = DateTime.now();
-      DateTime examDate = DateTime.parse(date);
-      
-      // Parse start time
-      List<String> startParts = startTime.split(':');
-      DateTime startDateTime = DateTime(
-        examDate.year,
-        examDate.month,
-        examDate.day,
-        int.parse(startParts[0]),
-        int.parse(startParts[1]),
-        startParts.length > 2 ? int.parse(startParts[2]) : 0,
-      );
-
-      return now.isBefore(startDateTime);
-    } catch (e) {
-      debugPrint('Error checking exam upcoming status: $e');
-      
-      // Fallback: check if the date is after today
-      DateTime examDate = DateTime.parse(date);
-      DateTime today = DateTime.now();
-      DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
-      DateTime currentDay = DateTime(today.year, today.month, today.day);
-      return examDay.isAfter(currentDay);
-    }
-  }
-
-  // MODIFIED: Updated button state detection to use the improved methods
-  String _getExamButtonState(Map<String, dynamic> exam) {
-    if (_isExamActive(exam)) {
-      return 'Start Exam';
-    } else if (_isExamPast(exam)) {
-      return 'Exam Completed';
-    } else {
-      return 'Scheduled';
-    }
-  }
-
-  Future<void> _startExam(Map<String, dynamic> exam) async {
-    try {
-      final String examId = exam['id'] ?? '';
-      if (examId.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invalid exam ID'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-        return;
-      }
-
-      // Encode the exam ID
-      String encodedId = Uri.encodeComponent(examId);
-      
-      // Show loading dialog instead of setting state
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return PopScope(
-            canPop: false,
-            child: Dialog(
-              backgroundColor: Colors.transparent,
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(
-                      color: AppColors.primaryYellow,
-                      strokeWidth: 3,
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'Loading your exam...',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Please wait',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textGrey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      );
-
-      String accessToken = await _authService.getAccessToken();
-
-      if (accessToken.isEmpty) {
-        debugPrint('No access token found');
-        Navigator.pop(context); // Close loading dialog
-        _navigateToLogin();
-        return;
-      }
-
-      final client = _createHttpClientWithCustomCert();
-
-      try {
-        final response = await client.get(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/attendance/listexam_file/?exam_id=$encodedId'),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
-          },
-        ).timeout(ApiConfig.requestTimeout);
-
-        debugPrint('Start Exam response status: ${response.statusCode}');
-        debugPrint('Start Exam response body: ${response.body}');
-
-        // Close loading dialog
-        Navigator.pop(context);
-
-        if (response.statusCode == 200) {
-          final responseData = json.decode(response.body);
-
-          if (responseData['success'] == true) {
-            final String fileUrl = responseData['file_url'] ?? '';
-            final String examTitle = responseData['title'] ?? exam['title'] ?? 'Exam';
-            final String subject = responseData['subject'] ?? exam['subject_name'] ?? 'Subject';
-            final String examIdFromResponse = responseData['exam_id'] ?? examId;
-            
-            if (fileUrl.isNotEmpty) {
-              // Navigate to StartExamScreen
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => StartExamScreen(
-                    examId: examIdFromResponse,
-                    title: examTitle,
-                    subject: subject,
-                    fileUrl: fileUrl,
-                  ),
-                ),
-              );
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('No exam file available for $examTitle'),
-                  backgroundColor: AppColors.errorRed,
-                ),
-              );
-            }
-          } else {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Failed to start exam: ${responseData['message'] ?? 'Unknown error'}'),
-                backgroundColor: AppColors.errorRed,
-              ),
-            );
-          }
-        } else if (response.statusCode == 401) {
-          debugPrint('⚠️ Access token expired, trying refresh...');
-          final newAccessToken = await _authService.refreshAccessToken();
-
-          if (newAccessToken != null && newAccessToken.isNotEmpty) {
-            // Retry with new token
-            await _startExam(exam);
-          } else {
-            await _authService.logout();
-            _navigateToLogin();
-          }
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Failed to start exam: ${response.statusCode}'),
-              backgroundColor: AppColors.errorRed,
-            ),
-          );
-        }
-      } catch (e) {
-        // Close loading dialog if still open
-        if (Navigator.canPop(context)) {
-          Navigator.pop(context);
-        }
-        
-        debugPrint('Error in exam request: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error starting exam: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      } finally {
-        client.close();
-      }
-    } catch (e) {
-      debugPrint('Error starting exam: $e');
-      
-      // Close loading dialog if still open
-      if (Navigator.canPop(context)) {
-        Navigator.pop(context);
-      }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error starting exam: $e'),
-          backgroundColor: AppColors.errorRed,
+    
+    // Navigate to the exam instruction screen
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ExamInstructionScreen(
+          examId: exam['id'] ?? '',
+          examTitle: exam['title'] ?? 'Untitled Exam',
+          examDate: exam['date'] ?? '',
+          startTime: exam['start_time'] ?? '',
+          endTime: exam['end_time'] ?? '',
+          subject: exam['subject'] ?? '',
+          isNewExam: isNewExam,
         ),
-      );
+      ),
+    );
+    
+    // When returning from exam instruction, refresh the data
+    if (mounted) {
+      await _fetchExamSchedule();
+      await _loadUnreadNotifications(); // Reload notifications to update state
     }
   }
 
@@ -921,8 +722,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isOnlineStudent = studentType.toLowerCase() == 'online';
-
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
       body: Column(
@@ -969,6 +768,30 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
             ),
           ),
 
+          // Tabs for Daily Test and Mock Test
+          Container(
+            color: Colors.white,
+            child: TabBar(
+              controller: _tabController,
+              labelColor: AppColors.primaryYellow,
+              unselectedLabelColor: AppColors.textGrey,
+              indicatorColor: AppColors.primaryYellow,
+              indicatorWeight: 3,
+              labelStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.normal,
+              ),
+              tabs: const [
+                Tab(text: 'Daily Test'),
+                Tab(text: 'Mock Test'),
+              ],
+            ),
+          ),
+
           // Filter Chips
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
@@ -990,94 +813,109 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
           // Exam List
           Expanded(
-            child: _isLoading
-                ? _buildSkeletonLoading()
-                : _errorMessage.isNotEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.error_outline_rounded,
-                              size: 50,
-                              color: AppColors.errorRed,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _errorMessage,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                color: AppColors.textGrey,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              onPressed: _fetchExamSchedule,
-                              icon: const Icon(Icons.refresh_rounded, size: 16),
-                              label: const Text('Retry', style: TextStyle(fontSize: 13)),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primaryYellow,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 10,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _filteredExams.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                const Icon(
-                                  Icons.calendar_today_rounded,
-                                  size: 50,
-                                  color: AppColors.grey400,
-                                ),
-                                const SizedBox(height: 12),
-                                const Text(
-                                  'No exams found',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textDark,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  _selectedFilter == 'All'
-                                      ? 'No exams scheduled yet'
-                                      : 'No $_selectedFilter exams',
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : RefreshIndicator(
-                            color: AppColors.primaryYellow,
-                            onRefresh: _fetchExamSchedule,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              itemCount: _filteredExams.length,
-                              itemBuilder: (context, index) {
-                                return _buildExamCard(_filteredExams[index]);
-                              },
-                            ),
-                          ),
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // Daily Test Tab Content
+                _buildExamList(true),
+                // Mock Test Tab Content  
+                _buildExamList(false),
+              ],
+            ),
           ),
         ],
       ),
     );
+  }
+
+  Widget _buildExamList(bool isDailyTest) {
+    final exams = _getFilteredExams(isDailyTest);
+    
+    return _isLoading
+        ? _buildSkeletonLoading()
+        : _errorMessage.isNotEmpty
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      size: 50,
+                      color: AppColors.errorRed,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      _errorMessage,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textGrey,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _fetchExamSchedule,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Retry', style: TextStyle(fontSize: 13)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primaryYellow,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : exams.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.calendar_today_rounded,
+                          size: 50,
+                          color: AppColors.grey400,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'No exams found',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'No ${isDailyTest ? 'Daily Test' : 'Mock Test'} exams ${_selectedFilter == 'All' ? '' : _selectedFilter.toLowerCase()}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textGrey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    color: AppColors.primaryYellow,
+                    onRefresh: _fetchExamSchedule,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemCount: exams.length,
+                      itemBuilder: (context, index) {
+                        return GestureDetector(
+                          onTap: () => _navigateToExamInstruction(exams[index]),
+                          child: _buildExamCard(exams[index], isDailyTest),
+                        );
+                      },
+                    ),
+                  );
   }
 
   // Skeleton Loading Widget
@@ -1226,17 +1064,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            
-            // Skeleton Button
-            Container(
-              width: double.infinity,
-              height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.grey300,
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
           ],
         ),
       ),
@@ -1278,7 +1105,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     );
   }
 
-  Widget _buildExamCard(Map<String, dynamic> exam) {
+  Widget _buildExamCard(Map<String, dynamic> exam, bool isDailyTest) {
     DateTime examDate = DateTime.parse(exam['date']);
     String formattedDate = DateFormat('MMM dd, yyyy').format(examDate);
     String? startTime = exam['start_time'];
@@ -1287,8 +1114,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     bool isPast = _isExamPast(exam);
     bool isToday = examDate.isToday();
     
-    String buttonState = _getExamButtonState(exam);
-    
     // Check if exam has countdown
     String examId = exam['id'] ?? '';
     Duration? countdown = _examCountdowns[examId];
@@ -1296,6 +1121,13 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     
     // Check if this exam has a notification (NEW badge)
     bool isNewExam = _notificationExamIds.contains(examId);
+    
+    // Check if mark is available
+    dynamic mark = exam['mark'];
+    bool hasMark = mark != null && mark.toString().isNotEmpty;
+    
+    // Determine card color based on tab
+    Color cardColor = isDailyTest ? AppColors.primaryYellow : AppColors.primaryBlue;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -1305,14 +1137,14 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
         border: isActive
             ? Border.all(color: AppColors.successGreen, width: 1.5)
             : showCountdown
-                ? Border.all(color: AppColors.primaryYellow, width: 1.5)
+                ? Border.all(color: cardColor, width: 1.5)
                 : null,
         boxShadow: [
           BoxShadow(
             color: isActive
                 ? AppColors.successGreen.withOpacity(0.15)
                 : showCountdown
-                    ? AppColors.primaryYellow.withOpacity(0.15)
+                    ? cardColor.withOpacity(0.15)
                     : Colors.black.withOpacity(0.06),
             blurRadius: 8,
             offset: const Offset(0, 3),
@@ -1335,8 +1167,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
                         color: isPast
                             ? AppColors.grey300
                             : isToday
-                                ? AppColors.primaryYellow.withOpacity(0.15)
-                                : AppColors.primaryBlue.withOpacity(0.15),
+                                ? cardColor.withOpacity(0.15)
+                                : cardColor.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Row(
@@ -1347,8 +1179,8 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
                             color: isPast
                                 ? AppColors.textGrey
                                 : isToday
-                                    ? AppColors.primaryYellow
-                                    : AppColors.primaryBlue,
+                                    ? cardColor
+                                    : cardColor,
                           ),
                           const SizedBox(width: 4),
                           Text(
@@ -1359,15 +1191,43 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
                               color: isPast
                                   ? AppColors.textGrey
                                   : isToday
-                                      ? AppColors.primaryYellow
-                                      : AppColors.primaryBlue,
+                                      ? cardColor
+                                      : cardColor,
                             ),
                           ),
                         ],
                       ),
                     ),
                     const Spacer(),
-                    if (isActive)
+                    
+                    // Show mark if available
+                    if (hasMark)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppColors.successGreen.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.grade_rounded,
+                              size: 12,
+                              color: AppColors.successGreen,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Mark: $mark',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.successGreen,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (isActive)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
@@ -1400,7 +1260,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: AppColors.primaryYellow.withOpacity(0.15),
+                          color: cardColor.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Column(
@@ -1417,18 +1277,18 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.timer_rounded,
                                   size: 12,
-                                  color: AppColors.primaryYellow,
+                                  color: cardColor,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
-                                  _formatCountdown(countdown),
-                                  style: const TextStyle(
+                                  _formatCountdown(countdown!),
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.primaryYellow,
+                                    color: cardColor,
                                     fontFeatures: [FontFeature.tabularFigures()],
                                   ),
                                 ),
@@ -1455,99 +1315,28 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
 
                 const SizedBox(height: 8),
 
-                // Subject and Course Info
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildInfoRow(
-                        Icons.book_rounded,
-                        exam['subject_name'] ?? 'N/A',
-                        AppColors.primaryYellow,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _buildInfoRow(
-                        Icons.school_rounded,
-                        '${exam['course_name']} - ${exam['subcourse_name']}',
-                        AppColors.primaryBlue,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 8),
-
                 // Time Info
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.access_time_rounded,
                       size: 14,
-                      color: AppColors.textGrey,
+                      color: isPast ? AppColors.textGrey : cardColor,
                     ),
                     const SizedBox(width: 4),
-                    Text(
-                      startTime != null
-                          ? '${_formatTime(startTime)}${endTime != null ? ' - ${_formatTime(endTime)}' : ''}'
-                          : 'Time not specified',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppColors.textGrey,
-                        fontWeight: FontWeight.w500,
+                    Expanded(
+                      child: Text(
+                        startTime != null && startTime != 'None'
+                            ? '${_formatTime(startTime)}${endTime != null && endTime != 'None' ? ' - ${_formatTime(endTime)}' : ''}'
+                            : 'Time not specified',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isPast ? AppColors.textGrey : AppColors.textDark,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
-                ),
-
-                const SizedBox(height: 12),
-
-                // Start Exam Button
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: isActive ? () => _startExam(exam) : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isActive
-                          ? AppColors.successGreen
-                          : isPast
-                              ? AppColors.grey300
-                              : showCountdown
-                                  ? AppColors.primaryYellow
-                                  : AppColors.primaryYellow,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: AppColors.grey300,
-                      disabledForegroundColor: AppColors.textGrey,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      elevation: isActive ? 3 : 0,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          isActive
-                              ? Icons.play_circle_filled_rounded
-                              : isPast
-                                  ? Icons.check_circle_rounded
-                                  : showCountdown
-                                      ? Icons.access_time_rounded
-                                      : Icons.schedule_rounded,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          buttonState,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -1579,40 +1368,10 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> {
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String text, Color color) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(5),
-          ),
-          child: Icon(
-            icon,
-            size: 12,
-            color: color,
-          ),
-        ),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            text,
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.textGrey,
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-
   String _formatTime(String time) {
     try {
+      if (time == 'None') return 'Not specified';
+      
       List<String> parts = time.split(':');
       int hour = int.parse(parts[0]);
       int minute = int.parse(parts[1]);

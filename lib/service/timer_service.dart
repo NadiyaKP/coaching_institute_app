@@ -3,14 +3,15 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/services.dart'; // 🆕 Added for MethodChannel
+import 'package:flutter/services.dart'; 
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 class TimerService {
   static final TimerService _instance = TimerService._internal();
   factory TimerService() => _instance;
   TimerService._internal();
 
-  // Public static keys for SharedPreferences (GLOBAL - not user-specific)
+  // SharedPreferences Keys
   static const String focusKey = 'focus_time_today';
   static const String lastDateKey = 'last_timer_date';
   static const String isFocusModeKey = 'is_focus_mode';
@@ -18,6 +19,17 @@ class TimerService {
   static const String focusElapsedKey = 'focus_elapsed_before_pause';
   static const String lastUserEmailKey = 'last_timer_user_email';
   static const String overlayPermissionKey = 'overlay_permission_granted';
+  static const String appStateKey = 'app_last_state';
+  static const String lastHeartbeatKey = 'last_heartbeat_time';
+  static const String heartbeatDateKey = 'heartbeat_date';
+  static const String lastStoredFocusTimeKey = 'last_stored_focus_time';
+  static const String lastStoredFocusDateKey = 'last_stored_focus_date';
+  static const String websocketDisconnectTimeKey = 'websocket_disconnect_time';
+  
+  // 🆕 WebSocket state tracking
+  static bool _isWebSocketConnected = false;
+  static DateTime? _lastWebSocketDisconnectTime;
+  StreamSubscription? _websocketSubscription;
 
   final ValueNotifier<bool> _isFocusMode = ValueNotifier<bool>(false);
   ValueNotifier<bool> get isFocusMode => _isFocusMode;
@@ -26,275 +38,441 @@ class TimerService {
   ValueNotifier<Duration> get focusTimeToday => _focusTimeToday;
 
   Timer? _activeTimer;
+  Timer? _heartbeatTimer;
   DateTime? _timerStartTime;
+  Duration _baseTimeWhenTimerStarted = Duration.zero; // 🔥 NEW: Track base time when timer starts
   bool _isInitialized = false;
   String? _currentUserEmail;
   bool _hasOverlayPermission = false;
+  DateTime? _lastAppResumeTime;
+  bool _appInForeground = true;
 
-  // 🆕 Getter for overlay permission
   bool get hasOverlayPermission => _hasOverlayPermission;
-
-  // 🆕 Method channel for native overlay
   static const MethodChannel _overlayChannel = MethodChannel('focus_mode_overlay_channel');
 
-  // Initialize background service
+  // Initialize WebSocket monitoring
+  Future<void> _initializeWebSocketMonitoring() async {
+    try {
+      _startWebSocketMonitor();
+    } catch (e) {
+      debugPrint('❌ WebSocket monitoring init error: $e');
+    }
+  }
+
+  void _startWebSocketMonitor() {
+    Timer.periodic(const Duration(seconds: 2), (timer) async {
+      try {
+        final bool wasConnected = _isWebSocketConnected;
+        
+        // Replace this with actual WebSocket connection check
+        _isWebSocketConnected = true; // TODO: Replace with actual check
+        
+        if (wasConnected && !_isWebSocketConnected) {
+          debugPrint('🔌 WebSocket disconnected - stopping focus mode');
+          _handleWebSocketDisconnection();
+        } else if (!wasConnected && _isWebSocketConnected) {
+          debugPrint('🔗 WebSocket reconnected');
+          _lastWebSocketDisconnectTime = null;
+        }
+      } catch (e) {
+        debugPrint('❌ WebSocket monitor error: $e');
+      }
+    });
+  }
+
+  Future<void> _handleWebSocketDisconnection() async {
+    try {
+      if (_isFocusMode.value) {
+        debugPrint('⏸️ WebSocket disconnected - pausing focus timer');
+        
+        await _storeFocusTimeOnDisconnect();
+        
+        _isFocusMode.value = false;
+        _stopActiveTimer();
+        _stopHeartbeat();
+        
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(isFocusModeKey, false);
+        
+        _lastWebSocketDisconnectTime = DateTime.now();
+        await prefs.setString(websocketDisconnectTimeKey, 
+            _lastWebSocketDisconnectTime!.toIso8601String());
+        
+        final currentTime = _focusTimeToday.value.inSeconds;
+        await prefs.setInt(lastStoredFocusTimeKey, currentTime);
+        final today = DateTime.now().toIso8601String().split('T')[0];
+        await prefs.setString(lastStoredFocusDateKey, today);
+        
+        debugPrint('✅ Focus mode paused due to WebSocket disconnect');
+        debugPrint('💾 Stored focus time: ${currentTime}s on $today');
+      }
+    } catch (e) {
+      debugPrint('❌ Error handling WebSocket disconnection: $e');
+    }
+  }
+
+  Future<void> _storeFocusTimeOnDisconnect() async {
+    try {
+      if (_timerStartTime != null) {
+        final prefs = await SharedPreferences.getInstance();
+        final now = DateTime.now();
+        final today = now.toIso8601String().split('T')[0];
+        
+        final elapsed = now.difference(_timerStartTime!);
+        final newTotal = _baseTimeWhenTimerStarted + elapsed;
+        
+        await prefs.setInt(focusKey, newTotal.inSeconds);
+        await prefs.setInt(lastStoredFocusTimeKey, newTotal.inSeconds);
+        await prefs.setString(lastStoredFocusDateKey, today);
+        
+        debugPrint('💾 Focus time saved on disconnect: ${newTotal.inSeconds}s');
+        debugPrint('📅 Saved date: $today');
+        
+        _focusTimeToday.value = newTotal;
+      }
+    } catch (e) {
+      debugPrint('❌ Error storing focus time on disconnect: $e');
+    }
+  }
+
+  Future<void> _checkAndRestoreFocusTime() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      
+      final lastStoredTime = prefs.getInt(lastStoredFocusTimeKey);
+      final lastStoredDate = prefs.getString(lastStoredFocusDateKey);
+      
+      if (lastStoredTime != null && lastStoredDate != null) {
+        debugPrint('📊 Last stored focus time: $lastStoredTime seconds on $lastStoredDate');
+        debugPrint('📅 Today: $today');
+        
+        if (lastStoredDate != today) {
+          debugPrint('📅 Date changed - resetting timer');
+          await prefs.remove(lastStoredFocusTimeKey);
+          await prefs.remove(lastStoredFocusDateKey);
+          await prefs.setInt(focusKey, 0);
+          _focusTimeToday.value = Duration.zero;
+        } else {
+          final savedTime = prefs.getInt(focusKey) ?? 0;
+          if (savedTime < lastStoredTime) {
+            debugPrint('🔄 Restoring focus time from last session');
+            await prefs.setInt(focusKey, lastStoredTime);
+            _focusTimeToday.value = Duration(seconds: lastStoredTime);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error checking/restoring focus time: $e');
+    }
+  }
+
   static Future<void> initializeBackgroundService() async {
-    await Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: false,
-    );
-    
+    await Workmanager().initialize(callbackDispatcher, isInDebugMode: false);
     debugPrint('✅ TimerService: Background service initialized');
   }
 
-  // Callback for background work
   @pragma('vm:entry-point')
   static void callbackDispatcher() {
     Workmanager().executeTask((task, inputData) async {
       try {
         final prefs = await SharedPreferences.getInstance();
-        final today = DateTime.now().toIso8601String().split('T')[0];
+        
+        final accessToken = prefs.getString('accessToken');
+        final username = prefs.getString('username');
+        
+        if (accessToken == null || username == null) {
+          debugPrint('❌ Background: User not logged in');
+          await Workmanager().cancelAll();
+          return Future.value(true);
+        }
+        
+        final now = DateTime.now();
+        final today = now.toIso8601String().split('T')[0];
         final lastDate = prefs.getString(lastDateKey);
         
-        // Check if it's a new day
-        if (lastDate != today) {
+        if (lastDate != null && lastDate != today) {
+          debugPrint('📅 Background: New day, resetting');
           await prefs.setString(lastDateKey, today);
           await prefs.setInt(focusKey, 0);
           await prefs.setBool(isFocusModeKey, false);
           await prefs.remove(focusStartTimeKey);
           await prefs.remove(focusElapsedKey);
+          await prefs.remove(appStateKey);
+          await prefs.remove(lastHeartbeatKey);
+          await prefs.setString(heartbeatDateKey, today);
+          await prefs.remove(lastStoredFocusTimeKey);
+          await prefs.remove(lastStoredFocusDateKey);
+          await prefs.remove(websocketDisconnectTimeKey);
+          return Future.value(true);
         }
         
-        // Update focus timer if active
-        final isFocusActive = prefs.getBool(isFocusModeKey) ?? false;
-        if (isFocusActive) {
-          final startTimeStr = prefs.getString(focusStartTimeKey);
+        final disconnectTimeStr = prefs.getString(websocketDisconnectTimeKey);
+        if (disconnectTimeStr != null) {
+          final disconnectTime = DateTime.parse(disconnectTimeStr);
+          final timeSinceDisconnect = now.difference(disconnectTime);
           
-          if (startTimeStr != null) {
-            final startTime = DateTime.parse(startTimeStr);
-            final elapsedBeforePause = Duration(seconds: prefs.getInt(focusElapsedKey) ?? 0);
-            final now = DateTime.now();
-            final elapsed = now.difference(startTime) + elapsedBeforePause;
-            
-            final currentTotal = Duration(seconds: prefs.getInt(focusKey) ?? 0);
-            final newTotal = currentTotal + elapsed;
-            
-            await prefs.setInt(focusKey, newTotal.inSeconds);
+          if (timeSinceDisconnect < const Duration(minutes: 5)) {
+            final isFocusActive = prefs.getBool(isFocusModeKey) ?? false;
+            if (isFocusActive) {
+              debugPrint('🔌 Background: WebSocket was disconnected, stopping focus');
+              await prefs.setBool(isFocusModeKey, false);
+              await prefs.remove(focusStartTimeKey);
+              await prefs.remove(focusElapsedKey);
+              await prefs.remove(lastHeartbeatKey);
+            }
+          } else {
+            await prefs.remove(websocketDisconnectTimeKey);
           }
         }
         
         return Future.value(true);
       } catch (e) {
+        debugPrint('❌ Background error: $e');
         return Future.value(true);
       }
     });
   }
 
-  // 🆕 Check overlay permission
+  void _startHeartbeat() {
+    _stopHeartbeat();
+    debugPrint('💓 Starting heartbeat');
+    _sendHeartbeat();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      if (_isFocusMode.value && _appInForeground) {
+        _sendHeartbeat();
+      }
+    });
+  }
+
+  Future<void> _sendHeartbeat() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      final today = now.toIso8601String().split('T')[0];
+      
+      await prefs.setString(lastHeartbeatKey, now.toIso8601String());
+      await prefs.setString(heartbeatDateKey, today);
+      
+      debugPrint('💓 Heartbeat: ${now.toIso8601String()}');
+    } catch (e) {
+      debugPrint('❌ Heartbeat error: $e');
+    }
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
+  Future<void> _saveAppState(String state) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(appStateKey, state);
+    } catch (e) {
+      debugPrint('❌ Save state error: $e');
+    }
+  }
+
+  Future<void> shutdownForLogout() async {
+    debugPrint('🔴 SHUTDOWN FOR LOGOUT');
+    try {
+      _stopHeartbeat();
+      await Workmanager().cancelAll();
+      await Future.delayed(const Duration(milliseconds: 500));
+      _stopActiveTimer();
+      await _forceHideOverlayWithRetries();
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(isFocusModeKey, false);
+      await prefs.remove(focusStartTimeKey);
+      await prefs.remove(focusElapsedKey);
+      await prefs.remove(focusKey);
+      await prefs.remove(lastDateKey);
+      await prefs.remove(appStateKey);
+      await prefs.remove(lastHeartbeatKey);
+      await prefs.remove(heartbeatDateKey);
+      await prefs.setBool(overlayPermissionKey, false);
+      await prefs.remove(lastStoredFocusTimeKey);
+      await prefs.remove(lastStoredFocusDateKey);
+      await prefs.remove(websocketDisconnectTimeKey);
+      
+      _resetInstance();
+      
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _forceHideOverlayWithRetries();
+      
+      debugPrint('✅ SHUTDOWN COMPLETE');
+    } catch (e) {
+      debugPrint('❌ Shutdown error: $e');
+      await _forceHideOverlayWithRetries();
+    }
+  }
+
+  Future<void> _forceHideOverlayWithRetries() async {
+    for (int i = 1; i <= 5; i++) {
+      try {
+        final result = await _overlayChannel.invokeMethod('hideOverlay');
+        if (result == true) {
+          await Future.delayed(const Duration(milliseconds: 200));
+          await _overlayChannel.invokeMethod('hideOverlay');
+          return;
+        }
+        if (i < 5) await Future.delayed(Duration(milliseconds: 300 * i));
+      } catch (e) {
+        if (i < 5) await Future.delayed(Duration(milliseconds: 300 * i));
+      }
+    }
+  }
+
   Future<bool> checkOverlayPermission() async {
     try {
       final status = await Permission.systemAlertWindow.status;
       _hasOverlayPermission = status.isGranted;
-      
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(overlayPermissionKey, _hasOverlayPermission);
-      
-      debugPrint('🎯 TimerService: Overlay permission status: $_hasOverlayPermission');
       return _hasOverlayPermission;
     } catch (e) {
-      debugPrint('❌ TimerService: Error checking overlay permission: $e');
       return false;
     }
   }
 
-  // 🆕 Request overlay permission
   Future<bool> requestOverlayPermission() async {
     try {
       final status = await Permission.systemAlertWindow.request();
       _hasOverlayPermission = status.isGranted;
-      
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(overlayPermissionKey, _hasOverlayPermission);
-      
-      debugPrint('🎯 TimerService: Overlay permission requested - granted: $_hasOverlayPermission');
       return _hasOverlayPermission;
     } catch (e) {
-      debugPrint('❌ TimerService: Error requesting overlay permission: $e');
       return false;
     }
   }
 
-  // 🆕 NEW: Show overlay (called when app goes to background)
   Future<void> showOverlay() async {
     try {
-      if (_isFocusMode.value && _hasOverlayPermission) {
-        debugPrint('🎯 TimerService: Showing overlay (app in background)');
-        final result = await _overlayChannel.invokeMethod('showOverlay', {
+      if (_isFocusMode.value && _hasOverlayPermission && !_appInForeground) {
+        await _overlayChannel.invokeMethod('showOverlay', {
           'message': 'You are in focus mode, focus on studies',
         });
-        
-        if (result == true) {
-          debugPrint('✅ TimerService: Overlay shown successfully');
-        } else {
-          debugPrint('⚠️ TimerService: Failed to show overlay');
-        }
       }
-    } on PlatformException catch (e) {
-      debugPrint('❌ TimerService: Error showing overlay: ${e.message}');
     } catch (e) {
-      debugPrint('❌ TimerService: Unexpected error showing overlay: $e');
+      debugPrint('❌ Show overlay error: $e');
     }
   }
 
-  // 🆕 NEW: Hide overlay (called when app comes to foreground)
   Future<void> hideOverlay() async {
     try {
-      debugPrint('🎯 TimerService: Hiding overlay (app in foreground)');
-      final result = await _overlayChannel.invokeMethod('hideOverlay');
-      
-      if (result == true) {
-        debugPrint('✅ TimerService: Overlay hidden successfully');
-      } else {
-        debugPrint('⚠️ TimerService: Failed to hide overlay');
-      }
-    } on PlatformException catch (e) {
-      debugPrint('❌ TimerService: Error hiding overlay: ${e.message}');
+      await _overlayChannel.invokeMethod('hideOverlay');
     } catch (e) {
-      debugPrint('❌ TimerService: Unexpected error hiding overlay: $e');
+      debugPrint('❌ Hide overlay error: $e');
     }
   }
 
-  // 🆕 Get current user email from SharedPreferences
   Future<String?> _getCurrentUserEmail() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    String? userEmail = prefs.getString('username');
-    
-    if (userEmail == null || userEmail.isEmpty) {
-      userEmail = prefs.getString('profile_email');
-    }
-    
-    if (userEmail == null || userEmail.isEmpty) {
-      userEmail = prefs.getString('user_email');
-    }
-    
-    debugPrint('📧 TimerService looking for user email:');
-    debugPrint('   - Found email: $userEmail');
-    
-    return userEmail;
+    return prefs.getString('username') ?? 
+           prefs.getString('profile_email') ?? 
+           prefs.getString('user_email');
   }
 
-  // Initialize timer service
   Future<void> initialize() async {
     try {
-      debugPrint('🔄 TimerService: Initializing...');
+      debugPrint('🔄 Initializing...');
       final prefs = await SharedPreferences.getInstance();
       
-      // Get current user email
       _currentUserEmail = await _getCurrentUserEmail();
-      
       if (_currentUserEmail == null || _currentUserEmail!.isEmpty) {
-        debugPrint('👤 TimerService: No user email found in SharedPreferences');
         _resetInstance();
         return;
       }
       
-      debugPrint('👤 TimerService: User email found: $_currentUserEmail');
-      
-      // 🆕 Check overlay permission
       _hasOverlayPermission = prefs.getBool(overlayPermissionKey) ?? false;
-      debugPrint('🎯 TimerService: Loaded overlay permission: $_hasOverlayPermission');
       
-      // Check if user changed since last initialization
       final lastUserEmail = prefs.getString(lastUserEmailKey);
-      
       if (lastUserEmail != _currentUserEmail) {
-        debugPrint('👤 TimerService: User changed from $lastUserEmail to $_currentUserEmail');
-        debugPrint('🧹 Clearing all timer data for new user...');
-        
-        await prefs.remove(focusKey);
-        await prefs.remove(lastDateKey);
-        await prefs.remove(isFocusModeKey);
-        await prefs.remove(focusStartTimeKey);
-        await prefs.remove(focusElapsedKey);
-        
-        await prefs.setString(lastDateKey, DateTime.now().toIso8601String().split('T')[0]);
-        await prefs.setInt(focusKey, 0);
-        await prefs.setBool(isFocusModeKey, false);
-        
+        debugPrint('👤 User changed, clearing data');
+        await _clearUserData(prefs);
         _resetInstance();
-        
-        debugPrint('✅ Timer data cleared for new user: $_currentUserEmail');
       } else if (_isInitialized) {
-        debugPrint('⚠️ TimerService: Already initialized for user $_currentUserEmail');
         return;
       }
       
-      // Check if it's a new day
       final lastDate = prefs.getString(lastDateKey);
       final today = DateTime.now().toIso8601String().split('T')[0];
       
       if (lastDate != today) {
-        debugPrint('📅 TimerService: New day detected, resetting timers');
+        debugPrint('📅 New day, resetting');
         await prefs.setString(lastDateKey, today);
+        await prefs.setString(heartbeatDateKey, today);
         await prefs.setInt(focusKey, 0);
         _focusTimeToday.value = Duration.zero;
         await prefs.setBool(isFocusModeKey, false);
         await prefs.remove(focusStartTimeKey);
         await prefs.remove(focusElapsedKey);
+        await prefs.remove(appStateKey);
+        await prefs.remove(lastHeartbeatKey);
+        await prefs.remove(lastStoredFocusTimeKey);
+        await prefs.remove(lastStoredFocusDateKey);
+        await prefs.remove(websocketDisconnectTimeKey);
       } else {
-        final savedSeconds = prefs.getInt(focusKey) ?? 0;
-        _focusTimeToday.value = Duration(seconds: savedSeconds);
-        debugPrint('📊 TimerService: Loaded focus time: ${_formatDuration(_focusTimeToday.value)}');
+        await _checkAndRestoreFocusTime();
       }
       
       _isFocusMode.value = prefs.getBool(isFocusModeKey) ?? false;
-      debugPrint('🎯 TimerService: Focus mode active: ${_isFocusMode.value}');
       
-      // If focus mode is active, start the timer
-      if (_isFocusMode.value) {
+      if (_isFocusMode.value && _appInForeground) {
         final startTimeStr = prefs.getString(focusStartTimeKey);
         final elapsedSeconds = prefs.getInt(focusElapsedKey) ?? 0;
         
         if (startTimeStr != null) {
           _timerStartTime = DateTime.parse(startTimeStr);
           _focusTimeToday.value += Duration(seconds: elapsedSeconds);
-          debugPrint('⏱️ TimerService: Resuming timer from saved state');
-          debugPrint('   - Start time: $_timerStartTime');
-          debugPrint('   - Elapsed before: ${elapsedSeconds}s');
-          debugPrint('   - Total: ${_focusTimeToday.value.inSeconds}s');
           _startFocusTimer();
+          _startHeartbeat();
         } else {
-          debugPrint('⚠️ TimerService: Focus mode active but no start time found');
           _isFocusMode.value = false;
           await prefs.setBool(isFocusModeKey, false);
         }
       }
       
       await _registerBackgroundTask();
-      
       await prefs.setString(lastUserEmailKey, _currentUserEmail!);
+      await _saveAppState('resumed');
       _isInitialized = true;
-      debugPrint('✅ TimerService: Initialization complete for user: $_currentUserEmail');
       
-      debugPrint('📋 TimerService Current State:');
-      debugPrint('   - Focus Time: ${_focusTimeToday.value.inSeconds} seconds');
-      debugPrint('   - Focus Mode: ${_isFocusMode.value}');
-      debugPrint('   - Timer Active: ${_activeTimer != null}');
-      debugPrint('   - Start Time: $_timerStartTime');
-      debugPrint('   - Overlay Permission: $_hasOverlayPermission');
+      await _initializeWebSocketMonitoring();
       
+      debugPrint('✅ Initialized for: $_currentUserEmail');
     } catch (e) {
-      debugPrint('❌ TimerService: Error during initialization: $e');
+      debugPrint('❌ Init error: $e');
       rethrow;
     }
   }
 
-  // 🆕 Helper method to register background task with proper configuration
+  Future<void> _clearUserData(SharedPreferences prefs) async {
+    await prefs.remove(focusKey);
+    await prefs.remove(lastDateKey);
+    await prefs.remove(isFocusModeKey);
+    await prefs.remove(focusStartTimeKey);
+    await prefs.remove(focusElapsedKey);
+    await prefs.remove(appStateKey);
+    await prefs.remove(lastHeartbeatKey);
+    await prefs.remove(heartbeatDateKey);
+    await prefs.remove(lastStoredFocusTimeKey);
+    await prefs.remove(lastStoredFocusDateKey);
+    await prefs.remove(websocketDisconnectTimeKey);
+    
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    await prefs.setString(lastDateKey, today);
+    await prefs.setString(heartbeatDateKey, today);
+    await prefs.setInt(focusKey, 0);
+    await prefs.setBool(isFocusModeKey, false);
+  }
+
   Future<void> _registerBackgroundTask() async {
     try {
       await Workmanager().cancelAll();
-      
       await Workmanager().registerPeriodicTask(
         "timer_update_task",
         "timer_background_update",
@@ -307,200 +485,259 @@ class TimerService {
         ),
         existingWorkPolicy: ExistingWorkPolicy.replace,
         initialDelay: const Duration(seconds: 10),
-        inputData: <String, dynamic>{
-          'silent': true,
-          'notification_title': 'Study Timer',
-          'notification_body': 'Tracking your study time...',
-        },
       );
-      
-      debugPrint('✅ Background task registered (silent mode)');
     } catch (e) {
-      debugPrint('❌ Error registering background task: $e');
+      debugPrint('❌ Background task error: $e');
     }
   }
 
-  // 🆕 Modified: Start focus mode with permission check
+  // 🔥 FIXED: startFocusMode method
   Future<void> startFocusMode({bool skipPermissionCheck = false}) async {
-    debugPrint('🚀 TimerService: Starting focus mode for user: $_currentUserEmail');
-    
     try {
-      // First, ensure we have the current user
       if (_currentUserEmail == null) {
         _currentUserEmail = await _getCurrentUserEmail();
-        if (_currentUserEmail == null) {
-          throw Exception('No user logged in');
-        }
+        if (_currentUserEmail == null) throw Exception('No user');
       }
       
-      // 🆕 Check overlay permission if not skipping
-      if (!skipPermissionCheck) {
-        final hasPermission = await checkOverlayPermission();
-        if (!hasPermission) {
-          debugPrint('🎯 TimerService: Overlay permission not granted');
-          throw Exception('Overlay permission required');
-        }
+      if (!skipPermissionCheck && !await checkOverlayPermission()) {
+        throw Exception('Overlay permission required');
       }
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(websocketDisconnectTimeKey);
+      
+      // 🔥 CRITICAL: Save the current accumulated time as the base
+      final currentSavedSeconds = prefs.getInt(focusKey) ?? 0;
+      _baseTimeWhenTimerStarted = Duration(seconds: currentSavedSeconds);
+      
+      debugPrint('🚀 Starting focus mode with base time: ${currentSavedSeconds}s');
       
       _isFocusMode.value = true;
       _timerStartTime = DateTime.now();
+      _appInForeground = true;
       
-      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      
       await prefs.setBool(isFocusModeKey, true);
       await prefs.setString(focusStartTimeKey, _timerStartTime!.toIso8601String());
+      await prefs.setString(lastDateKey, today);
+      await prefs.setString(heartbeatDateKey, today);
       await prefs.remove(focusElapsedKey);
-      
-      debugPrint('   - Start time: $_timerStartTime');
-      debugPrint('   - User: $_currentUserEmail');
-      debugPrint('   - Overlay Permission: $_hasOverlayPermission');
+      await _saveAppState('resumed');
       
       _startFocusTimer();
-      
-      await prefs.setInt(focusKey, _focusTimeToday.value.inSeconds);
+      _startHeartbeat();
       
       await _registerBackgroundTask();
       
-      debugPrint('✅ TimerService: Focus mode started successfully');
-      debugPrint('   - Timer started at: ${DateTime.now()}');
-      debugPrint('   - Current focus time: ${_focusTimeToday.value.inSeconds}s');
-      
+      debugPrint('✅ Focus mode started');
     } catch (e) {
-      debugPrint('❌ TimerService: Error starting focus mode: $e');
+      debugPrint('❌ Start focus error: $e');
       _isFocusMode.value = false;
+      _stopHeartbeat();
       rethrow;
     }
   }
 
-  // Stop focus mode
+  // 🔥 FIXED: stopFocusMode method
   Future<void> stopFocusMode() async {
-    debugPrint('🛑 TimerService: Stopping focus mode');
-    
     try {
+      debugPrint('🛑 Stopping focus mode...');
+      
       _isFocusMode.value = false;
       _stopActiveTimer();
+      _stopHeartbeat();
       
-      // 🆕 Hide overlay when stopping focus mode
-      if (_hasOverlayPermission) {
-        await hideOverlay();
-      }
+      if (_hasOverlayPermission) await hideOverlay();
       
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(isFocusModeKey, false);
       
       if (_timerStartTime != null) {
         final elapsed = DateTime.now().difference(_timerStartTime!);
-        await prefs.setInt(focusElapsedKey, elapsed.inSeconds);
-        debugPrint('   - Elapsed time saved: ${elapsed.inSeconds}s');
         
-        _focusTimeToday.value += elapsed;
+        // 🔥 CRITICAL: Use the base time that was set when timer STARTED
+        final finalTotal = _baseTimeWhenTimerStarted + elapsed;
+        
+        _focusTimeToday.value = finalTotal;
+        
+        await prefs.setInt(focusKey, finalTotal.inSeconds);
+        await prefs.setInt(lastStoredFocusTimeKey, finalTotal.inSeconds);
+        
+        final today = DateTime.now().toIso8601String().split('T')[0];
+        await prefs.setString(lastStoredFocusDateKey, today);
+        
+        debugPrint('✅ Final focus time saved: ${finalTotal.inSeconds}s (${_formatDuration(finalTotal)})');
+        debugPrint('   - Base time when started: ${_baseTimeWhenTimerStarted.inSeconds}s');
+        debugPrint('   - Session elapsed: ${elapsed.inSeconds}s');
+        debugPrint('   - Final total: ${finalTotal.inSeconds}s');
+      } else {
+        debugPrint('⚠️ No timer start time found, using current value: ${_focusTimeToday.value.inSeconds}s');
+        
         await prefs.setInt(focusKey, _focusTimeToday.value.inSeconds);
+        await prefs.setInt(lastStoredFocusTimeKey, _focusTimeToday.value.inSeconds);
+        
+        final today = DateTime.now().toIso8601String().split('T')[0];
+        await prefs.setString(lastStoredFocusDateKey, today);
       }
       
+      await prefs.setBool(isFocusModeKey, false);
       await prefs.remove(focusStartTimeKey);
+      await prefs.remove(focusElapsedKey);
+      await prefs.remove(lastHeartbeatKey);
       
-      debugPrint('✅ TimerService: Focus mode stopped successfully');
-      debugPrint('   - Total focus time: ${_focusTimeToday.value.inSeconds}s');
+      await _saveAppState('stopped');
+      
+      _timerStartTime = null;
+      _baseTimeWhenTimerStarted = Duration.zero;
+      
+      debugPrint('✅ Focus mode stopped successfully');
       
     } catch (e) {
-      debugPrint('❌ TimerService: Error stopping focus mode: $e');
+      debugPrint('❌ Error stopping focus mode: $e');
+      
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool(isFocusModeKey, false);
+        _isFocusMode.value = false;
+        _stopActiveTimer();
+        _stopHeartbeat();
+        _timerStartTime = null;
+        _baseTimeWhenTimerStarted = Duration.zero;
+      } catch (cleanupError) {
+        debugPrint('❌ Error during cleanup: $cleanupError');
+      }
+      
       rethrow;
     }
   }
 
-  // 🆕 UPDATED: Handle app paused with overlay
+  Future<void> handleWebSocketDisconnection() async {
+    await _handleWebSocketDisconnection();
+  }
+
+  Future<bool> wasFocusStoppedByWebSocket() async {
+    final prefs = await SharedPreferences.getInstance();
+    final disconnectTimeStr = prefs.getString(websocketDisconnectTimeKey);
+    return disconnectTimeStr != null;
+  }
+
+  Future<Duration?> getLastStoredFocusTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final seconds = prefs.getInt(lastStoredFocusTimeKey);
+    return seconds != null ? Duration(seconds: seconds) : null;
+  }
+
+  Future<String?> getLastStoredFocusDate() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(lastStoredFocusDateKey);
+  }
+
   Future<void> handleAppPaused() async {
-    debugPrint('📱 TimerService: App paused');
-    
+    _appInForeground = false;
     if (_isFocusMode.value && _timerStartTime != null) {
-      debugPrint('📱 App paused, saving timer state...');
       final prefs = await SharedPreferences.getInstance();
       final elapsed = DateTime.now().difference(_timerStartTime!);
       await prefs.setInt(focusElapsedKey, elapsed.inSeconds);
-      debugPrint('   - Elapsed time saved for background: ${elapsed.inSeconds}s');
-      
-      // 🆕 Show overlay if permission is granted
+      await _saveAppState('paused');
+      await _sendHeartbeat();
       if (_hasOverlayPermission) {
-        // Wait a moment before showing overlay to ensure app is in background
         await Future.delayed(const Duration(milliseconds: 500));
         await showOverlay();
       }
     }
   }
 
-  // 🆕 UPDATED: Handle app resumed with overlay
   Future<void> handleAppResumed() async {
-    debugPrint('📱 TimerService: App resumed');
+    _appInForeground = true;
+    _lastAppResumeTime = DateTime.now();
     
     if (_isFocusMode.value) {
-      debugPrint('📱 App resumed, checking timer state...');
       final prefs = await SharedPreferences.getInstance();
       final startTimeStr = prefs.getString(focusStartTimeKey);
       final elapsedSeconds = prefs.getInt(focusElapsedKey) ?? 0;
       
+      await _saveAppState('resumed');
+      
       if (startTimeStr != null) {
         _timerStartTime = DateTime.parse(startTimeStr);
         _focusTimeToday.value += Duration(seconds: elapsedSeconds);
-        debugPrint('   - Timer resumed with ${elapsedSeconds}s background time');
         _startFocusTimer();
+        _startHeartbeat();
       }
       
-      // 🆕 Hide overlay when app comes to foreground
-      if (_hasOverlayPermission) {
-        await hideOverlay();
-      }
+      if (_hasOverlayPermission) await hideOverlay();
     }
   }
 
-  // Private timer methods
-  void _startFocusTimer() {
-    debugPrint('⏱️ TimerService: Starting focus timer');
+  Future<void> logout() async {
+    try {
+      await shutdownForLogout();
+    } catch (e) {
+      await _forceHideOverlayWithRetries();
+    }
+  }
+
+  Future<void> handleAppDetached() async {
+    _stopActiveTimer();
+    _stopHeartbeat();
+    await _saveAppState('detached');
     
+    if (_isFocusMode.value && _timerStartTime != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final elapsed = DateTime.now().difference(_timerStartTime!);
+      final finalTotal = _baseTimeWhenTimerStarted + elapsed;
+      _focusTimeToday.value = finalTotal;
+      await prefs.setInt(focusKey, finalTotal.inSeconds);
+      await prefs.setInt(lastStoredFocusTimeKey, finalTotal.inSeconds);
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      await prefs.setString(lastStoredFocusDateKey, today);
+      
+      _isFocusMode.value = false;
+      await prefs.setBool(isFocusModeKey, false);
+    }
+    
+    if (_hasOverlayPermission) await hideOverlay();
+  }
+
+  // 🔥 FIXED: _startFocusTimer method
+  void _startFocusTimer() {
     _stopActiveTimer();
     
-    _activeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_timerStartTime != null && _isFocusMode.value) {
-        final now = DateTime.now();
-        final elapsed = now.difference(_timerStartTime!);
+    debugPrint('⏱️ Starting timer with base: ${_baseTimeWhenTimerStarted.inSeconds}s');
+    
+    _activeTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (_timerStartTime != null && _isFocusMode.value && _appInForeground) {
+        final elapsed = DateTime.now().difference(_timerStartTime!);
         
-        SharedPreferences.getInstance().then((prefs) {
-          try {
-            final savedSeconds = prefs.getInt(focusKey) ?? 0;
-            final elapsedBefore = Duration(seconds: prefs.getInt(focusElapsedKey) ?? 0);
-            final total = Duration(seconds: savedSeconds) + elapsedBefore + elapsed;
-            
-            if (_focusTimeToday.value != total) {
-              _focusTimeToday.value = total;
-            }
-            
-            if (elapsed.inSeconds % 30 == 0) {
-              prefs.setInt(focusKey, total.inSeconds);
-            }
-          } catch (e) {
-            debugPrint('❌ Timer tick error: $e');
-          }
-        });
+        // 🔥 CRITICAL: Use base time from when timer started
+        final total = _baseTimeWhenTimerStarted + elapsed;
+        
+        if (_focusTimeToday.value != total) {
+          _focusTimeToday.value = total;
+        }
+        
+        if (elapsed.inSeconds % 30 == 0) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt(focusKey, total.inSeconds);
+          await prefs.setInt(lastStoredFocusTimeKey, total.inSeconds);
+          final today = DateTime.now().toIso8601String().split('T')[0];
+          await prefs.setString(lastStoredFocusDateKey, today);
+          debugPrint('💾 Auto-saved: ${total.inSeconds}s (base: ${_baseTimeWhenTimerStarted.inSeconds}s + elapsed: ${elapsed.inSeconds}s)');
+        }
       } else if (!_isFocusMode.value) {
         _stopActiveTimer();
       }
     });
-    
-    debugPrint('✅ TimerService: Timer started successfully');
   }
 
   void _stopActiveTimer() {
-    if (_activeTimer != null) {
-      _activeTimer!.cancel();
-      _activeTimer = null;
-      debugPrint('⏹️ TimerService: Timer stopped');
-    }
+    _activeTimer?.cancel();
+    _activeTimer = null;
   }
 
-  // 🆕 Clear ALL timer data (call this on logout)
   static Future<void> clearAllTimerData() async {
     try {
-      debugPrint('🧹 TimerService: Clearing ALL timer data...');
       final prefs = await SharedPreferences.getInstance();
-      
       await prefs.remove(focusKey);
       await prefs.remove(lastDateKey);
       await prefs.remove(isFocusModeKey);
@@ -508,54 +745,51 @@ class TimerService {
       await prefs.remove(focusElapsedKey);
       await prefs.remove(lastUserEmailKey);
       await prefs.remove(overlayPermissionKey);
+      await prefs.remove(appStateKey);
+      await prefs.remove(lastHeartbeatKey);
+      await prefs.remove(heartbeatDateKey);
+      await prefs.remove(lastStoredFocusTimeKey);
+      await prefs.remove(lastStoredFocusDateKey);
+      await prefs.remove(websocketDisconnectTimeKey);
       
-      try {
-        await Workmanager().cancelAll();
-        debugPrint('✅ All background tasks cancelled');
-      } catch (e) {
-        debugPrint('⚠️ Error cancelling background tasks: $e');
-      }
-      
-      final instance = TimerService();
-      instance._resetInstance();
-      
-      debugPrint('✅ TimerService: ALL timer data cleared successfully');
+      await Workmanager().cancelAll();
+      TimerService()._resetInstance();
     } catch (e) {
-      debugPrint('❌ TimerService: Error clearing timer data: $e');
+      debugPrint('❌ Clear data error: $e');
     }
   }
 
-  // Reset instance values
   void _resetInstance() {
     _stopActiveTimer();
+    _stopHeartbeat();
     _focusTimeToday.value = Duration.zero;
     _isFocusMode.value = false;
     _timerStartTime = null;
+    _baseTimeWhenTimerStarted = Duration.zero; // 🔥 RESET BASE TIME
     _isInitialized = false;
     _hasOverlayPermission = false;
+    _appInForeground = true;
+    _lastAppResumeTime = null;
+    _isWebSocketConnected = false;
+    _lastWebSocketDisconnectTime = null;
   }
 
-  // Get formatted time string
-  String getFormattedFocusTime() {
-    return _formatDuration(_focusTimeToday.value);
+  String getFormattedFocusTime() => _formatDuration(_focusTimeToday.value);
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours.toString().padLeft(2, '0');
+    final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
   }
 
-  String _formatDuration(Duration duration) {
-    final hours = duration.inHours.toString().padLeft(2, '0');
-    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
-    return '$hours:$minutes:$seconds';
-  }
-
-  // Cleanup
   void dispose() {
     if (_isInitialized) {
-      debugPrint('🗑️ TimerService: Disposing...');
       _stopActiveTimer();
+      _stopHeartbeat();
       _isFocusMode.dispose();
       _focusTimeToday.dispose();
       _isInitialized = false;
-      debugPrint('✅ TimerService: Disposed successfully');
     }
   }
 }

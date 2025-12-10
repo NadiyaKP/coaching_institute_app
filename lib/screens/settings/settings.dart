@@ -12,6 +12,12 @@ import '../../service/auth_service.dart';
 import '../../service/api_config.dart';
 import '../../common/theme_color.dart';
 import '../../service/websocket_manager.dart';
+import 'dart:async';
+import 'package:flutter/services.dart';
+import '../../service/focus_mode_overlay_service.dart'; 
+import '../../screens/focus_mode/focus_overlay_manager.dart';
+import '../../service/timer_service.dart';
+import 'package:workmanager/workmanager.dart';
 
 // ============= PROVIDER CLASS =============
 class SettingsProvider extends ChangeNotifier {
@@ -350,7 +356,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     builder: (context, settingsProvider, child) {
                       return Center(
                         child: SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.5, // 50% of screen width
+                          width: MediaQuery.of(context).size.width * 0.5,
                           child: ElevatedButton.icon(
                             onPressed: settingsProvider.isLoggingOut ? null : () => _showLogoutDialog(settingsProvider),
                             icon: const Icon(Icons.logout_rounded, size: 18),
@@ -787,7 +793,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onTap: () => _launchUrl('https://www.signaturecampus.com/'),
                     useSimpleIcon: false,
                   ),
-                  // Empty space for alignment
                   const SizedBox(width: 70),
                 ],
               ),
@@ -1116,7 +1121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           content: const Text(
-            'Are you sure you want to logout?',
+            'Are you sure you want to logout? This will stop any active focus mode timer.',
             style: TextStyle(
               fontSize: 15,
               color: AppColors.textDark,
@@ -1161,15 +1166,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
   }
-
-  // Perform Logout
-  // Perform Logout - Updated version with WebSocket disconnection
 Future<void> _performLogout(SettingsProvider settingsProvider) async {
   String? accessToken;
   
   try {
     settingsProvider.setLoggingOut(true);
     
+    // Show loading dialog
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1186,21 +1189,56 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       },
     );
 
-    // 1. DISCONNECT WEB SOCKET FIRST
+    // 🔴 CRITICAL STEP 1: Shutdown TimerService completely
+    debugPrint('🔴 STEP 1: Shutting down TimerService...');
     try {
-      await WebSocketManager.disconnect();
-      debugPrint('✅ WebSocket disconnected successfully');
+      final timerService = TimerService();
+      await timerService.shutdownForLogout();
+      debugPrint('✅ TimerService shutdown complete');
     } catch (e) {
-      debugPrint('⚠️ Error disconnecting WebSocket: $e');
-      // Continue with logout even if WebSocket disconnection fails
+      debugPrint('❌ Error shutting down TimerService: $e');
     }
     
+    // Wait to ensure everything is stopped
+    await Future.delayed(const Duration(seconds: 1));
+    
+    // 🔴 STEP 2: Cancel ALL background tasks again (double-check)
+    debugPrint('🔴 STEP 2: Cancelling background tasks...');
+    try {
+      await Workmanager().cancelAll();
+      debugPrint('✅ Background tasks cancelled');
+    } catch (e) {
+      debugPrint('❌ Error cancelling background tasks: $e');
+    }
+    
+    // 🔴 STEP 3: Hide all overlays with retries
+    debugPrint('🔴 STEP 3: Hiding all overlays...');
+    await _hideAllOverlaysWithRetries();
+    
+    // 🔴 STEP 4: Disconnect WebSocket
+    debugPrint('🔴 STEP 4: Disconnecting WebSocket...');
+    try {
+      _sendFocusEndEvent();
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      final disconnectFuture = WebSocketManager.forceDisconnect();
+      final timeoutFuture = Future.delayed(const Duration(seconds: 3));
+      await Future.any([disconnectFuture, timeoutFuture]);
+      
+      debugPrint('✅ WebSocket disconnected');
+      await Future.delayed(const Duration(milliseconds: 500));
+    } catch (e) {
+      debugPrint('⚠️ Error during WebSocket disconnect: $e');
+    }
+    
+    // 🔴 STEP 5: Get access token and send attendance
+    debugPrint('🔴 STEP 5: Sending attendance...');
     accessToken = await _authService.getAccessToken();
-    
     String endTime = DateTime.now().toIso8601String();
-    
     await _sendAttendanceData(accessToken, endTime);
     
+    // 🔴 STEP 6: Perform logout API call
+    debugPrint('🔴 STEP 6: Calling logout API...');
     final client = _createHttpClientWithCustomCert();
     
     try {
@@ -1210,7 +1248,7 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
           ...ApiConfig.commonHeaders,
           'Authorization': 'Bearer $accessToken',
         },
-      ).timeout(ApiConfig.requestTimeout);
+      ).timeout(const Duration(seconds: 10));
 
       debugPrint('Logout response status: ${response.statusCode}');
       debugPrint('Logout response body: ${response.body}');
@@ -1222,59 +1260,290 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       Navigator.of(context).pop(); // Close loading dialog
     }
     
+    // 🔴 STEP 7: Final cleanup and clear data
+    debugPrint('🔴 STEP 7: Final cleanup...');
+    await _clearOverlayFlags();
     await _clearLogoutData();
     
-  } on HandshakeException catch (e) {
-    debugPrint('SSL Handshake error: $e');
-    
-    if (mounted) {
-      Navigator.of(context).pop(); // Close loading dialog
-    }
-    
-    // Ensure WebSocket is disconnected even on error
-    try {
-      await WebSocketManager.disconnect();
-    } catch (_) {}
-    
-    String endTime = DateTime.now().toIso8601String();
-    await _sendAttendanceData(accessToken, endTime);
-    await _clearLogoutData();
-    
-  } on SocketException catch (e) {
-    debugPrint('Network error: $e');
-    
-    if (mounted) {
-      Navigator.of(context).pop(); // Close loading dialog
-    }
-    
-    // Ensure WebSocket is disconnected even on error
-    try {
-      await WebSocketManager.disconnect();
-    } catch (_) {}
-    
-    String endTime = DateTime.now().toIso8601String();
-    await _sendAttendanceData(accessToken, endTime);
-    await _clearLogoutData();
+    // 🔴 STEP 8: One more overlay hide after everything
+    await Future.delayed(const Duration(milliseconds: 500));
+    await _hideAllOverlaysWithRetries();
     
   } catch (e) {
-    debugPrint('Logout error: $e');
+    debugPrint('❌ Logout error: $e');
     
     if (mounted) {
       Navigator.of(context).pop(); // Close loading dialog
     }
     
-    // Ensure WebSocket is disconnected even on error
+    // Ensure cleanup on error
     try {
-      await WebSocketManager.disconnect();
+      await Workmanager().cancelAll();
+      await WebSocketManager.forceDisconnect();
+      await _hideAllOverlaysWithRetries();
+      await _clearOverlayFlags();
     } catch (_) {}
     
-    String endTime = DateTime.now().toIso8601String();
-    await _sendAttendanceData(accessToken, endTime);
     await _clearLogoutData();
+    
   } finally {
     settingsProvider.setLoggingOut(false);
+    
+    // Final safety cleanup
+    try {
+      await Workmanager().cancelAll();
+      await WebSocketManager.forceDisconnect();
+      await _hideAllOverlaysWithRetries();
+      await _clearOverlayFlags();
+    } catch (_) {}
   }
 }
+Future<void> _hideAllOverlaysWithRetries() async {
+  debugPrint('🎯 Hiding all overlays with retries...');
+  
+  for (int attempt = 1; attempt <= 3; attempt++) {
+    try {
+      debugPrint('🔄 Overlay hide attempt $attempt/3');
+      
+      // Method 1: FocusModeOverlayService
+      try {
+        final focusModeService = FocusModeOverlayService();
+        await focusModeService.hideOverlay();
+        debugPrint('✅ FocusModeOverlayService: Hidden');
+      } catch (e) {
+        debugPrint('⚠️ FocusModeOverlayService error: $e');
+      }
+      
+      // Method 2: FocusOverlayManager
+      try {
+        final overlayManager = FocusOverlayManager();
+        await overlayManager.initialize();
+        await overlayManager.hideOverlay();
+        debugPrint('✅ FocusOverlayManager: Hidden');
+      } catch (e) {
+        debugPrint('⚠️ FocusOverlayManager error: $e');
+      }
+      
+      // Method 3: Direct method channel (MOST IMPORTANT)
+      try {
+        const platform = MethodChannel('focus_mode_overlay_channel');
+        await platform.invokeMethod('hideOverlay');
+        await Future.delayed(const Duration(milliseconds: 100));
+        
+        // Try force hide if available
+        try {
+          await platform.invokeMethod('forceHideOverlay');
+        } catch (_) {}
+        
+        debugPrint('✅ Direct method channel: Hidden');
+      } catch (e) {
+        debugPrint('⚠️ Direct method channel error: $e');
+      }
+      
+      // Wait between attempts
+      if (attempt < 3) {
+        await Future.delayed(Duration(milliseconds: 500 * attempt));
+      }
+      
+    } catch (e) {
+      debugPrint('⚠️ Attempt $attempt error: $e');
+    }
+  }
+  
+  debugPrint('✅ All overlay hide attempts completed');
+}
+  // Hide all overlays comprehensively
+  Future<void> _hideAllOverlaysCompletely() async {
+    try {
+      debugPrint('🎯 Hiding all overlays completely...');
+      
+      // Method 1: Try FocusModeOverlayService
+      try {
+        final focusModeService = FocusModeOverlayService();
+        if (focusModeService.isOverlayVisible) {
+          await focusModeService.hideOverlay();
+          debugPrint('✅ FocusModeOverlayService: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with FocusModeOverlayService: $e');
+      }
+      
+      // Method 2: Try FocusOverlayManager
+      try {
+        final overlayManager = FocusOverlayManager();
+        await overlayManager.initialize();
+        if (overlayManager.isOverlayVisible) {
+          await overlayManager.hideOverlay();
+          debugPrint('✅ FocusOverlayManager: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      }
+      
+      // Method 3: Direct method channel calls
+      try {
+        const platform = MethodChannel('focus_mode_overlay_channel');
+        
+        // Try regular hide
+        await platform.invokeMethod('hideOverlay');
+        debugPrint('✅ Direct method channel: hideOverlay called');
+        
+        // Try force hide if available
+        await Future.delayed(const Duration(milliseconds: 100));
+        try {
+          await platform.invokeMethod('forceHideOverlay');
+          debugPrint('✅ Direct method channel: forceHideOverlay called');
+        } on PlatformException catch (e) {
+          debugPrint('⚠️ forceHideOverlay not available: ${e.message}');
+        }
+      } on PlatformException catch (e) {
+        debugPrint('⚠️ Direct method channel failed: ${e.message}');
+      } catch (e) {
+        debugPrint('⚠️ Direct method channel error: $e');
+      }
+      
+      // Wait to ensure overlays are hidden
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      // Clear SharedPreferences flags
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_focus_mode', false);
+      await prefs.setBool('overlay_visible', false);
+      
+      debugPrint('✅ All overlays hidden completely');
+      
+    } catch (e) {
+      debugPrint('❌ Error hiding all overlays completely: $e');
+    }
+  }
+
+  // Clear overlay flags in SharedPreferences
+  Future<void> _clearOverlayFlags() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Clear all focus mode and overlay related flags
+      await prefs.setBool('is_focus_mode', false);
+      await prefs.remove('focus_mode_start_time');
+      await prefs.remove('focus_time_today');
+      await prefs.remove('focus_elapsed_time');
+      await prefs.remove('overlay_visible');
+      await prefs.remove('overlay_permission_granted');
+      
+      debugPrint('✅ Overlay flags cleared from SharedPreferences');
+    } catch (e) {
+      debugPrint('❌ Error clearing overlay flags: $e');
+    }
+  }
+
+  // Stop focus mode for logout
+  Future<void> _stopFocusModeForLogout() async {
+    try {
+      // Check if focus mode is active
+      final prefs = await SharedPreferences.getInstance();
+      final bool isFocusModeActive = prefs.getBool('is_focus_mode') ?? false;
+      
+      if (!isFocusModeActive) {
+        debugPrint('⏱️ Focus mode not active, skipping stop');
+        return;
+      }
+      
+      debugPrint('⏱️ Stopping focus mode for logout...');
+      
+      // 1. Send WebSocket focus_end event
+      _sendFocusEndEvent();
+      
+      // 2. Clear focus mode flags in SharedPreferences
+      await prefs.setBool('is_focus_mode', false);
+      await prefs.remove('focus_mode_start_time');
+      
+      // 3. Clear today's focus time if needed
+      await prefs.remove('focus_time_today');
+      
+      // 4. Also clear TimerService specific keys
+      await prefs.remove(TimerService.focusStartTimeKey);
+      await prefs.remove(TimerService.focusElapsedKey);
+      await prefs.setBool(TimerService.isFocusModeKey, false);
+      
+      debugPrint('✅ Focus mode stopped successfully for logout');
+      
+    } catch (e) {
+      debugPrint('❌ Error stopping focus mode for logout: $e');
+    }
+  }
+
+  // Send focus end event
+  void _sendFocusEndEvent() {
+    try {
+      // Always try to send the event directly
+      WebSocketManager.send({"event": "focus_end"});
+      debugPrint('📤 WebSocket event sent from settings: {"event": "focus_end"}');
+    } catch (e) {
+      debugPrint('❌ Error sending focus_end event from settings: $e');
+      
+      // Try to reconnect WebSocket if sending failed
+      try {
+        WebSocketManager.connect();
+        debugPrint('🔄 Attempting to reconnect WebSocket from settings...');
+        
+        // Try sending again after a short delay
+        Future.delayed(const Duration(milliseconds: 300), () {
+          try {
+            WebSocketManager.send({"event": "focus_end"});
+            debugPrint('📤 Retry: WebSocket event sent from settings: {"event": "focus_end"}');
+          } catch (retryError) {
+            debugPrint('❌ Retry failed from settings: $retryError');
+          }
+        });
+      } catch (connectError) {
+        debugPrint('❌ WebSocket reconnection failed from settings: $connectError');
+      }
+    }
+  }
+
+  // HIDE FOCUS MODE OVERLAY (legacy method, kept for compatibility)
+  Future<void> _hideFocusModeOverlay() async {
+    try {
+      debugPrint('🎯 Hiding focus mode overlay...');
+      
+      // Try both overlay services to ensure overlay is hidden
+      try {
+        // Using FocusModeOverlayService
+        final focusModeService = FocusModeOverlayService();
+        if (focusModeService.isOverlayVisible) {
+          await focusModeService.hideOverlay();
+          debugPrint('✅ FocusModeOverlayService: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with FocusModeOverlayService: $e');
+      }
+      
+      try {
+        // Using FocusOverlayManager
+        final overlayManager = FocusOverlayManager();
+        if (overlayManager.isOverlayVisible) {
+          await overlayManager.hideOverlay();
+          debugPrint('✅ FocusOverlayManager: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      }
+      
+      // Also try direct method channel call as fallback
+      try {
+        const platform = MethodChannel('focus_mode_overlay_channel');
+        await platform.invokeMethod('hideOverlay');
+        debugPrint('✅ Direct method channel: hideOverlay called');
+      } catch (e) {
+        debugPrint('⚠️ Direct method channel failed: $e');
+      }
+      
+      debugPrint('✅ Focus mode overlay hidden successfully');
+      
+    } catch (e) {
+      debugPrint('❌ Error hiding focus mode overlay: $e');
+    }
+  }
 
   // Send Attendance Data
   Future<void> _sendAttendanceData(String? accessToken, String endTime) async {
@@ -1340,6 +1609,9 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
   // Clear Logout Data
   Future<void> _clearLogoutData() async {
     try {
+      // Log WebSocket state before clearing
+      WebSocketManager.logConnectionState();
+      
       await _authService.logout();
       await _clearCachedProfileData();
       
@@ -1347,7 +1619,16 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       await prefs.remove('start_time');
       await prefs.remove('end_time');
       await prefs.remove('last_active_time');
-      debugPrint('🗑️ SharedPreferences timestamps cleared');
+      
+      // Also clear focus mode related data
+      await prefs.remove('is_focus_mode');
+      await prefs.remove('focus_mode_start_time');
+      await prefs.remove('focus_time_today');
+      
+      debugPrint('🗑️ SharedPreferences timestamps and focus mode data cleared');
+      
+      // Log WebSocket state after clearing
+      WebSocketManager.logConnectionState();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1396,6 +1677,13 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
         'profile_student_type',
         'profile_completed',
         'profile_cache_time',
+        'fcm_token',
+        'device_token_registered',
+        'subjects_data',
+        'cached_subcourse_id',
+        'first_login_subjects_fetched',
+        'unread_notifications',
+        'device_registered_for_session',
       ];
       
       for (String key in profileKeys) {

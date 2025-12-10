@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:coaching_institute_app/service/notification_service.dart';
 import '../../screens/Academics/academics.dart';
 import '../screens/mock_test/mock_test.dart';
 import '../screens/subscription/subscription.dart';
 import '../screens/my_documents/my_documents.dart';
+import '../screens/allow_apps/allow_apps.dart'; 
 import '../common/theme_color.dart';
+import 'package:device_apps/device_apps.dart';
+
 
 class CommonBottomNavBar extends StatefulWidget {
   final int currentIndex;
@@ -117,7 +122,7 @@ class _CommonBottomNavBarState extends State<CommonBottomNavBar> {
                 ),
                 const BottomNavigationBarItem(
                   icon: Icon(Icons.assignment_turned_in_rounded),
-                  label: 'Mock Test',
+                  label: 'Practice',
                 ),
                 const BottomNavigationBarItem(
                   icon: Icon(Icons.person_rounded),
@@ -233,6 +238,100 @@ class BottomNavBarHelper {
   }
 }
 
+// App Permission Service
+class AppPermissionService {
+  static const String _permissionKey = 'app_permission_granted';
+
+  // Check if permission was already granted
+  static Future<bool> isPermissionGranted() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_permissionKey) ?? false;
+  }
+
+  // Save permission status
+  static Future<void> savePermissionStatus(bool granted) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_permissionKey, granted);
+  }
+
+  // Request permission from user
+  static Future<bool> requestPermission(BuildContext context) async {
+    // First check if already granted
+    if (await isPermissionGranted()) {
+      return true;
+    }
+
+    // Show permission dialog
+    final granted = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text(
+          'App Access Permission',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: AppColors.primaryBlue,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'We need to access your installed apps list to provide better educational recommendations.',
+              style: TextStyle(fontSize: 14),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.primaryYellow.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.info_outline, size: 18, color: AppColors.primaryYellow),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Only app names and icons will be accessed. No personal data will be collected.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(
+              'Deny',
+              style: TextStyle(color: AppColors.grey500),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primaryYellow,
+              foregroundColor: AppColors.primaryBlue,
+            ),
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
+
+    if (granted == true) {
+      await savePermissionStatus(true);
+      return true;
+    }
+    
+    return false;
+  }
+}
+
 // REDESIGNED Common Profile Drawer - Beautiful Yellow Theme
 class CommonProfileDrawer extends StatelessWidget {
   final String name;
@@ -240,6 +339,7 @@ class CommonProfileDrawer extends StatelessWidget {
   final String course;
   final String subcourse;
   final bool profileCompleted;
+  final String studentType; // Added this parameter
   final VoidCallback onViewProfile;
   final VoidCallback onSettings;
   final VoidCallback onClose;
@@ -251,6 +351,7 @@ class CommonProfileDrawer extends StatelessWidget {
     required this.course,
     required this.subcourse,
     required this.profileCompleted,
+    required this.studentType, // Added
     required this.onViewProfile,
     required this.onSettings,
     required this.onClose,
@@ -260,11 +361,13 @@ class CommonProfileDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     final orientation = MediaQuery.of(context).orientation;
     final screenWidth = MediaQuery.of(context).size.width;
+    final isOnlineOrOffline = studentType.toUpperCase() == 'ONLINE' || 
+                              studentType.toUpperCase() == 'OFFLINE';
     
     // Adjust drawer width based on orientation
     final drawerWidth = orientation == Orientation.landscape
-        ? screenWidth * 0.45  // 45% width in landscape
-        : screenWidth * 0.75; // 75% width in portrait (original)
+        ? screenWidth * 0.45
+        : screenWidth * 0.75;
     
     return Drawer(
       width: drawerWidth,
@@ -283,7 +386,9 @@ class CommonProfileDrawer extends StatelessWidget {
           child: SingleChildScrollView(
             child: ConstrainedBox(
               constraints: BoxConstraints(
-                minHeight: MediaQuery.of(context).size.height - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom,
+                minHeight: MediaQuery.of(context).size.height - 
+                         MediaQuery.of(context).padding.top - 
+                         MediaQuery.of(context).padding.bottom,
               ),
               child: Column(
                 children: [
@@ -443,6 +548,43 @@ class CommonProfileDrawer extends StatelessWidget {
                             );
                           },
                         ),
+                        
+                        // Show "Allow Apps" button only for Online/Offline students
+                        if (isOnlineOrOffline) ...[
+                          const SizedBox(height: 8),
+                          _buildMenuItem(
+                            icon: Icons.apps_rounded,
+                            label: 'Allow Apps',
+                            onTap: () async {
+                              // Close drawer first
+                              Navigator.of(context).pop();
+                              
+                              // Check and request permission
+                              final hasPermission = await AppPermissionService.requestPermission(context);
+                              
+                              if (hasPermission) {
+                                // Navigate to Allow Apps screen
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => const AllowAppsScreen(),
+                                    settings: const RouteSettings(name: '/allow_apps'),
+                                  ),
+                                );
+                              } else {
+                                // Show message that permission is required
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Text('Permission is required to view installed apps'),
+                                    backgroundColor: AppColors.errorRed,
+                                    duration: const Duration(seconds: 2),
+                                  ),
+                                );
+                              }
+                            },
+                          ),
+                        ],
+                        
                         const SizedBox(height: 8),
                         _buildMenuItem(
                           icon: Icons.settings_outlined,

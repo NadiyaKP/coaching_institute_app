@@ -1,6 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
 
 class FocusOverlayManager {
   static final FocusOverlayManager _instance = FocusOverlayManager._internal();
@@ -14,7 +15,10 @@ class FocusOverlayManager {
   
   // Stream for overlay events
   final StreamController<bool> _overlayStreamController = StreamController<bool>.broadcast();
+  final StreamController<Map<String, dynamic>> _appLaunchStreamController = StreamController<Map<String, dynamic>>.broadcast();
+  
   Stream<bool> get overlayStream => _overlayStreamController.stream;
+  Stream<Map<String, dynamic>> get appLaunchStream => _appLaunchStreamController.stream;
   
   // Initialize the manager
   Future<void> initialize() async {
@@ -34,7 +38,11 @@ class FocusOverlayManager {
           return true;
         case 'onReturnToStudy':
           debugPrint('🎯 Return to study triggered from overlay');
-          // This can be listened to in your main app
+          return true;
+        case 'onAppLaunch':
+          final appData = call.arguments as Map<String, dynamic>;
+          _appLaunchStreamController.add(appData);
+          debugPrint('🎯 App launch requested: ${appData['packageName']}');
           return true;
         case 'onPermissionRequired':
           debugPrint('🎯 Overlay permission required');
@@ -51,16 +59,17 @@ class FocusOverlayManager {
   }
   
   // Show overlay
-  Future<void> showOverlay({String? message}) async {
+  Future<void> showOverlay({String? message, List<Map<String, dynamic>>? allowedApps}) async {
     try {
       final result = await _channel.invokeMethod('showOverlay', {
         'message': message ?? 'You are in focus mode, focus on studies',
+        'allowedApps': allowedApps ?? [],
       });
       
       if (result == true) {
         _isOverlayVisible = true;
         _overlayStreamController.add(true);
-        debugPrint('✅ Overlay shown');
+        debugPrint('✅ Overlay shown with ${allowedApps?.length ?? 0} allowed apps');
       }
     } on PlatformException catch (e) {
       debugPrint('❌ Failed to show overlay: ${e.message}');
@@ -84,6 +93,18 @@ class FocusOverlayManager {
     }
   }
   
+  // Update allowed apps in overlay
+  Future<void> updateAllowedApps(List<Map<String, dynamic>> allowedApps) async {
+    try {
+      await _channel.invokeMethod('updateAllowedApps', {
+        'allowedApps': allowedApps,
+      });
+      debugPrint('✅ Updated overlay with ${allowedApps.length} allowed apps');
+    } on PlatformException catch (e) {
+      debugPrint('❌ Failed to update allowed apps: ${e.message}');
+    }
+  }
+  
   // Check if overlay is visible
   bool get isOverlayVisible => _isOverlayVisible;
   
@@ -101,5 +122,6 @@ class FocusOverlayManager {
   // Dispose
   void dispose() {
     _overlayStreamController.close();
+    _appLaunchStreamController.close();
   }
 }

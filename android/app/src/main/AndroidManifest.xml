@@ -5,33 +5,73 @@
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    
-    <!-- 🆕 FOCUS MODE OVERLAY PERMISSIONS -->
+
+    <!-- Focus Mode Overlay -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    
-    <!-- Optional: For better background work -->
+
+    <!-- Optional: Alarm + Battery Optimization -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Camera Permission for Exam Answer Submission -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    
+    <!-- Storage Permissions for Android 12 and below (Legacy) -->
+    <!-- These are only used on Android 12 and below, won't affect Play Store policy for Android 13+ -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
+                     android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+                     android:maxSdkVersion="32"
+                     tools:ignore="ScopedStorage" />
+    
+    <!-- Modern Storage Permission for Android 13+ (Required by Play Store) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    
+    <!-- Camera Feature Declaration -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Add query for package usage stats (for better app detection) -->
+    <queries>
+        <!-- Allows app to detect launchable applications -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER"/>
+        </intent>
+        
+        <!-- Query for specific system apps -->
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.android.chrome" />
+        <package android:name="com.google.android.apps.photos" />
+        <package android:name="com.google.android.gm" />
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.android.settings" />
+        <package android:name="com.google.android.calendar" />
+        <package android:name="com.google.android.contacts" />
+        
+        <!-- Add more system apps as needed -->
+    </queries>
+
     <application
         android:name="${applicationName}"
-        android:networkSecurityConfig="@xml/network_security_config"
         android:label="Signature_Institute"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:hardwareAccelerated="true"
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
         tools:targetApi="31">
-        
+
         <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
@@ -43,13 +83,13 @@
             android:windowSoftInputMode="adjustResize"
             android:showWhenLocked="true"
             android:turnScreenOn="true">
-            
-            <!-- Splash / Launch Theme -->
+
+            <!-- Normal Theme -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <!-- Launch Intent -->
+            <!-- App Launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -68,13 +108,24 @@
         <service
             android:name="com.transistorsoft.flutter.backgroundfetch.HeadlessTask"
             android:exported="false" />
-            
+
         <service
             android:name="com.transistorsoft.flutter.backgroundfetch.BackgroundFetchService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
-        <!-- Flutter Generated Plugin Registrant -->
+        <!-- FileProvider for Camera Images (Required for Android 7.0+) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Flutter Embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

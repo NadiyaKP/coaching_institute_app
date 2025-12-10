@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -546,6 +545,7 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
         email: email,
         course: course,
         subcourse: subcourse,
+        studentType: studentType,
         profileCompleted: profileCompleted,
         onViewProfile: () {
           Navigator.of(context).pop(); 
@@ -659,8 +659,8 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                     const SizedBox(height: 18),
 
                     // Conditional rendering based on student type
-                    if (!isOnlineStudent) ...[
-                      // Exam Schedule Card (Only for non-online students) - With unread badge
+                    if (isOnlineStudent) ...[
+                      // Exam Schedule Card (Only for Online students) - With unread badge
                       _buildAcademicCard(
                         icon: Icons.calendar_today_rounded,
                         title: 'Exam Schedule',
@@ -672,19 +672,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
 
                       const SizedBox(height: 12),
 
-                      // Results Card (Only for non-online students)
-                      _buildAcademicCard(
-                        icon: Icons.assessment_rounded,
-                        title: 'Results',
-                        subtitle: 'Check your exam results',
-                        color: AppColors.primaryYellowLight,
-                        onTap: _navigateToResults,
-                      ),
-
-                      const SizedBox(height: 12),
-                    ],
-
-                    if (isOnlineStudent) ...[
                       // Performance Card (Only for online students)
                       _buildAcademicCard(
                         icon: Icons.trending_up_rounded,
@@ -692,6 +679,19 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                         subtitle: 'Track your learning progress',
                         color: AppColors.primaryBlue,
                         onTap: _navigateToPerformance,
+                      ),
+
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (!isOnlineStudent) ...[
+                      // Results Card (Only for offline students)
+                      _buildAcademicCard(
+                        icon: Icons.assessment_rounded,
+                        title: 'Results',
+                        subtitle: 'Check your exam results',
+                        color: AppColors.primaryYellowLight,
+                        onTap: _navigateToResults,
                       ),
 
                       const SizedBox(height: 12),

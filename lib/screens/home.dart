@@ -66,7 +66,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final AuthService _authService = AuthService();
   final TimerService _timerService = TimerService(); 
   bool _isFocusModeActive = false;
-  Timer? _uiUpdateTimer;
+  
+  // 🆕 REMOVED: All UI timers - using ValueNotifier listeners instead
+
+  // 🆕 WillPopScope handling
+  DateTime? _currentBackPressTime;
 
   // SharedPreferences keys
   static const String _keyName = 'profile_name';
@@ -93,63 +97,61 @@ class _HomeScreenState extends State<HomeScreen> {
 @override
 void initState() {
   super.initState();
+  
   _pageController = PageController(viewportFraction: 0.75);
   _startAutoScroll();
   
   // Initialize focus mode
   _initializeFocusMode();
+  
+  WidgetsBinding.instance.addObserver(_AppLifecycleObserver(
+    onResumed: () async {
+      debugPrint('📱 App resumed - syncing focus mode state');
+      await _syncFocusModeState();
+    },
+  ));
 }
+  
 
 Future<void> _initializeFocusMode() async {
   // Initialize timer service
   await _timerService.initialize();
   
-  // Check focus mode status from SharedPreferences
+  // Check focus mode status
   final prefs = await SharedPreferences.getInstance();
-  _isFocusModeActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+  final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+  final today = DateTime.now().toIso8601String().split('T')[0];
+  final lastDate = prefs.getString(TimerService.lastDateKey);
   
-  // Start UI timer if focus mode is active
-  if (_isFocusModeActive) {
-    _startUiTimer();
+  // Check and restore focus time if same day
+  if (lastDate == today) {
+    final savedSeconds = prefs.getInt(TimerService.focusKey) ?? 0;
+    final lastStoredSeconds = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
+    
+    // Use the greater value
+    final focusSeconds = savedSeconds > lastStoredSeconds ? savedSeconds : lastStoredSeconds;
+    
+    if (focusSeconds > 0) {
+      _timerService.focusTimeToday.value = Duration(seconds: focusSeconds);
+      debugPrint('🔄 Initialized focus time: ${focusSeconds}s');
+    }
   }
   
+  _isFocusModeActive = isFocusActiveInPrefs;
+  
   if (mounted) setState(() {});
-}
-
-void _startUiTimer() {
-  _uiUpdateTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-    if (_isFocusModeActive && mounted) {
-      setState(() {
-        // This triggers UI rebuild with updated timer
-      });
-    }
-  });
 }
 
 @override
 void dispose() {
   _autoScrollTimer?.cancel();
-  _uiUpdateTimer?.cancel();
+  _autoScrollTimer = null;
+  
   _pageController.dispose();
   _scrollController.dispose();
   
-  // Only dispose TimerService if this is the main instance
-  // We should NOT dispose it in FocusModeEntryScreen
   super.dispose();
 }
-
-  // 🆕 Check focus mode status
-  Future<void> _checkFocusModeStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    _isFocusModeActive = prefs.getBool('is_focus_mode') ?? false;
-    
-    // If in focus mode, ensure timer is running
-    if (_isFocusModeActive) {
-      _timerService.startFocusMode();
-    }
-    
-    if (mounted) setState(() {});
-  }
 
   // 🆕 Format duration for display
   String _formatTimerDuration(Duration duration) {
@@ -159,50 +161,139 @@ void dispose() {
     return '$hours:$minutes:$seconds';
   }
 
-  // 🆕 Get today's focus time
-  String getTodayFocusTime() {
-    return _formatTimerDuration(_timerService.focusTimeToday.value);
-  }
-
-  // 🆕 Stop focus mode (navigate back to focus mode entry)
+// 🆕 FIXED: Stop Focus Mode
 Future<void> _stopFocusMode() async {
-  // Send WebSocket event for focus end BEFORE stopping
+  debugPrint('🛑 Stopping focus mode');
+  
+  try {
+    // Send WebSocket event for focus end
+    _sendFocusEndEvent();
+    
+    // Stop the timer service
+    await _timerService.stopFocusMode();
+    
+    // Update local state
+    setState(() {
+      _isFocusModeActive = false;
+    });
+    
+    // Navigate back to focus mode entry screen
+    if (mounted) {
+      await Navigator.of(context).pushReplacementNamed('/focus_mode');
+    }
+    
+  } catch (e) {
+    debugPrint('❌ Error stopping focus mode: $e');
+  }
+}
+
+ Future<void> stopFocusModeForLogout() async {
+  debugPrint('⏱️ Focus mode stopped for logout');
+  
+  // Send WebSocket event for focus end
   _sendFocusEndEvent();
   
+  // Stop the timer service
   await _timerService.stopFocusMode();
   
-  // Navigate back to focus mode entry screen
+  // Update local state
+  _isFocusModeActive = false;
+}
+
+  // Method to send focus_end event via WebSocket
+  void _sendFocusEndEvent() {
+    try {
+      // Always try to send the event directly
+      WebSocketManager.send({"event": "focus_end"});
+      debugPrint('📤 WebSocket event sent: {"event": "focus_end"}');
+    } catch (e) {
+      debugPrint('❌ Error sending focus_end event: $e');
+    }
+  }
+
+  Future<bool> _onWillPop() async {
+  // Check if student type is Online or Offline
+  final isEligibleStudent = studentType.toUpperCase() == 'ONLINE' || 
+                             studentType.toUpperCase() == 'OFFLINE';
+  
+  // Check if focus mode is active
+  if (isEligibleStudent && _isFocusModeActive) {
+    return await _showExitConfirmationDialog();
+  }
+  
+  // For other cases, allow normal back press behavior
+  return true;
+}
+ 
+Future<bool> _showExitConfirmationDialog() async {
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      title: const Text('Focus Mode Active'),
+      content: const Text('Your focus time will stop on going out of the app. Are you sure you want to exit?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text(
+            'CANCEL',
+            style: TextStyle(
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: () async {
+            Navigator.of(context).pop(true);
+            await _navigateToFocusModeEntry();
+          },
+          child: const Text(
+            'OK',
+            style: TextStyle(
+              color: Colors.red,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+  
+  return result ?? false;
+}
+
+Future<void> _navigateToFocusModeEntry() async {
+  debugPrint('📊 Navigating to focus mode entry');
+  
+  // Send WebSocket event for focus end
+  _sendFocusEndEvent();
+  
+  // Stop the timer
+  await _timerService.stopFocusMode();
+  
+  // Navigate to focus mode entry screen
   if (mounted) {
     await Navigator.of(context).pushReplacementNamed('/focus_mode');
   }
 }
 
-// Method to send focus_end event via WebSocket
-void _sendFocusEndEvent() {
+Future<void> _syncFocusModeState() async {
   try {
-    // Always try to send the event directly
-    WebSocketManager.send({"event": "focus_end"});
-    debugPrint('📤 WebSocket event sent: {"event": "focus_end"}');
-  } catch (e) {
-    debugPrint('❌ Error sending focus_end event: $e');
+    if (!mounted) return;
     
-    // Try to reconnect WebSocket if sending failed
-    try {
-      WebSocketManager.connect();
-      debugPrint('🔄 Attempting to reconnect WebSocket...');
+    final prefs = await SharedPreferences.getInstance();
+    final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+    
+    if (_isFocusModeActive != isFocusActiveInPrefs) {
+      debugPrint('🔄 Syncing focus mode state: $_isFocusModeActive -> $isFocusActiveInPrefs');
       
-      // Try sending again after a short delay
-      Future.delayed(const Duration(milliseconds: 300), () {
-        try {
-          WebSocketManager.send({"event": "focus_end"});
-          debugPrint('📤 Retry: WebSocket event sent: {"event": "focus_end"}');
-        } catch (retryError) {
-          debugPrint('❌ Retry failed: $retryError');
-        }
+      setState(() {
+        _isFocusModeActive = isFocusActiveInPrefs;
       });
-    } catch (connectError) {
-      debugPrint('❌ WebSocket reconnection failed: $connectError');
     }
+  } catch (e) {
+    debugPrint('❌ Error syncing focus mode state: $e');
   }
 }
 
@@ -245,9 +336,6 @@ void _sendFocusEndEvent() {
       String startTime = DateTime.now().toIso8601String();
       await prefs.setString('start_time', startTime);
       debugPrint('✅ Start timestamp stored on home page: $startTime');
-      debugPrint('🎯 Student type confirmed: $currentStudentType');
-    } else {
-      debugPrint('ℹ️ Start timestamp already exists: ${prefs.getString('start_time')}');
     }
   }
 
@@ -268,119 +356,124 @@ void _sendFocusEndEvent() {
     });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  
+  // Update page controller based on orientation
+  final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+  final newViewportFraction = isLandscape ? 0.45 : 0.75;
+  
+  if (_pageController.viewportFraction != newViewportFraction) {
+    _pageController.dispose();
+    _pageController = PageController(viewportFraction: newViewportFraction);
+    _startAutoScroll();
+  }
+  
+  // Only fetch data once during initial load
+  if (!_isInitialLoadComplete) {
+    _isInitialLoadComplete = true;
     
-    // Update page controller based on orientation
-    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    final newViewportFraction = isLandscape ? 0.45 : 0.75;
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
     
-    if (_pageController.viewportFraction != newViewportFraction) {
-      _pageController.dispose();
-      _pageController = PageController(viewportFraction: newViewportFraction);
-      _startAutoScroll();
+    if (args != null) {
+      phoneNumber = args['phone_number'] ?? '';
+      countryCode = args['country_code'] ?? '+91';
+      name = args['name'] ?? '';
+      email = args['email'] ?? '';
+      
+      debugPrint('HomeScreen - Received phone_number: $phoneNumber');
+      debugPrint('HomeScreen - Received country_code: $countryCode');
+      debugPrint('HomeScreen - Received name: $name');
+      debugPrint('HomeScreen - Received email: $email');
     }
     
-    // Only fetch data once during initial load
-    if (!_isInitialLoadComplete) {
-      _isInitialLoadComplete = true;
+    _loadCachedProfileData().then((_) async {
+      _storeStartTime();
+      await _fetchProfileData();
       
-      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+      // Register device token AFTER profile is fetched
+      await _registerDeviceTokenOnce();
       
-      if (args != null) {
-        phoneNumber = args['phone_number'] ?? '';
-        countryCode = args['country_code'] ?? '+91';
-        name = args['name'] ?? '';
-        email = args['email'] ?? '';
-        
-        debugPrint('HomeScreen - Received phone_number: $phoneNumber');
-        debugPrint('HomeScreen - Received country_code: $countryCode');
-        debugPrint('HomeScreen - Received name: $name');
-        debugPrint('HomeScreen - Received email: $email');
-      }
-      
-      _loadCachedProfileData().then((_) async {
-        _storeStartTime();
-        await _fetchProfileData();
-        
-        // 🆕 Register device token AFTER profile is fetched
-        await _registerDeviceTokenOnce();
+      // 🆕 NEW: Sync focus mode state after initial load
+      await _syncFocusModeState();
+    });
+  }
+}
+
+  Future<void> _refreshData() async {
+  debugPrint('🔄 Starting forced refresh...');
+  
+  // Prevent multiple simultaneous refreshes
+  if (isRefreshing) {
+    debugPrint('⏳ Refresh already in progress, skipping...');
+    return;
+  }
+  
+  setState(() {
+    isRefreshing = true;
+  });
+
+  try {
+    // 🆕 NEW: Sync focus mode state before refreshing
+    await _syncFocusModeState();
+    
+    // Clear device registration flag to force re-registration
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyDeviceRegistered);
+    debugPrint('🧹 Cleared device registration flag for refresh');
+
+    // Reset notification flag to allow fresh fetch
+    _isFetchingNotifications = false;
+
+    // Fetch profile data first
+    await _fetchProfileData();
+
+    // Force refresh subjects data only during manual refresh
+    if (subcourseId.isNotEmpty) {
+      debugPrint('📚 Force refreshing subjects data for subcourse: $subcourseId');
+      await _fetchAndStoreSubjects(forceRefresh: true);
+    } else {
+      debugPrint('⚠️ No subcourseId available for subjects refresh');
+    }
+    
+    // Fetch notifications with duplicate prevention
+    await _fetchUnreadNotifications();
+    
+    // Register device token (will happen since we cleared the flag)
+    await _registerDeviceTokenOnce();
+    
+    debugPrint('✅ All data refreshed successfully from API');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Data refreshed successfully!'),
+          backgroundColor: AppColors.successGreen,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Error during refresh: $e');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Refresh failed: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  } finally {
+    if (mounted) {
+      setState(() {
+        isRefreshing = false;
       });
     }
   }
-
-  // 🆕 IMPROVED: Main refresh method with better error handling and duplicate prevention
-  Future<void> _refreshData() async {
-    debugPrint('🔄 Starting forced refresh...');
-    
-    // Prevent multiple simultaneous refreshes
-    if (isRefreshing) {
-      debugPrint('⏳ Refresh already in progress, skipping...');
-      return;
-    }
-    
-    setState(() {
-      isRefreshing = true;
-    });
-
-    try {
-      // Clear device registration flag to force re-registration
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_keyDeviceRegistered);
-      debugPrint('🧹 Cleared device registration flag for refresh');
-
-      // Reset notification flag to allow fresh fetch
-      _isFetchingNotifications = false;
-
-      // Fetch profile data first
-      await _fetchProfileData();
-
-      // 🆕 MODIFIED: FORCE refresh subjects data only during manual refresh
-      if (subcourseId.isNotEmpty) {
-        debugPrint('📚 Force refreshing subjects data for subcourse: $subcourseId');
-        await _fetchAndStoreSubjects(forceRefresh: true);
-      } else {
-        debugPrint('⚠️ No subcourseId available for subjects refresh');
-      }
-      
-      // 🆕 MODIFIED: Fetch notifications with duplicate prevention
-      await _fetchUnreadNotifications();
-      
-      // Register device token (will happen since we cleared the flag)
-      await _registerDeviceTokenOnce();
-      
-      debugPrint('✅ All data refreshed successfully from API');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content:  Text('Data refreshed successfully!'),
-            backgroundColor: AppColors.successGreen,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error during refresh: $e');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Refresh failed: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          isRefreshing = false;
-        });
-      }
-    }
-  }
+}
 
   Future<void> _loadCachedProfileData() async {
     try {
@@ -617,7 +710,7 @@ void _sendFocusEndEvent() {
             // Store start time AFTER we have the student type from API
             _storeStartTime();
 
-            // 🆕 MODIFIED: After fetching profile data, fetch subjects data with first login logic
+            // After fetching profile data, fetch subjects data with first login logic
             if (subcourseId.isNotEmpty) {
               await _fetchAndStoreSubjects(forceRefresh: false);
             }
@@ -715,7 +808,6 @@ void _sendFocusEndEvent() {
     }
   }
 
-  // 🆕 MODIFIED: _fetchAndStoreSubjects method with first login logic
   Future<void> _fetchAndStoreSubjects({bool forceRefresh = false}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -736,7 +828,7 @@ void _sendFocusEndEvent() {
         return;
       }
 
-      // 🆕 NEW LOGIC: Check if this is first login (flag not set)
+      // Check if this is first login (flag not set)
       final bool firstLoginSubjectsFetched = prefs.getBool(_keyFirstLoginSubjectsFetched) ?? false;
       
       if (!forceRefresh && firstLoginSubjectsFetched) {
@@ -753,7 +845,7 @@ void _sendFocusEndEvent() {
         }
       }
 
-      // 🆕 ALWAYS fetch from API during:
+      // ALWAYS fetch from API during:
       // 1. First login (flag not set)
       // 2. Force refresh (manual refresh)
       // 3. No cached data exists
@@ -783,13 +875,13 @@ void _sendFocusEndEvent() {
         final Map<String, dynamic> responseData = json.decode(response.body);
         
         if (responseData['success'] == true) {
-          // 🆕 Store the complete API response as JSON string
+          // Store the complete API response as JSON string
           await prefs.setString('subjects_data', json.encode(responseData));
           
           // Store the subcourse_id to track which data is cached
           await prefs.setString('cached_subcourse_id', encryptedId);
           
-          // 🆕 SET THE FIRST LOGIN FLAG to indicate subjects have been fetched at least once
+          // SET THE FIRST LOGIN FLAG to indicate subjects have been fetched at least once
           await prefs.setBool(_keyFirstLoginSubjectsFetched, true);
           
           // Also store individual subject details for easy access
@@ -800,7 +892,6 @@ void _sendFocusEndEvent() {
           debugPrint('📦 Complete API response stored in SharedPreferences');
           debugPrint('📚 Total subjects: ${subjects.length}');
           debugPrint('🎯 Cached for subcourse_id: $encryptedId');
-          debugPrint('🏁 First login subjects fetched flag: ${!firstLoginSubjectsFetched ? 'SET' : 'ALREADY SET'}');
           
           // Print the stored data structure for verification
           final storedData = prefs.getString('subjects_data');
@@ -811,8 +902,6 @@ void _sendFocusEndEvent() {
             debugPrint('   - subjects count: ${parsedData['subjects']?.length ?? 0}');
             if (parsedData['subjects'] != null && parsedData['subjects'].isNotEmpty) {
               debugPrint('   - first subject: ${parsedData['subjects'][0]['title']}');
-              debugPrint('   - first subject chapters: ${parsedData['subjects'][0]['chapters']?.length ?? 0}');
-              debugPrint('   - first subject units: ${parsedData['subjects'][0]['units']?.length ?? 0}');
             }
           }
         } else {
@@ -879,7 +968,6 @@ void _sendFocusEndEvent() {
 
         debugPrint('📱 Device registration response status: ${response.statusCode}');
         debugPrint('📱 Device registration response body: ${response.body}');
-        debugPrint('📱 Device registration response headers: ${response.headers}');
 
         if (response.statusCode == 200 || response.statusCode == 201) {
           final responseData = json.decode(response.body);
@@ -890,19 +978,11 @@ void _sendFocusEndEvent() {
             await _fetchUnreadNotifications();
           } else {
             debugPrint('⚠️ Device registration API returned success: false');
-            debugPrint('Response data: $responseData');
           }
         } else if (response.statusCode == 401) {
           debugPrint('🔐 Unauthorized - token might be expired');
-          // Try to refresh token and retry
-          final newAccessToken = await _authService.refreshAccessToken();
-          if (newAccessToken != null && newAccessToken.isNotEmpty) {
-            debugPrint('🔄 Retrying with refreshed token...');
-            await _retryDeviceRegistration(deviceToken, newAccessToken);
-          }
         } else {
           debugPrint('❌ Failed to register device token: ${response.statusCode}');
-          debugPrint('Response body: ${response.body}');
         }
       } on TimeoutException {
         debugPrint('⏰ Device registration request timed out');
@@ -920,7 +1000,7 @@ void _sendFocusEndEvent() {
     }
   }
 
-  // 🆕 IMPROVED: Fetch unread notifications with duplicate call prevention
+  // Fetch unread notifications with duplicate call prevention
   Future<void> _fetchUnreadNotifications() async {
     try {
       // Prevent duplicate API calls
@@ -970,10 +1050,6 @@ void _sendFocusEndEvent() {
           
           debugPrint('✅ Unread notifications stored successfully');
           debugPrint('📬 Total unread notifications: ${responseData.length}');
-          
-          // Print the stored data for verification
-          final storedData = prefs.getString(_keyUnreadNotifications);
-          debugPrint('💾 Stored notifications data: $storedData');
           
           // Update the notification service with the new data
           _updateNotificationBadges(responseData);
@@ -1036,46 +1112,6 @@ void _sendFocusEndEvent() {
       hasUnreadSubscription: hasSubscription,
       hasUnreadVideoLectures: hasVideoLecture,
     );
-  }
-
-  // Retry device registration with new access token
-  Future<void> _retryDeviceRegistration(String deviceToken, String newAccessToken) async {
-    try {
-      debugPrint('🔄 Retrying device registration with new token...');
-      
-      final Map<String, dynamic> requestBody = {
-        "token": deviceToken
-      };
-
-      final client = _createHttpClientWithCustomCert();
-
-      try {
-        final response = await client.post(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/notifications/register_device/'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $newAccessToken',
-          },
-          body: json.encode(requestBody),
-        ).timeout(const Duration(seconds: 10));
-
-        debugPrint('🔄 Retry response status: ${response.statusCode}');
-        debugPrint('🔄 Retry response body: ${response.body}');
-
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          debugPrint('✅ Device token registered successfully on retry');
-          
-          // After successful device registration, fetch unread notifications
-          await _fetchUnreadNotifications();
-        } else {
-          debugPrint('❌ Device registration failed on retry: ${response.statusCode}');
-        }
-      } finally {
-        client.close();
-      }
-    } catch (e) {
-      debugPrint('❌ Error in retry device registration: $e');
-    }
   }
 
   void _navigateToLogin() {
@@ -1180,11 +1216,207 @@ void _sendFocusEndEvent() {
     );
   }
 
+  void _showRaiseHandDialog(double Function(double) getResponsiveSize) {
+  showDialog(
+    context: context,
+    barrierDismissible: true,
+    builder: (BuildContext context) {
+      return Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(getResponsiveSize(20)),
+        ),
+        child: Container(
+          padding: EdgeInsets.all(getResponsiveSize(24)),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(getResponsiveSize(20)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white,
+                const Color(0xFF43E97B).withOpacity(0.05),
+              ],
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Container(
+                padding: EdgeInsets.all(getResponsiveSize(16)),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF43E97B).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.help_outline,
+                  color: const Color(0xFF43E97B),
+                  size: getResponsiveSize(48),
+                ),
+              ),
+              SizedBox(height: getResponsiveSize(20)),
+              
+              // Title
+              Text(
+                'Need Help?',
+                style: TextStyle(
+                  fontSize: getResponsiveSize(22),
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.textDark,
+                ),
+              ),
+              SizedBox(height: getResponsiveSize(12)),
+              
+              // Description
+              Text(
+                'Do you have any doubts to ask?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: getResponsiveSize(15),
+                  color: AppColors.textGrey,
+                  height: 1.4,
+                ),
+              ),
+              SizedBox(height: getResponsiveSize(24)),
+              
+              // Raise Hand Button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _raiseHandForDoubt();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF43E97B),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(
+                      vertical: getResponsiveSize(16),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '✋',
+                        style: TextStyle(fontSize: getResponsiveSize(20)),
+                      ),
+                      SizedBox(width: getResponsiveSize(8)),
+                      Text(
+                        'Raise Hand',
+                        style: TextStyle(
+                          fontSize: getResponsiveSize(16),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(height: getResponsiveSize(12)),
+              
+              // Cancel Button
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontSize: getResponsiveSize(15),
+                    color: AppColors.textGrey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+// Send Raise Hand Event via WebSocket
+void _raiseHandForDoubt() {
+  try {
+    // Send the raise_hand event
+    WebSocketManager.send({"event": "raise_hand"});
+    debugPrint('📤 WebSocket event sent: {"event": "raise_hand"}');
+    
+    // Show success message
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+               Icon(
+                Icons.check_circle,
+                color: Colors.white,
+              ),
+               SizedBox(width: 12),
+               Expanded(
+                child: Text(
+                  'Hand raised successfully! Your doubt has been registered.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF43E97B),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Error sending raise_hand event: $e');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+               Icon(
+                Icons.error_outline,
+                color: Colors.white,
+              ),
+               SizedBox(width: 12),
+               Expanded(
+                child: Text(
+                  'Failed to raise hand. Please check your connection.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.red,
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+          ),
+          margin: EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
     
     // Responsive sizing calculations
     double getResponsiveSize(double portraitSize) {
@@ -1194,54 +1426,53 @@ void _sendFocusEndEvent() {
       return portraitSize;
     }
 
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.backgroundLight,
-      endDrawer: CommonProfileDrawer(
-        name: name,
-        email: email,
-        course: course,
-        subcourse: subcourse,
-        profileCompleted: profileCompleted,
-        onViewProfile: _navigateToViewProfile,
-        onSettings: () {
-          Navigator.of(context).pop(); 
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const SettingsScreen(),
-            ),
-          );
-        },
-        onClose: () {
-          Navigator.of(context).pop(); 
-        },
-      ),
-      body: Column(
-        children: [
-          // 🆕 FIXED HEADER SECTION - Non scrollable
-          _buildHeaderSection(isLandscape, getResponsiveSize),
-          
-          // 🆕 SCROLLABLE CONTENT SECTION with RefreshIndicator
-          Expanded(
-            child: RefreshIndicator(
-              key: _refreshIndicatorKey,
-              onRefresh: _refreshData,
-              color: AppColors.primaryYellow,
-              backgroundColor: AppColors.backgroundLight,
-              displacement: 40,
-              strokeWidth: 2.5,
-              triggerMode: RefreshIndicatorTriggerMode.anywhere,
-              child: CustomScrollView(
-                controller: _scrollController,
-                physics: const AlwaysScrollableScrollPhysics(),
-                slivers: [
-                  // Scrollable Content
-                  SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                       // 🆕 Focus Mode Stats Card
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        key: _scaffoldKey,
+        backgroundColor: AppColors.backgroundLight,
+        endDrawer: CommonProfileDrawer(
+          name: name,
+          email: email,
+          course: course,
+          subcourse: subcourse,
+          studentType: studentType,
+          profileCompleted: profileCompleted,
+          onViewProfile: _navigateToViewProfile,
+          onSettings: () {
+            Navigator.of(context).pop(); 
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const SettingsScreen(),
+              ),
+            );
+          },
+          onClose: () {
+            Navigator.of(context).pop(); 
+          },
+        ),
+        body: Column(
+          children: [
+            // 🆕 FIXED HEADER SECTION
+            _buildHeaderSection(isLandscape, getResponsiveSize),
+            
+            // 🆕 SCROLLABLE CONTENT SECTION
+            Expanded(
+              child: RefreshIndicator(
+                key: _refreshIndicatorKey,
+                onRefresh: _refreshData,
+                color: AppColors.primaryYellow,
+                backgroundColor: AppColors.backgroundLight,
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 🆕 Focus Mode Stats Card - USING VALUE LISTENABLE BUILDER
                           if (_isFocusModeActive)
                             Padding(
                               padding: EdgeInsets.fromLTRB(
@@ -1250,440 +1481,446 @@ void _sendFocusEndEvent() {
                                 getResponsiveSize(20),
                                 getResponsiveSize(8),
                               ),
+                              child: GestureDetector(
+                                onTap: () => _showRaiseHandDialog(getResponsiveSize),
+                                child: Container(
+                                  padding: EdgeInsets.all(getResponsiveSize(16)),
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        const Color(0xFF43E97B).withOpacity(0.1),
+                                        const Color(0xFF43E97B).withOpacity(0.05),
+                                      ],
+                                    ),
+                                    borderRadius: BorderRadius.circular(getResponsiveSize(16)),
+                                    border: Border.all(
+                                      color: const Color(0xFF43E97B).withOpacity(0.3),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: EdgeInsets.all(getResponsiveSize(10)),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF43E97B).withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                                        ),
+                                        child: Icon(
+                                          Icons.timer,
+                                          color: const Color(0xFF43E97B),
+                                          size: getResponsiveSize(24),
+                                        ),
+                                      ),
+                                      SizedBox(width: getResponsiveSize(12)),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            // Title and Timer Row
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    'Focus Mode Active',
+                                                    style: TextStyle(
+                                                      fontSize: getResponsiveSize(16),
+                                                      fontWeight: FontWeight.bold,
+                                                      color: const Color(0xFF43E97B),
+                                                    ),
+                                                  ),
+                                                ),
+                                                SizedBox(width: getResponsiveSize(8)),
+                                                // 🆕 CRITICAL FIX: Use ValueListenableBuilder to listen to timer updates
+                                                ValueListenableBuilder<Duration>(
+                                                  valueListenable: _timerService.focusTimeToday,
+                                                  builder: (context, focusTime, _) {
+                                                    return Text(
+                                                      _formatTimerDuration(focusTime),
+                                                      style: TextStyle(
+                                                        fontSize: getResponsiveSize(14),
+                                                        fontWeight: FontWeight.bold,
+                                                        color: const Color(0xFF43E97B),
+                                                        fontFamily: 'monospace',
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                              ],
+                                            ),
+                                            SizedBox(height: getResponsiveSize(8)),
+                                            // Subtitle and Button Row
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    'Total focus today • Tap to raise hand',
+                                                    style: TextStyle(
+                                                      fontSize: getResponsiveSize(12),
+                                                      color: AppColors.textGrey,
+                                                    ),
+                                                  ),
+                                                ),
+                                                SizedBox(width: getResponsiveSize(8)),
+                                                ElevatedButton.icon(
+                                                  onPressed: _stopFocusMode,
+                                                  icon: Icon(
+                                                    Icons.stop,
+                                                    size: getResponsiveSize(14),
+                                                  ),
+                                                  label: Text(
+                                                    'Stop',
+                                                    style: TextStyle(
+                                                      fontSize: getResponsiveSize(12),
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                  style: ElevatedButton.styleFrom(
+                                                    backgroundColor: const Color(0xFF43E97B),
+                                                    foregroundColor: Colors.white,
+                                                    padding: EdgeInsets.symmetric(
+                                                      horizontal: getResponsiveSize(12),
+                                                      vertical: getResponsiveSize(6),
+                                                    ),
+                                                    minimumSize: Size.zero,
+                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius: BorderRadius.circular(getResponsiveSize(20)),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                          // Quick Access Section
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              getResponsiveSize(20),
+                              isLandscape ? getResponsiveSize(20) : getResponsiveSize(28),
+                              getResponsiveSize(20),
+                              getResponsiveSize(14),
+                            ),
+                            child: _buildSectionHeader('Quick Access', getResponsiveSize),
+                          ),
+
+                          // Quick Access Cards
+                          SizedBox(
+                            height: isLandscape ? getResponsiveSize(150) : 150,
+                            child: PageView(
+                              controller: _pageController,
+                              physics: const BouncingScrollPhysics(),
+                              onPageChanged: (index) {
+                                setState(() {
+                                  _currentPage = index;
+                                });
+                              },
+                              children: [
+                                _buildQuickAccessCard(
+                                  icon: Icons.description_rounded,
+                                  title: 'Study Notes',
+                                  subtitle: 'Comprehensive study materials',
+                                  color1: AppColors.primaryYellow,
+                                  color2: AppColors.primaryYellowLight,
+                                  imagePath: "assets/images/notes.png",
+                                  onTap: _navigateToNotes,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
+                                ),
+                                _buildQuickAccessCard(
+                                  icon: Icons.quiz_rounded,
+                                  title: 'Question Papers',
+                                  subtitle: 'Previous year Question papers',
+                                  color1: AppColors.primaryBlue,
+                                  color2: AppColors.primaryBlueLight,
+                                  imagePath: "assets/images/question_papers.png",
+                                  onTap: _navigateToQuestionPapers,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
+                                ),
+                                _buildQuickAccessCard(
+                                  icon: Icons.play_circle_filled_rounded,
+                                  title: 'Video Classes',
+                                  subtitle: 'Expert lectures and tutorials',
+                                  color1: AppColors.warningOrange,
+                                  color2: const Color(0xFFFFAB40),
+                                  imagePath: "assets/images/video_classes.png",
+                                  onTap: _navigateToVideoClasses,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
+                                ),
+                                _buildQuickAccessCard(
+                                  icon: Icons.assignment_rounded,
+                                  title: 'Mock Tests',
+                                  subtitle: 'Evaluate your preparations',
+                                  color1: AppColors.primaryBlue,
+                                  color2: AppColors.primaryBlueLight,
+                                  imagePath: "assets/images/mock_test.png",
+                                  onTap: _navigateToMockTest,
+                                  getResponsiveSize: getResponsiveSize,
+                                  isLandscape: isLandscape,
+                                ),
+                              ],
+                            ),
+                          ),
+
+                          // Page Indicator Dots
+                          Padding(
+                            padding: EdgeInsets.symmetric(vertical: getResponsiveSize(16)),
+                            child: Center(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: List.generate(4, (index) {
+                                  return Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                                    width: _currentPage == index ? 10 : 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: _currentPage == index
+                                          ? AppColors.primaryYellow
+                                          : AppColors.grey300,
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                          ),
+
+                          // Main Action Buttons Section
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              getResponsiveSize(20),
+                              getResponsiveSize(8),
+                              getResponsiveSize(20),
+                              getResponsiveSize(20),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.only(bottom: getResponsiveSize(16)),
+                                  child: Text(
+                                    'Your Learning Tools',
+                                    style: TextStyle(
+                                      fontSize: getResponsiveSize(18),
+                                      fontWeight: FontWeight.bold,
+                                      color: AppColors.textDark,
+                                      letterSpacing: -0.2,
+                                    ),
+                                  ),
+                                ),
+                                
+                                // Action buttons in responsive grid
+                                if (isLandscape)
+                                  // Landscape: 4 columns
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: _buildActionButton(
+                                          icon: Icons.play_circle_filled_rounded,
+                                          label: 'Video\nClasses',
+                                          color: AppColors.warningOrange,
+                                          onTap: _navigateToVideoClasses,
+                                          showBadge: true,
+                                          getResponsiveSize: getResponsiveSize,
+                                          isLandscape: isLandscape,
+                                        ),
+                                      ),
+                                      SizedBox(width: getResponsiveSize(12)),
+                                      Expanded(
+                                        child: _buildActionButton(
+                                          icon: Icons.description_rounded,
+                                          label: 'Notes',
+                                          color: AppColors.primaryYellow,
+                                          onTap: _navigateToNotes,
+                                          getResponsiveSize: getResponsiveSize,
+                                          isLandscape: isLandscape,
+                                        ),
+                                      ),
+                                      SizedBox(width: getResponsiveSize(12)),
+                                      Expanded(
+                                        child: _buildActionButton(
+                                          icon: Icons.quiz_rounded,
+                                          label: 'Question\nPapers',
+                                          color: AppColors.primaryBlue,
+                                          onTap: _navigateToQuestionPapers,
+                                          getResponsiveSize: getResponsiveSize,
+                                          isLandscape: isLandscape,
+                                        ),
+                                      ),
+                                      SizedBox(width: getResponsiveSize(12)),
+                                      Expanded(
+                                        child: _buildActionButton(
+                                          icon: Icons.video_library_rounded,
+                                          label: 'Reference\nVideos',
+                                          color: AppColors.successGreen,
+                                          onTap: _navigateToReferenceVideos,
+                                          getResponsiveSize: getResponsiveSize,
+                                          isLandscape: isLandscape,
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                else
+                                  // Portrait: 2 columns
+                                  Column(
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildActionButton(
+                                              icon: Icons.play_circle_filled_rounded,
+                                              label: 'Video\nClasses',
+                                              color: AppColors.warningOrange,
+                                              onTap: _navigateToVideoClasses,
+                                              showBadge: true,
+                                              getResponsiveSize: getResponsiveSize,
+                                              isLandscape: isLandscape,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildActionButton(
+                                              icon: Icons.description_rounded,
+                                              label: 'Notes',
+                                              color: AppColors.primaryYellow,
+                                              onTap: _navigateToNotes,
+                                              getResponsiveSize: getResponsiveSize,
+                                              isLandscape: isLandscape,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: _buildActionButton(
+                                              icon: Icons.quiz_rounded,
+                                              label: 'Question\nPapers',
+                                              color: AppColors.primaryBlue,
+                                              onTap: _navigateToQuestionPapers,
+                                              getResponsiveSize: getResponsiveSize,
+                                              isLandscape: isLandscape,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: _buildActionButton(
+                                              icon: Icons.video_library_rounded,
+                                              label: 'Reference\nVideos',
+                                              color: AppColors.successGreen,
+                                              onTap: _navigateToReferenceVideos,
+                                              getResponsiveSize: getResponsiveSize,
+                                              isLandscape: isLandscape,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+
+                          // Profile Completion Reminder
+                          if (!profileCompleted && !isLoading)
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                getResponsiveSize(20),
+                                getResponsiveSize(10),
+                                getResponsiveSize(20),
+                                getResponsiveSize(30),
+                              ),
                               child: Container(
-                                padding: EdgeInsets.all(getResponsiveSize(16)),
                                 decoration: BoxDecoration(
                                   gradient: LinearGradient(
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
                                     colors: [
-                                      const Color(0xFF43E97B).withOpacity(0.1),
-                                      const Color(0xFF43E97B).withOpacity(0.05),
+                                      AppColors.warningOrange.withOpacity(0.08),
+                                      AppColors.warningOrange.withOpacity(0.04),
                                     ],
                                   ),
                                   borderRadius: BorderRadius.circular(getResponsiveSize(16)),
                                   border: Border.all(
-                                    color: const Color(0xFF43E97B).withOpacity(0.3),
+                                    color: AppColors.warningOrange.withOpacity(0.25),
                                     width: 1.5,
                                   ),
                                 ),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: EdgeInsets.all(getResponsiveSize(10)),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF43E97B).withOpacity(0.15),
-                                        borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                                child: Padding(
+                                  padding: EdgeInsets.all(getResponsiveSize(16)),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: EdgeInsets.all(getResponsiveSize(10)),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.warningOrange.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                                        ),
+                                        child: Icon(
+                                          Icons.info_outline_rounded,
+                                          color: AppColors.warningOrange,
+                                          size: getResponsiveSize(24),
+                                        ),
                                       ),
-                                      child: Icon(
-                                        Icons.timer,
-                                        color: const Color(0xFF43E97B),
-                                        size: getResponsiveSize(24),
+                                      SizedBox(width: getResponsiveSize(12)),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Complete Your Profile',
+                                              style: TextStyle(
+                                                fontSize: getResponsiveSize(15),
+                                                fontWeight: FontWeight.bold,
+                                              color: AppColors.warningOrange,
+                                              ),
+                                            ),
+                                            SizedBox(height: getResponsiveSize(4)),
+                                            Text(
+                                              'Unlock all features by completing your profile information',
+                                              style: TextStyle(
+                                                fontSize: getResponsiveSize(12),
+                                                color: AppColors.textGrey,
+                                                letterSpacing: 0.2,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
-                                    SizedBox(width: getResponsiveSize(12)),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          // Title and Timer Row
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  'Focus Mode Active',
-                                                  style: TextStyle(
-                                                    fontSize: getResponsiveSize(16),
-                                                    fontWeight: FontWeight.bold,
-                                                    color: const Color(0xFF43E97B),
-                                                  ),
-                                                ),
-                                              ),
-                                              SizedBox(width: getResponsiveSize(8)),
-                                              ValueListenableBuilder<Duration>(
-                                                valueListenable: _timerService.focusTimeToday,
-                                                builder: (context, focusTime, _) {
-                                                  return Text(
-                                                    _formatTimerDuration(focusTime),
-                                                    style: TextStyle(
-                                                      fontSize: getResponsiveSize(14),
-                                                      fontWeight: FontWeight.bold,
-                                                      color: const Color(0xFF43E97B),
-                                                      fontFamily: 'monospace',
-                                                    ),
-                                                  );
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                          SizedBox(height: getResponsiveSize(8)),
-                                          // Subtitle and Button Row
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  'Total focus today',
-                                                  style: TextStyle(
-                                                    fontSize: getResponsiveSize(12),
-                                                    color: AppColors.textGrey,
-                                                  ),
-                                                ),
-                                              ),
-                                              SizedBox(width: getResponsiveSize(8)),
-                                              ElevatedButton.icon(
-                                                onPressed: _stopFocusMode,
-                                                icon: Icon(
-                                                  Icons.stop,
-                                                  size: getResponsiveSize(14),
-                                                ),
-                                                label: Text(
-                                                  'Stop',
-                                                  style: TextStyle(
-                                                    fontSize: getResponsiveSize(12),
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: const Color(0xFF43E97B),
-                                                  foregroundColor: Colors.white,
-                                                  padding: EdgeInsets.symmetric(
-                                                    horizontal: getResponsiveSize(12),
-                                                    vertical: getResponsiveSize(6),
-                                                  ),
-                                                  minimumSize: Size.zero,
-                                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(getResponsiveSize(20)),
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        // Quick Access Section
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            getResponsiveSize(20),
-                            isLandscape ? getResponsiveSize(20) : getResponsiveSize(28),
-                            getResponsiveSize(20),
-                            getResponsiveSize(14),
-                          ),
-                          child: _buildSectionHeader('Quick Access', getResponsiveSize),
-                        ),
-
-                        // Quick Access Cards
-                        SizedBox(
-                          height: isLandscape ? getResponsiveSize(150) : 150,
-                          child: PageView(
-                            controller: _pageController,
-                            physics: const BouncingScrollPhysics(),
-                            onPageChanged: (index) {
-                              setState(() {
-                                _currentPage = index;
-                              });
-                            },
-                            children: [
-                              _buildQuickAccessCard(
-                                icon: Icons.description_rounded,
-                                title: 'Study Notes',
-                                subtitle: 'Comprehensive study materials',
-                                color1: AppColors.primaryYellow,
-                                color2: AppColors.primaryYellowLight,
-                                imagePath: "assets/images/notes.png",
-                                onTap: _navigateToNotes,
-                                getResponsiveSize: getResponsiveSize,
-                                isLandscape: isLandscape,
-                              ),
-                              _buildQuickAccessCard(
-                                icon: Icons.quiz_rounded,
-                                title: 'Question Papers',
-                                subtitle: 'Previous year Question papers',
-                                color1: AppColors.primaryBlue,
-                                color2: AppColors.primaryBlueLight,
-                                imagePath: "assets/images/question_papers.png",
-                                onTap: _navigateToQuestionPapers,
-                                getResponsiveSize: getResponsiveSize,
-                                isLandscape: isLandscape,
-                              ),
-                              _buildQuickAccessCard(
-                                icon: Icons.play_circle_filled_rounded,
-                                title: 'Video Classes',
-                                subtitle: 'Expert lectures and tutorials',
-                                color1: AppColors.warningOrange,
-                                color2: const Color(0xFFFFAB40),
-                                imagePath: "assets/images/video_classes.png",
-                                onTap: _navigateToVideoClasses,
-                                getResponsiveSize: getResponsiveSize,
-                                isLandscape: isLandscape,
-                              ),
-                              _buildQuickAccessCard(
-                                icon: Icons.assignment_rounded,
-                                title: 'Mock Tests',
-                                subtitle: 'Evaluate your preparations',
-                                color1: AppColors.primaryBlue,
-                                color2: AppColors.primaryBlueLight,
-                                imagePath: "assets/images/mock_test.png",
-                                onTap: _navigateToMockTest,
-                                getResponsiveSize: getResponsiveSize,
-                                isLandscape: isLandscape,
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        // Page Indicator Dots
-                        Padding(
-                          padding: EdgeInsets.symmetric(vertical: getResponsiveSize(16)),
-                          child: Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(4, (index) {
-                                return Container(
-                                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                                  width: _currentPage == index ? 10 : 6,
-                                  height: 6,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _currentPage == index
-                                        ? AppColors.primaryYellow
-                                        : AppColors.grey300,
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
-                        ),
-
-                        // Main Action Buttons Section
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            getResponsiveSize(20),
-                            getResponsiveSize(8),
-                            getResponsiveSize(20),
-                            getResponsiveSize(20),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: EdgeInsets.only(bottom: getResponsiveSize(16)),
-                                child: Text(
-                                  'Your Learning Tools',
-                                  style: TextStyle(
-                                    fontSize: getResponsiveSize(18),
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.textDark,
-                                    letterSpacing: -0.2,
+                                    ],
                                   ),
                                 ),
                               ),
-                              
-                              // Action buttons in responsive grid
-                              if (isLandscape)
-                                // Landscape: 4 columns
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: _buildActionButton(
-                                        icon: Icons.play_circle_filled_rounded,
-                                        label: 'Video\nClasses',
-                                        color: AppColors.warningOrange,
-                                        onTap: _navigateToVideoClasses,
-                                        showBadge: true,
-                                        getResponsiveSize: getResponsiveSize,
-                                        isLandscape: isLandscape,
-                                      ),
-                                    ),
-                                    SizedBox(width: getResponsiveSize(12)),
-                                    Expanded(
-                                      child: _buildActionButton(
-                                        icon: Icons.description_rounded,
-                                        label: 'Notes',
-                                        color: AppColors.primaryYellow,
-                                        onTap: _navigateToNotes,
-                                        getResponsiveSize: getResponsiveSize,
-                                        isLandscape: isLandscape,
-                                      ),
-                                    ),
-                                    SizedBox(width: getResponsiveSize(12)),
-                                    Expanded(
-                                      child: _buildActionButton(
-                                        icon: Icons.quiz_rounded,
-                                        label: 'Question\nPapers',
-                                        color: AppColors.primaryBlue,
-                                        onTap: _navigateToQuestionPapers,
-                                        getResponsiveSize: getResponsiveSize,
-                                        isLandscape: isLandscape,
-                                      ),
-                                    ),
-                                    SizedBox(width: getResponsiveSize(12)),
-                                    Expanded(
-                                      child: _buildActionButton(
-                                        icon: Icons.video_library_rounded,
-                                        label: 'Reference\nVideos',
-                                        color: AppColors.successGreen,
-                                        onTap: _navigateToReferenceVideos,
-                                        getResponsiveSize: getResponsiveSize,
-                                        isLandscape: isLandscape,
-                                      ),
-                                    ),
-                                  ],
-                                )
-                              else
-                                // Portrait: 2 columns
-                                Column(
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _buildActionButton(
-                                            icon: Icons.play_circle_filled_rounded,
-                                            label: 'Video\nClasses',
-                                            color: AppColors.warningOrange,
-                                            onTap: _navigateToVideoClasses,
-                                            showBadge: true,
-                                            getResponsiveSize: getResponsiveSize,
-                                            isLandscape: isLandscape,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: _buildActionButton(
-                                            icon: Icons.description_rounded,
-                                            label: 'Notes',
-                                            color: AppColors.primaryYellow,
-                                            onTap: _navigateToNotes,
-                                            getResponsiveSize: getResponsiveSize,
-                                            isLandscape: isLandscape,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _buildActionButton(
-                                            icon: Icons.quiz_rounded,
-                                            label: 'Question\nPapers',
-                                            color: AppColors.primaryBlue,
-                                            onTap: _navigateToQuestionPapers,
-                                            getResponsiveSize: getResponsiveSize,
-                                            isLandscape: isLandscape,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: _buildActionButton(
-                                            icon: Icons.video_library_rounded,
-                                            label: 'Reference\nVideos',
-                                            color: AppColors.successGreen,
-                                            onTap: _navigateToReferenceVideos,
-                                            getResponsiveSize: getResponsiveSize,
-                                            isLandscape: isLandscape,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ),
-
-                        // Profile Completion Reminder
-                        if (!profileCompleted && !isLoading)
-                          Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              getResponsiveSize(20),
-                              getResponsiveSize(10),
-                              getResponsiveSize(20),
-                              getResponsiveSize(30),
                             ),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    AppColors.warningOrange.withOpacity(0.08),
-                                    AppColors.warningOrange.withOpacity(0.04),
-                                  ],
-                                ),
-                                borderRadius: BorderRadius.circular(getResponsiveSize(16)),
-                                border: Border.all(
-                                  color: AppColors.warningOrange.withOpacity(0.25),
-                                  width: 1.5,
-                                ),
-                              ),
-                              child: Padding(
-                                padding: EdgeInsets.all(getResponsiveSize(16)),
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      padding: EdgeInsets.all(getResponsiveSize(10)),
-                                      decoration: BoxDecoration(
-                                        color: AppColors.warningOrange.withOpacity(0.15),
-                                        borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-                                      ),
-                                      child: Icon(
-                                        Icons.info_outline_rounded,
-                                        color: AppColors.warningOrange,
-                                        size: getResponsiveSize(24),
-                                      ),
-                                    ),
-                                    SizedBox(width: getResponsiveSize(12)),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Complete Your Profile',
-                                            style: TextStyle(
-                                              fontSize: getResponsiveSize(15),
-                                              fontWeight: FontWeight.bold,
-                                            color: AppColors.warningOrange,
-                                            ),
-                                          ),
-                                          SizedBox(height: getResponsiveSize(4)),
-                                          Text(
-                                            'Unlock all features by completing your profile information',
-                                            style: TextStyle(
-                                              fontSize: getResponsiveSize(12),
-                                              color: AppColors.textGrey,
-                                              letterSpacing: 0.2,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
 
-                        SizedBox(height: getResponsiveSize(20)),
-                      ],
+                          SizedBox(height: getResponsiveSize(20)),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: CommonBottomNavBar(
-        currentIndex: _currentIndex,
-        onTabSelected: _onTabTapped,
-        studentType: studentType,
-        scaffoldKey: _scaffoldKey, 
+          ],
+        ),
+        bottomNavigationBar: CommonBottomNavBar(
+          currentIndex: _currentIndex,
+          onTabSelected: _onTabTapped,
+          studentType: studentType,
+          scaffoldKey: _scaffoldKey, 
+        ),
       ),
     );
   }
@@ -1719,181 +1956,181 @@ void _sendFocusEndEvent() {
     );
   }
 
-// 🆕 MODIFIED: Build Header Section WITHOUT Focus Mode Banner
-Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
-  return Column(
-    children: [
-      // Main Curved Header (removed Focus Mode Banner)
-      ClipPath(
-        clipper: CurvedHeaderClipper(),
-        child: Container(
-          width: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppColors.primaryYellow,
-                AppColors.primaryYellowDark,
-              ],
+  // Build Header Section
+  Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsiveSize) {
+    return Column(
+      children: [
+        ClipPath(
+          clipper: CurvedHeaderClipper(),
+          child: Container(
+            width: double.infinity,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.primaryYellow,
+                  AppColors.primaryYellowDark,
+                ],
+              ),
             ),
-          ),
-          padding: EdgeInsets.fromLTRB(
-            getResponsiveSize(20),
-            isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
-            getResponsiveSize(20),
-            getResponsiveSize(32),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (!isLandscape) const SizedBox(height: 0),
-              // Welcome Text with Streak
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        RichText(
-                          text: TextSpan(
-                            style: TextStyle(
-                              fontSize: getResponsiveSize(24),
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: -0.3,
-                            ),
-                            children: [
-                              const TextSpan(text: 'Welcome, '),
-                              TextSpan(
-                                text: _getFormattedFirstName(),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(height: getResponsiveSize(4)),
-                        Text(
-                          'Everything you need to learn in one place',
-                          style: TextStyle(
-                            fontSize: getResponsiveSize(13),
-                            color: Colors.white.withOpacity(0.88),
-                            fontWeight: FontWeight.w500,
-                            letterSpacing: 0.1,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: getResponsiveSize(16)),
-                  // Streak Display 
-                  GestureDetector(
-                    onTap: () {
-                      showModalBottomSheet(
-                        context: context,
-                        isScrollControlled: true,
-                        backgroundColor: Colors.transparent,
-                        builder: (context) => StreakChallengeSheet(
-                          currentStreak: currentStreak,
-                          longestStreak: longestStreak,
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: getResponsiveSize(12),
-                        vertical: getResponsiveSize(8),
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+            padding: EdgeInsets.fromLTRB(
+              getResponsiveSize(20),
+              isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
+              getResponsiveSize(20),
+              getResponsiveSize(32),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isLandscape) const SizedBox(height: 0),
+                // Welcome Text with Streak
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            '🔥',
-                            style: TextStyle(fontSize: getResponsiveSize(20)),
+                          RichText(
+                            text: TextSpan(
+                              style: TextStyle(
+                                fontSize: getResponsiveSize(24),
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: -0.3,
+                              ),
+                              children: [
+                                const TextSpan(text: 'Welcome, '),
+                                TextSpan(
+                                  text: _getFormattedFirstName(),
+                                ),
+                              ],
+                            ),
                           ),
-                          SizedBox(width: getResponsiveSize(6)),
+                          SizedBox(height: getResponsiveSize(4)),
                           Text(
-                            '$currentStreak',
+                            'Everything you need to learn in one place',
                             style: TextStyle(
-                              fontSize: getResponsiveSize(16),
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: -0.2,
+                              fontSize: getResponsiveSize(13),
+                              color: Colors.white.withOpacity(0.88),
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 0.1,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-
-              SizedBox(height: getResponsiveSize(18)),
-
-              // Course and Subcourse Info 
-              if (course.isNotEmpty || subcourse.isNotEmpty)
-                Row(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.all(getResponsiveSize(4)),
-                      child: Icon(
-                        Icons.school_rounded,
-                        color: Colors.white,
-                        size: getResponsiveSize(20),
-                      ),
-                    ),
-                    SizedBox(width: getResponsiveSize(8)),
-                    Expanded(
-                      child: RichText(
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        text: TextSpan(
-                          style: TextStyle(
-                            fontSize: getResponsiveSize(18),
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
-                            letterSpacing: -0.1,
+                    SizedBox(width: getResponsiveSize(16)),
+                    // Streak Display 
+                    GestureDetector(
+                      onTap: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => StreakChallengeSheet(
+                            currentStreak: currentStreak,
+                            longestStreak: longestStreak,
                           ),
+                        );
+                      },
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: getResponsiveSize(12),
+                          vertical: getResponsiveSize(8),
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            if (course.isNotEmpty)
-                              TextSpan(
-                                text: course,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            Text(
+                              '🔥',
+                              style: TextStyle(fontSize: getResponsiveSize(20)),
+                            ),
+                            SizedBox(width: getResponsiveSize(6)),
+                            Text(
+                              '$currentStreak',
+                              style: TextStyle(
+                                fontSize: getResponsiveSize(16),
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: -0.2,
                               ),
-                            if (course.isNotEmpty && subcourse.isNotEmpty)
-                              const TextSpan(
-                                text: ' • ',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            if (subcourse.isNotEmpty)
-                              TextSpan(
-                                text: subcourse,
-                                style: TextStyle(
-                                  color: Colors.white.withOpacity(0.85),
-                                ),
-                              ),
+                            ),
                           ],
                         ),
                       ),
                     ),
                   ],
                 ),
-            ],
+
+                SizedBox(height: getResponsiveSize(18)),
+
+                // Course and Subcourse Info 
+                if (course.isNotEmpty || subcourse.isNotEmpty)
+                  Row(
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(getResponsiveSize(4)),
+                        child: Icon(
+                          Icons.school_rounded,
+                          color: Colors.white,
+                          size: getResponsiveSize(20),
+                        ),
+                      ),
+                      SizedBox(width: getResponsiveSize(8)),
+                      Expanded(
+                        child: RichText(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          text: TextSpan(
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(18),
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white,
+                              letterSpacing: -0.1,
+                            ),
+                            children: [
+                              if (course.isNotEmpty)
+                                TextSpan(
+                                  text: course,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              if (course.isNotEmpty && subcourse.isNotEmpty)
+                                const TextSpan(
+                                  text: ' • ',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              if (subcourse.isNotEmpty)
+                                TextSpan(
+                                  text: subcourse,
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.85),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
           ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
+
   // Quick Access Card Widget
   Widget _buildQuickAccessCard({
     required IconData icon,
@@ -1930,7 +2167,6 @@ Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsi
             borderRadius: BorderRadius.circular(getResponsiveSize(18)),
             child: Row(
               children: [
-                // Left side content
                 Expanded(
                   flex: 55,
                   child: Padding(
@@ -1988,7 +2224,6 @@ Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsi
                     ),
                   ),
                 ),
-                // Right side image
                 Expanded(
                   flex: 45,
                   child: Container(
@@ -2008,7 +2243,7 @@ Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsi
     );
   }
 
-  // Action Button Widget with Badge Support and Responsive Sizing
+  // Action Button Widget
   Widget _buildActionButton({
     required IconData icon,
     required String label,
@@ -2036,7 +2271,6 @@ Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsi
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Stack for icon with badge
             Stack(
               clipBehavior: Clip.none,
               children: [
@@ -2052,7 +2286,6 @@ Widget _buildHeaderSection(bool isLandscape, double Function(double) getResponsi
                     size: getResponsiveSize(26),
                   ),
                 ),
-                // Conditional badge display
                 if (showBadge)
                   ValueListenableBuilder<Map<String, bool>>(
                     valueListenable: NotificationService.badgeNotifier,
@@ -2119,4 +2352,17 @@ class CurvedHeaderClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(CurvedHeaderClipper oldClipper) => false;
+}
+
+class _AppLifecycleObserver extends WidgetsBindingObserver {
+  final VoidCallback onResumed;
+  
+  _AppLifecycleObserver({required this.onResumed});
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      onResumed();
+    }
+  }
 }

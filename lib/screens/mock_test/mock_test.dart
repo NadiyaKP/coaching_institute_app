@@ -6,22 +6,23 @@ import 'package:coaching_institute_app/service/auth_service.dart';
 import 'package:coaching_institute_app/service/api_config.dart';
 import '../../common/theme_color.dart';
 import 'mock_test_view.dart';
+import 'descriptive_practice.dart'; 
 import '../../common/bottom_navbar.dart';
 import '../view_profile.dart';
 import '../settings/settings.dart';
 import '../../../service/http_interceptor.dart';
 
 class NavigationState {
-  final String pageType; 
+  final String pageType;
   final String subjectId;
   final String subjectName;
   final String? unitId;
   final String? unitName;
   final String? chapterId;
   final String? chapterName;
-  final bool hasDirectChapters; 
-  final List<dynamic> unitsData; 
-  final List<dynamic> chaptersData; 
+  final bool hasDirectChapters;
+  final List<dynamic> unitsData;
+  final List<dynamic> chaptersData;
 
   NavigationState({
     required this.pageType,
@@ -50,7 +51,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
   bool _showPremiumBanner = false;
   
   // Navigation state
-  String _currentPage = 'subjects'; 
+  String _currentPage = 'subjects';
   
   // Course data from SharedPreferences
   String _courseName = '';
@@ -340,7 +341,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
           hasDirectChapters: false,
           unitsData: units,
         ));
-      } 
+      }
       // If subject has direct chapters but no units, show chapters directly
       else if (hasDirectChapters) {
         debugPrint('📖 Showing DIRECT CHAPTERS page for subject: $subjectName');
@@ -461,7 +462,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
     );
   }
 
-  // Navigate to Mock Test View
+  // Navigate to Mock Test View or Descriptive Practice
   void _navigateToMockTest(String chapterId, String chapterName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found. Please login again.');
@@ -469,23 +470,38 @@ class _MockTestScreenState extends State<MockTestScreen> {
       return;
     }
 
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MockTestViewScreen(
-          chapterId: chapterId, 
-          chapterName: chapterName,
-          accessToken: _accessToken!,
-          practiceType: _selectedPracticeType, 
+    if (_selectedPracticeType == 'mcq') {
+      // Navigate to MCQ Practice
+      final result = await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => MockTestViewScreen(
+            chapterId: chapterId,
+            chapterName: chapterName,
+            accessToken: _accessToken!,
+            practiceType: _selectedPracticeType,
+          ),
         ),
-      ),
-    );
+      );
 
-    // Handle result from MockTestViewScreen if needed
-    if (result != null && result is Map<String, dynamic>) {
-      if (result['showPremiumMessage'] == true) {
-        _showPremiumLimitMessage(result['message'] ?? 'Free users can attempt only one mock test. Upgrade to premium for unlimited attempts.');
+      // Handle result from MockTestViewScreen if needed
+      if (result != null && result is Map<String, dynamic>) {
+        if (result['showPremiumMessage'] == true) {
+          _showPremiumLimitMessage(result['message'] ?? 'Free users can attempt only one practice. Upgrade to premium for unlimited attempts.');
+        }
       }
+    } else {
+      // Navigate to Descriptive Practice
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => DescriptivePracticeScreen(
+            chapterId: chapterId,
+            chapterName: chapterName,
+            accessToken: _accessToken!,
+          ),
+        ),
+      );
     }
   }
 
@@ -655,8 +671,8 @@ class _MockTestScreenState extends State<MockTestScreen> {
 
     // Use the common helper for navigation logic
     BottomNavBarHelper.handleTabSelection(
-      index, 
-      context, 
+      index,
+      context,
       _studentType,
       _scaffoldKey,
     );
@@ -800,13 +816,14 @@ class _MockTestScreenState extends State<MockTestScreen> {
         email: _userEmail,
         course: _courseName,
         subcourse: _subcourseName,
+        studentType: _studentType,
         profileCompleted: _profileCompleted,
         onViewProfile: () {
-          Navigator.of(context).pop(); 
+          Navigator.of(context).pop();
           _navigateToViewProfile();
         },
         onSettings: () {
-          Navigator.of(context).pop(); 
+          Navigator.of(context).pop();
           _navigateToSettings();
         },
         onClose: () {
@@ -915,7 +932,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
                 if (_currentPage == 'chapters')
                   _buildPracticeTypeSelector(),
 
-                // Premium Banner 
+                // Premium Banner
                 if (_showPremiumBanner)
                   _buildPremiumBanner(),
 
@@ -1071,7 +1088,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                       letterSpacing: -0.2,
-                    ),
+                  ),
                   ),
                   SizedBox(height: 2),
                   Text(
@@ -1552,7 +1569,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
                               color: AppColors.textDark,
-                              letterSpacing: -0.3,
+                            letterSpacing: -0.3,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -1634,14 +1651,14 @@ class _MockTestScreenState extends State<MockTestScreen> {
                 children: _chapters
                     .map((chapter) => _buildChapterCard(
                           title: chapter['title']?.toString() ?? 'Unknown Chapter',
-                          subtitle: _selectedPracticeType == 'mcq' 
+                          subtitle: _selectedPracticeType == 'mcq'
                               ? 'Take MCQ mock test for this chapter'
                               : 'Take descriptive practice for this chapter',
-                          icon: _selectedPracticeType == 'mcq' 
-                              ? Icons.quiz_rounded 
+                          icon: _selectedPracticeType == 'mcq'
+                              ? Icons.quiz_rounded
                               : Icons.description_rounded,
-                          color: _selectedPracticeType == 'mcq' 
-                              ? AppColors.primaryBlue 
+                          color: _selectedPracticeType == 'mcq'
+                              ? AppColors.primaryBlue
                               : AppColors.primaryYellow,
                           onTap: () {
                             final chapterId = chapter['id']?.toString();
@@ -1686,7 +1703,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
         ),
         child: Padding(
           padding: const EdgeInsets.all(12),
-        child: Row(
+          child: Row(
             children: [
               Container(
                 height: 40,

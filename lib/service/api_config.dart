@@ -10,8 +10,8 @@ import 'package:flutter/material.dart';
 
 class ApiConfig {
   // --- Base URLs ---
-  static const String _coremicronUrl = 'http://192.168.20.4:8001';
-  static const String _defaultUrl = 'http://192.168.20.4:8001';
+  static const String _coremicronUrl = 'http://192.168.20.99';
+  static const String _defaultUrl = 'http://117.241.73.134';
 
   // Current runtime base URL (auto-determined)
   static String _currentBaseUrl = _coremicronUrl;
@@ -21,8 +21,8 @@ class ApiConfig {
   // 🔵 --------------------------------------------------------------
 
   // Local & external WebSocket base URLs
-  static const String _localWsBase = 'ws://192.168.20.4:8001';
-  static const String _externalWsBase = 'ws://192.168.20.4:8001';
+  static const String _localWsBase = 'ws://192.168.20.99';
+  static const String _externalWsBase = 'ws://117.241.73.134';
 
   // Getter: Auto-switch WebSocket base URL
   static String get websocketBase =>
