@@ -19,7 +19,6 @@ import 'service/timer_service.dart';
 import 'service/websocket_manager.dart'; // WebSocket manager
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/getin_screen.dart';
 import 'screens/otp_verification_screen.dart';
 import 'screens/account_creation_screen.dart';
 import 'screens/profile_completion_page.dart';
@@ -244,13 +243,6 @@ void _handleWebSocketMessage(dynamic message) {
           break;
         default:
           debugPrint('ℹ️ Unhandled WebSocket message type: $type');
-          // Broadcast the raw message for other listeners
-          // scaffoldMessengerKey.currentState?.showSnackBar(
-          //   SnackBar(
-          //     content: Text('New update received'),
-          //     duration: Duration(seconds: 3),
-          //   ),
-          // );
       }
     } else {
       // Handle non-JSON messages
@@ -436,7 +428,6 @@ Future<void> main() async {
   debugPrint('✅ Timer background service initialized');
 
   // ✅ Request overlay permission at startup (optional)
-  // We'll check it when needed, but can pre-check here
   try {
     final timerService = TimerService();
     await timerService.checkOverlayPermission();
@@ -548,19 +539,19 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   bool _isFocusModeActive = false; // 🆕 Track focus mode state
   bool _appInForeground = true; // 🆕 Track if app is in foreground
 
- @override
-void initState() {
-  super.initState();
-  WidgetsBinding.instance.addObserver(this);
-  _initNotificationService();
-  
-  // Initialize WebSocket listener
-  _initWebSocketListener();
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initNotificationService();
+    
+    // Initialize WebSocket listener
+    _initWebSocketListener();
 
-  // 🆕 Ensure overlay is hidden when app starts
-  WidgetsBinding.instance.addPostFrameCallback((_) async {
-    await ensureOverlayHidden();
-  });
+    // 🆕 Ensure overlay is hidden when app starts
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await ensureOverlayHidden();
+    });
 
     // Check WebSocket connection after app starts
     Timer(const Duration(seconds: 3), () {
@@ -821,40 +812,40 @@ void initState() {
   }
 
   // 🆕 Ensure overlay is hidden when app starts or during logout
-Future<void> ensureOverlayHidden() async {
-  try {
-    debugPrint('🎯 Ensuring overlay is hidden...');
-    
-    // Try using FocusOverlayManager if available
+  Future<void> ensureOverlayHidden() async {
     try {
-      final overlayManager = FocusOverlayManager();
-      await overlayManager.initialize();
-      if (overlayManager.isOverlayVisible) {
-        await overlayManager.hideOverlay();
-        debugPrint('✅ FocusOverlayManager: Overlay hidden');
+      debugPrint('🎯 Ensuring overlay is hidden...');
+      
+      // Try using FocusOverlayManager if available
+      try {
+        final overlayManager = FocusOverlayManager();
+        await overlayManager.initialize();
+        if (overlayManager.isOverlayVisible) {
+          await overlayManager.hideOverlay();
+          debugPrint('✅ FocusOverlayManager: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with FocusOverlayManager: $e');
       }
+      
+      // Also try direct method channel call as fallback
+      try {
+        const platform = MethodChannel('focus_mode_overlay_channel');
+        await platform.invokeMethod('hideOverlay');
+        debugPrint('✅ Direct method channel: hideOverlay called');
+      } catch (e) {
+        debugPrint('⚠️ Direct method channel failed: $e');
+      }
+      
+      // Clear overlay-related SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_focus_mode', false);
+      
+      debugPrint('✅ Overlay cleanup completed');
     } catch (e) {
-      debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      debugPrint('❌ Error ensuring overlay hidden: $e');
     }
-    
-    // Also try direct method channel call as fallback
-    try {
-      const platform = MethodChannel('focus_mode_overlay_channel');
-      await platform.invokeMethod('hideOverlay');
-      debugPrint('✅ Direct method channel: hideOverlay called');
-    } catch (e) {
-      debugPrint('⚠️ Direct method channel failed: $e');
-    }
-    
-    // Clear overlay-related SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_focus_mode', false);
-    
-    debugPrint('✅ Overlay cleanup completed');
-  } catch (e) {
-    debugPrint('❌ Error ensuring overlay hidden: $e');
   }
-}
 
   // ✅ Show SnackBar for API switching
   void _showApiSwitchSnackBar(String message) {
@@ -1012,106 +1003,95 @@ Future<void> ensureOverlayHidden() async {
     super.dispose();
   }
 
- @override
-void didChangeAppLifecycleState(AppLifecycleState state) async {
-  debugPrint('📱 App lifecycle changed: $state');
-  _appInForeground = state == AppLifecycleState.resumed;
-  
-  // 🆕 FIRST: Check focus mode state
-  await _checkFocusModeState();
-  
-  // 🆕 Handle app state changes with TimerService
-  if (state == AppLifecycleState.resumed) {
-    // App is coming back to foreground
-    debugPrint('📱 App RESUMED - handling TimerService');
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    debugPrint('📱 App lifecycle changed: $state');
+    _appInForeground = state == AppLifecycleState.resumed;
     
-    // Save app state as resumed
-    await _timerService.handleAppResumed();
+    // 🆕 FIRST: Check focus mode state
+    await _checkFocusModeState();
     
-    // Always reinitialize API and check badge state on resume
-    await ApiConfig.initializeBaseUrl(printLogs: true);
-    await NotificationService.checkBadgeStateOnResume();
-    
-    // Reconnect WebSocket if disconnected when app comes to foreground
-    if (WebSocketManager.connectionStatus == 'disconnected') {
-      await _connectWebSocketIfLoggedIn();
-    }
-    
-    // Check if user should see focus mode
-    _checkAndRedirectToFocusMode();
-    
-    // Check overlay permission status on resume
-    await _timerService.checkOverlayPermission();
-    
-  } else if (state == AppLifecycleState.paused) {
-    // App is going to background
-    debugPrint('📱 App PAUSED - handling TimerService');
-    
-    // Save app state as paused
-    await _timerService.handleAppPaused();
-    
-  } else if (state == AppLifecycleState.detached) {
-    // App is being completely closed/removed from recents
-    debugPrint('📱 App DETACHED - stopping all timers and hiding overlay');
-    
-    // 🆕 CRITICAL: Hide overlay when app is completely closed
-    await _ensureOverlayHidden();
-    
-    // 🆕 CRITICAL: Handle app detachment - stop timer and save state
-    await _timerService.handleAppDetached();
-  }
-  
-  // Keep your existing online student code for attendance tracking
-  final bool isOnlineStudent = await _isOnlineStudent();
-  if (!isOnlineStudent) return;
-
-  if (state == AppLifecycleState.paused) {
-    await _storeEndTimeAndLastActive();
-  }
-
-  if (state == AppLifecycleState.resumed) {
-    _checkLastActiveTimeOnResume();
-  }
-}
-Future<void> _ensureOverlayHidden() async {
-  try {
-    debugPrint('🎯 Ensuring overlay is hidden...');
-    
-    // Clear overlay-related SharedPreferences first
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_focus_mode', false);
-    
-    // Try using FocusOverlayManager if available
-    try {
-      final overlayManager = FocusOverlayManager();
-      await overlayManager.initialize();
-      if (overlayManager.isOverlayVisible) {
-        await overlayManager.hideOverlay();
-        debugPrint('✅ FocusOverlayManager: Overlay hidden');
+    // 🆕 Handle app state changes with TimerService
+    if (state == AppLifecycleState.resumed) {
+      // App is coming back to foreground
+      debugPrint('📱 App RESUMED - handling TimerService');
+      
+      // Save app state as resumed
+      await _timerService.handleAppResumed();
+      
+      // Always reinitialize API and check badge state on resume
+      await ApiConfig.initializeBaseUrl(printLogs: true);
+      await NotificationService.checkBadgeStateOnResume();
+      
+      // Reconnect WebSocket if disconnected when app comes to foreground
+      if (WebSocketManager.connectionStatus == 'disconnected') {
+        await _connectWebSocketIfLoggedIn();
       }
-    } catch (e) {
-      debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      
+      // Check if user should see focus mode
+      _checkAndRedirectToFocusMode();
+      
+      // Check overlay permission status on resume
+      await _timerService.checkOverlayPermission();
+      
+    } else if (state == AppLifecycleState.paused) {
+      // App is going to background
+      debugPrint('📱 App PAUSED - handling TimerService');
+      
+      // Save app state as paused
+      await _timerService.handleAppPaused();
+      
+    } else if (state == AppLifecycleState.detached) {
+      // App is being completely closed/removed from recents
+      debugPrint('📱 App DETACHED - stopping all timers and hiding overlay');
+      
+      // 🆕 CRITICAL: Hide overlay when app is completely closed
+      await _ensureOverlayHidden();
+      
+      // 🆕 CRITICAL: Handle app detachment - stop timer and save state
+      await _timerService.handleAppDetached();
     }
-    
-    // Also try direct method channel call as fallback
-    try {
-      const platform = MethodChannel('focus_mode_overlay_channel');
-      await platform.invokeMethod('hideOverlay');
-      debugPrint('✅ Direct method channel: hideOverlay called');
-    } on PlatformException catch (e) {
-      debugPrint('⚠️ Direct method channel failed: ${e.message}');
-    } catch (e) {
-      debugPrint('⚠️ Direct method channel error: $e');
-    }
-    
-    // Additional delay to ensure overlay is hidden
-    await Future.delayed(const Duration(milliseconds: 300));
-    
-    debugPrint('✅ Overlay cleanup completed for app detachment');
-  } catch (e) {
-    debugPrint('❌ Error ensuring overlay hidden: $e');
   }
-}
+
+  Future<void> _ensureOverlayHidden() async {
+    try {
+      debugPrint('🎯 Ensuring overlay is hidden...');
+      
+      // Clear overlay-related SharedPreferences first
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_focus_mode', false);
+      
+      // Try using FocusOverlayManager if available
+      try {
+        final overlayManager = FocusOverlayManager();
+        await overlayManager.initialize();
+        if (overlayManager.isOverlayVisible) {
+          await overlayManager.hideOverlay();
+          debugPrint('✅ FocusOverlayManager: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      }
+      
+      // Also try direct method channel call as fallback
+      try {
+        const platform = MethodChannel('focus_mode_overlay_channel');
+        await platform.invokeMethod('hideOverlay');
+        debugPrint('✅ Direct method channel: hideOverlay called');
+      } on PlatformException catch (e) {
+        debugPrint('⚠️ Direct method channel failed: ${e.message}');
+      } catch (e) {
+        debugPrint('⚠️ Direct method channel error: $e');
+      }
+      
+      // Additional delay to ensure overlay is hidden
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      debugPrint('✅ Overlay cleanup completed for app detachment');
+    } catch (e) {
+      debugPrint('❌ Error ensuring overlay hidden: $e');
+    }
+  }
 
   Future<void> _initNotificationService() async {
     await NotificationService.init(navigatorKey);
@@ -1150,125 +1130,9 @@ Future<void> _ensureOverlayHidden() async {
     }
   }
 
-  Future<bool> _isOnlineStudent() async {
-    final prefs = await SharedPreferences.getInstance();
-    final studentType = prefs.getString('profile_student_type') ??
-        prefs.getString('student_type') ??
-        '';
-    return studentType.toUpperCase() == 'ONLINE';
-  }
-
-  Future<void> _storeEndTimeAndLastActive() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getString('end_time') == null) {
-      String nowStr = DateTime.now().toIso8601String();
-      await prefs.setString('end_time', nowStr);
-      await prefs.setString('last_active_time', nowStr);
-    }
-  }
-
-  Future<void> _checkLastActiveTimeOnResume() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? endTimeStr = prefs.getString('end_time');
-    if (endTimeStr != null) _showContinueDialog();
-  }
-
-  // ✅ Fixed method - no more BuildContext warnings
-  void _showContinueDialog() {
-    final dialogContext = navigatorKey.currentContext;
-    if (dialogContext == null) return;
-
-    showDialog(
-      context: dialogContext,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Continue'),
-          content: const Text('Continue using the app'),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                final prefs = await SharedPreferences.getInstance();
-                final okClickTime = DateTime.now();
-                final endTimeStr = prefs.getString('end_time');
-
-                // ✅ Do all async work first
-                bool shouldLogout = false;
-
-                if (endTimeStr != null) {
-                  final endTime = DateTime.parse(endTimeStr);
-                  final elapsed = okClickTime.difference(endTime);
-
-                  if (elapsed.inSeconds <= 120) {
-                    await prefs.remove('end_time');
-                    await prefs.remove('last_active_time');
-                  } else {
-                    shouldLogout = true;
-                  }
-                }
-
-                // Then use context after checking if mounted
-                if (!context.mounted) return;
-
-                Navigator.of(context).pop();
-
-                if (shouldLogout) {
-                  await _logoutUser();
-                }
-              },
-              child: const Text('Ok'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Future<void> _logoutUser() async {
     final prefs = await SharedPreferences.getInstance();
-    final bool isOnlineStudent = await _isOnlineStudent();
-
-    if (isOnlineStudent) {
-      String? start = prefs.getString('start_time');
-      String? end = prefs.getString('end_time');
-
-      if (start != null && end != null) {
-        final authService = AuthService();
-        final accessToken = await authService.getAccessToken();
-        String cleanStart = start.split('.')[0].replaceFirst('T', ' ');
-        String cleanEnd = end.split('.')[0].replaceFirst('T', ' ');
-
-        final body = {
-          "records": [
-            {"time_stamp": cleanStart, "is_checkin": 1},
-            {"time_stamp": cleanEnd, "is_checkin": 0}
-          ]
-        };
-
-        try {
-          final response = await http.post(
-            Uri.parse(
-                ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
-            headers: {
-              ...ApiConfig.commonHeaders,
-              'Authorization': 'Bearer $accessToken',
-            },
-            body: jsonEncode(body),
-          );
-
-          if (response.statusCode == 200 || response.statusCode == 201) {
-            debugPrint('✅ Attendance sent successfully');
-          }
-        } catch (e) {
-          debugPrint('❌ Exception while sending attendance: $e');
-        }
-
-        await prefs.remove('start_time');
-        await prefs.remove('end_time');
-        await prefs.remove('last_active_time');
-      }
-    }
-
+    
     // 🆕 CRITICAL: Clear ALL timer data on logout - DO THIS FIRST
     await TimerService.clearAllTimerData();
     
@@ -1309,7 +1173,6 @@ Future<void> _ensureOverlayHidden() async {
       routes: {
         '/splash': (context) => const SplashScreen(),
         '/signup': (context) => const LoginScreen(),
-        '/getin': (context) => const GetInScreen(),
         '/otp_verification': (context) => const OtpVerificationScreen(),
         '/account_creation': (context) => const AccountCreationScreen(),
         '/home': (context) => const HomeScreen(),

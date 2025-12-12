@@ -67,6 +67,16 @@ class _HomeScreenState extends State<HomeScreen> {
   final TimerService _timerService = TimerService(); 
   bool _isFocusModeActive = false;
   
+  // 🆕 Timetable data
+  List<dynamic> _timetableDays = [];
+  int _currentTimetableIndex = 1; // Default to today (middle index)
+  bool _isLoadingTimetable = false;
+  
+  // 🆕 NEW: Timetable cache keys
+  static const String _keyTimetableData = 'timetable_data';
+  static const String _keyTimetableLastFetchDate = 'timetable_last_fetch_date';
+  static const String _keyTimetableCache = 'timetable_cache';
+
   // 🆕 REMOVED: All UI timers - using ValueNotifier listeners instead
 
   // 🆕 WillPopScope handling
@@ -318,24 +328,49 @@ Future<void> _syncFocusModeState() async {
     _refreshIndicatorKey.currentState?.show();
   }
 
-  Future<void> _storeStartTime() async {
+  // 🆕 NEW: Check if timetable needs refresh
+  Future<bool> _shouldFetchTimetable() async {
     final prefs = await SharedPreferences.getInstance();
+    final lastFetchDate = prefs.getString(_keyTimetableLastFetchDate);
+    final today = DateTime.now().toIso8601String().split('T')[0];
     
-    final String currentStudentType = studentType.isNotEmpty 
-        ? studentType 
-        : (prefs.getString('profile_student_type') ?? '');
-    
-    final bool isOnlineStudent = currentStudentType.toUpperCase() == 'ONLINE';
-    
-    if (!isOnlineStudent) {
-      debugPrint('🎯 Skipping start time storage for non-online student (Type: $currentStudentType)');
-      return;
+    // If never fetched or fetched on a different day, fetch from API
+    return lastFetchDate != today;
+  }
+
+  // 🆕 NEW: Load cached timetable data
+  Future<void> _loadCachedTimetable() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedData = prefs.getString(_keyTimetableCache);
+      
+      if (cachedData != null && cachedData.isNotEmpty) {
+        final decodedData = json.decode(cachedData);
+        if (decodedData['days'] != null && decodedData['days'] is List) {
+          setState(() {
+            _timetableDays = decodedData['days'];
+            _currentTimetableIndex = 1;
+          });
+          debugPrint('📅 Loaded cached timetable data (${_timetableDays.length} days)');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading cached timetable: $e');
     }
-    
-    if (prefs.getString('start_time') == null) {
-      String startTime = DateTime.now().toIso8601String();
-      await prefs.setString('start_time', startTime);
-      debugPrint('✅ Start timestamp stored on home page: $startTime');
+  }
+
+  // 🆕 NEW: Save timetable data to cache
+  Future<void> _saveTimetableToCache(Map<String, dynamic> data) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      
+      await prefs.setString(_keyTimetableCache, json.encode(data));
+      await prefs.setString(_keyTimetableLastFetchDate, today);
+      
+      debugPrint('💾 Saved timetable data to cache for date: $today');
+    } catch (e) {
+      debugPrint('❌ Error saving timetable to cache: $e');
     }
   }
 
@@ -389,7 +424,7 @@ void didChangeDependencies() {
     }
     
     _loadCachedProfileData().then((_) async {
-      _storeStartTime();
+      // 🆕 REMOVED: _storeStartTime() call
       await _fetchProfileData();
       
       // Register device token AFTER profile is fetched
@@ -397,9 +432,100 @@ void didChangeDependencies() {
       
       // 🆕 NEW: Sync focus mode state after initial load
       await _syncFocusModeState();
+      
+      // 🆕 MODIFIED: Load timetable with caching logic
+      await _loadTimetableWithCache();
     });
   }
 }
+
+  // 🆕 MODIFIED: Load timetable with caching logic
+  Future<void> _loadTimetableWithCache() async {
+    // First load cached data
+    await _loadCachedTimetable();
+    
+    // Check if we need to fetch fresh data
+    final shouldFetch = await _shouldFetchTimetable();
+    
+    if (shouldFetch) {
+      debugPrint('📡 Fetching fresh timetable data from API');
+      await _fetchTimetableData();
+    } else {
+      debugPrint('📅 Using cached timetable data');
+    }
+  }
+
+  // 🆕 MODIFIED: Fetch timetable data with caching
+  Future<void> _fetchTimetableData() async {
+    if (_isLoadingTimetable) return;
+    
+    setState(() {
+      _isLoadingTimetable = true;
+    });
+    
+    try {
+      String accessToken = await _authService.getAccessToken();
+      
+      if (accessToken.isEmpty) {
+        debugPrint('No access token found for timetable');
+        return;
+      }
+      
+      final client = _createHttpClientWithCustomCert();
+      
+      final response = await client.get(
+        Uri.parse('${ApiConfig.currentBaseUrl}/api/attendance/time_table/list/?filter=three_day'),
+        headers: {
+          ...ApiConfig.commonHeaders,
+          'Authorization': 'Bearer $accessToken',
+        },
+      ).timeout(ApiConfig.requestTimeout);
+      
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        debugPrint('Timetable API response received');
+        
+        if (responseData['days'] != null && responseData['days'] is List) {
+          // Save to cache
+          await _saveTimetableToCache(responseData);
+          
+          setState(() {
+            _timetableDays = responseData['days'];
+            _currentTimetableIndex = 1; // Default to today (middle index)
+          });
+          debugPrint('✅ Loaded and cached ${_timetableDays.length} days of timetable');
+        }
+      } else {
+        debugPrint('Failed to fetch timetable: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching timetable: $e');
+    } finally {
+      setState(() {
+        _isLoadingTimetable = false;
+      });
+    }
+  }
+
+  // 🆕 MODIFIED: Get day label with smaller font
+  String _getDayLabel(int index) {
+    if (_timetableDays.isEmpty) return '';
+    
+    if (index == 0) return 'Yesterday';
+    if (index == 1) return 'Today';
+    if (index == 2) return 'Tomorrow';
+    return 'Day ${index + 1}';
+  }
+
+  // 🆕 MODIFIED: Format date for display with smaller font
+  String _formatDate(String dateString) {
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return dateString;
+    }
+  }
 
   Future<void> _refreshData() async {
   debugPrint('🔄 Starting forced refresh...');
@@ -428,6 +554,9 @@ void didChangeDependencies() {
 
     // Fetch profile data first
     await _fetchProfileData();
+    
+    // 🆕 MODIFIED: Force fetch fresh timetable data on refresh
+    await _fetchTimetableData();
 
     // Force refresh subjects data only during manual refresh
     if (subcourseId.isNotEmpty) {
@@ -591,6 +720,8 @@ void didChangeDependencies() {
       await prefs.remove(_keyUnreadNotifications);
       await prefs.remove(_keyDeviceRegistered);
       await prefs.remove(_keyFirstLoginSubjectsFetched);
+      await prefs.remove(_keyTimetableCache);
+      await prefs.remove(_keyTimetableLastFetchDate);
       
       debugPrint('Cached profile data cleared');
     } catch (e) {
@@ -707,13 +838,7 @@ void didChangeDependencies() {
               isLoading = false;
             });
 
-            // Store start time AFTER we have the student type from API
-            _storeStartTime();
-
-            // After fetching profile data, fetch subjects data with first login logic
-            if (subcourseId.isNotEmpty) {
-              await _fetchAndStoreSubjects(forceRefresh: false);
-            }
+            // 🆕 REMOVED: _storeStartTime() call
 
           } else {
             debugPrint('Profile data not found in response');
@@ -1216,128 +1341,211 @@ void didChangeDependencies() {
     );
   }
 
-  void _showRaiseHandDialog(double Function(double) getResponsiveSize) {
-  showDialog(
-    context: context,
-    barrierDismissible: true,
-    builder: (BuildContext context) {
-      return Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(getResponsiveSize(20)),
-        ),
-        child: Container(
-          padding: EdgeInsets.all(getResponsiveSize(24)),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(getResponsiveSize(20)),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white,
-                const Color(0xFF43E97B).withOpacity(0.05),
-              ],
-            ),
+  // 🆕 MODIFIED: Show Focus Mode Dialog with new design
+  void _showFocusModeDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Container(
-                padding: EdgeInsets.all(getResponsiveSize(16)),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF43E97B).withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.help_outline,
-                  color: const Color(0xFF43E97B),
-                  size: getResponsiveSize(48),
-                ),
-              ),
-              SizedBox(height: getResponsiveSize(20)),
-              
-              // Title
-              Text(
-                'Need Help?',
-                style: TextStyle(
-                  fontSize: getResponsiveSize(22),
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textDark,
-                ),
-              ),
-              SizedBox(height: getResponsiveSize(12)),
-              
-              // Description
-              Text(
-                'Do you have any doubts to ask?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: getResponsiveSize(15),
-                  color: AppColors.textGrey,
-                  height: 1.4,
-                ),
-              ),
-              SizedBox(height: getResponsiveSize(24)),
-              
-              // Raise Hand Button
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    _raiseHandForDoubt();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF43E97B),
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(
-                      vertical: getResponsiveSize(16),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header with icon and title
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.timer,
+                        color: AppColors.primaryYellow,
+                        size: 28,
+                      ),
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Focus Mode Active',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textDark,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Timer is running',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.textGrey,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    elevation: 0,
+                  ],
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Timer display
+                Center(
+                  child: ValueListenableBuilder<Duration>(
+                    valueListenable: _timerService.focusTimeToday,
+                    builder: (context, focusTime, _) {
+                      return Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryYellow.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: AppColors.primaryYellow.withOpacity(0.2),
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          _formatTimerDuration(focusTime),
+                          style: const TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryYellow,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Informational text about raise hand
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF43E97B).withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF43E97B).withOpacity(0.1),
+                    ),
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        '✋',
-                        style: TextStyle(fontSize: getResponsiveSize(20)),
+                      Icon(
+                        Icons.info_outline,
+                        color: const Color(0xFF43E97B),
+                        size: 18,
                       ),
-                      SizedBox(width: getResponsiveSize(8)),
-                      Text(
-                        'Raise Hand',
-                        style: TextStyle(
-                          fontSize: getResponsiveSize(16),
-                          fontWeight: FontWeight.bold,
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'If you have any doubts during focus session, click "Raise Hand"',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textDark,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              SizedBox(height: getResponsiveSize(12)),
-              
-              // Cancel Button
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(
-                  'Cancel',
-                  style: TextStyle(
-                    fontSize: getResponsiveSize(15),
-                    color: AppColors.textGrey,
-                    fontWeight: FontWeight.w600,
+                
+                const SizedBox(height: 20),
+                
+                // Action buttons
+                Row(
+                  children: [
+                    // Raise Hand Button
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _raiseHandForDoubt();
+                        },
+                        icon: const Text('✋', style: TextStyle(fontSize: 18)),
+                        label: const Text(
+                          'Raise Hand',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF43E97B),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          side: BorderSide(
+                            color: const Color(0xFF43E97B),
+                            width: 2,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(width: 12),
+                    
+                    // Stop Button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _stopFocusMode,
+                        icon: const Icon(Icons.stop, size: 20),
+                        label: const Text(
+                          'Stop',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.errorRed,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Close button
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
 // Send Raise Hand Event via WebSocket
 void _raiseHandForDoubt() {
@@ -1346,20 +1554,20 @@ void _raiseHandForDoubt() {
     WebSocketManager.send({"event": "raise_hand"});
     debugPrint('📤 WebSocket event sent: {"event": "raise_hand"}');
     
-    // Show success message
+    // Show success message with better text
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
             children: [
-               Icon(
+              Icon(
                 Icons.check_circle,
                 color: Colors.white,
               ),
-               SizedBox(width: 12),
-               Expanded(
+              SizedBox(width: 12),
+              Expanded(
                 child: Text(
-                  'Hand raised successfully! Your doubt has been registered.',
+                  'Your doubt has been registered! Your teacher will assist you shortly.',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -1386,12 +1594,12 @@ void _raiseHandForDoubt() {
         const SnackBar(
           content: Row(
             children: [
-               Icon(
+              Icon(
                 Icons.error_outline,
                 color: Colors.white,
               ),
-               SizedBox(width: 12),
-               Expanded(
+              SizedBox(width: 12),
+              Expanded(
                 child: Text(
                   'Failed to raise hand. Please check your connection.',
                   style: TextStyle(
@@ -1472,8 +1680,8 @@ void _raiseHandForDoubt() {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 🆕 Focus Mode Stats Card - USING VALUE LISTENABLE BUILDER
-                          if (_isFocusModeActive)
+                          // 🆕 MODIFIED: Timetable Section - Compact and Scrollable
+                          if (_timetableDays.isNotEmpty)
                             Padding(
                               padding: EdgeInsets.fromLTRB(
                                 getResponsiveSize(20),
@@ -1481,127 +1689,9 @@ void _raiseHandForDoubt() {
                                 getResponsiveSize(20),
                                 getResponsiveSize(8),
                               ),
-                              child: GestureDetector(
-                                onTap: () => _showRaiseHandDialog(getResponsiveSize),
-                                child: Container(
-                                  padding: EdgeInsets.all(getResponsiveSize(16)),
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                      colors: [
-                                        const Color(0xFF43E97B).withOpacity(0.1),
-                                        const Color(0xFF43E97B).withOpacity(0.05),
-                                      ],
-                                    ),
-                                    borderRadius: BorderRadius.circular(getResponsiveSize(16)),
-                                    border: Border.all(
-                                      color: const Color(0xFF43E97B).withOpacity(0.3),
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: EdgeInsets.all(getResponsiveSize(10)),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFF43E97B).withOpacity(0.15),
-                                          borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-                                        ),
-                                        child: Icon(
-                                          Icons.timer,
-                                          color: const Color(0xFF43E97B),
-                                          size: getResponsiveSize(24),
-                                        ),
-                                      ),
-                                      SizedBox(width: getResponsiveSize(12)),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            // Title and Timer Row
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    'Focus Mode Active',
-                                                    style: TextStyle(
-                                                      fontSize: getResponsiveSize(16),
-                                                      fontWeight: FontWeight.bold,
-                                                      color: const Color(0xFF43E97B),
-                                                    ),
-                                                  ),
-                                                ),
-                                                SizedBox(width: getResponsiveSize(8)),
-                                                // 🆕 CRITICAL FIX: Use ValueListenableBuilder to listen to timer updates
-                                                ValueListenableBuilder<Duration>(
-                                                  valueListenable: _timerService.focusTimeToday,
-                                                  builder: (context, focusTime, _) {
-                                                    return Text(
-                                                      _formatTimerDuration(focusTime),
-                                                      style: TextStyle(
-                                                        fontSize: getResponsiveSize(14),
-                                                        fontWeight: FontWeight.bold,
-                                                        color: const Color(0xFF43E97B),
-                                                        fontFamily: 'monospace',
-                                                      ),
-                                                    );
-                                                  },
-                                                ),
-                                              ],
-                                            ),
-                                            SizedBox(height: getResponsiveSize(8)),
-                                            // Subtitle and Button Row
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    'Total focus today • Tap to raise hand',
-                                                    style: TextStyle(
-                                                      fontSize: getResponsiveSize(12),
-                                                      color: AppColors.textGrey,
-                                                    ),
-                                                  ),
-                                                ),
-                                                SizedBox(width: getResponsiveSize(8)),
-                                                ElevatedButton.icon(
-                                                  onPressed: _stopFocusMode,
-                                                  icon: Icon(
-                                                    Icons.stop,
-                                                    size: getResponsiveSize(14),
-                                                  ),
-                                                  label: Text(
-                                                    'Stop',
-                                                    style: TextStyle(
-                                                      fontSize: getResponsiveSize(12),
-                                                      fontWeight: FontWeight.w600,
-                                                    ),
-                                                  ),
-                                                  style: ElevatedButton.styleFrom(
-                                                    backgroundColor: const Color(0xFF43E97B),
-                                                    foregroundColor: Colors.white,
-                                                    padding: EdgeInsets.symmetric(
-                                                      horizontal: getResponsiveSize(12),
-                                                      vertical: getResponsiveSize(6),
-                                                    ),
-                                                    minimumSize: Size.zero,
-                                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                                    shape: RoundedRectangleBorder(
-                                                      borderRadius: BorderRadius.circular(getResponsiveSize(20)),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                              child: _buildCompactTimetableCard(getResponsiveSize),
                             ),
-
+                          
                           // Quick Access Section
                           Padding(
                             padding: EdgeInsets.fromLTRB(
@@ -1915,6 +2005,54 @@ void _raiseHandForDoubt() {
             ),
           ],
         ),
+        // 🆕 MODIFIED: Floating Action Button for Focus Mode with primary yellow color
+        floatingActionButton: _isFocusModeActive
+            ? FloatingActionButton.extended(
+                onPressed: _showFocusModeDialog,
+                backgroundColor: AppColors.primaryYellow, // Changed to primary yellow
+                foregroundColor: Colors.white,
+                elevation: 4,
+                icon: ValueListenableBuilder<Duration>(
+                  valueListenable: _timerService.focusTimeToday,
+                  builder: (context, focusTime, _) {
+                    return Stack(
+                      children: [
+                        const Icon(Icons.timer, size: 24),
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: const BoxDecoration(
+                              color: Colors.red,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.stop,
+                              size: 10,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                label: ValueListenableBuilder<Duration>(
+                  valueListenable: _timerService.focusTimeToday,
+                  builder: (context, focusTime, _) {
+                    return Text(
+                      _formatTimerDuration(focusTime),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    );
+                  },
+                ),
+              )
+            : null,
+        floatingActionButtonLocation: FloatingActionButtonLocation.miniEndFloat,
         bottomNavigationBar: CommonBottomNavBar(
           currentIndex: _currentIndex,
           onTabSelected: _onTabTapped,
@@ -1925,6 +2063,271 @@ void _raiseHandForDoubt() {
     );
   }
 
+Widget _buildCompactTimetableCard(double Function(double) getResponsiveSize) {
+  if (_timetableDays.isEmpty || _currentTimetableIndex >= _timetableDays.length) {
+    return Container();
+  }
+
+  final dayData = _timetableDays[_currentTimetableIndex];
+  final entries = dayData['entries'] as List<dynamic>? ?? [];
+  final date = dayData['date'] as String? ?? '';
+  final dayLabel = _getDayLabel(_currentTimetableIndex);
+  
+  // Create a PageController for horizontal swiping
+  final PageController _subjectPageController = PageController(viewportFraction: 0.9);
+  int _currentSubjectPage = 0;
+
+  return Container(
+    height: getResponsiveSize(140), // Back to original height
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: getResponsiveSize(8),
+          offset: Offset(0, getResponsiveSize(2)),
+        ),
+      ],
+    ),
+    child: Padding(
+      padding: EdgeInsets.all(getResponsiveSize(12)),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Header row - compact
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Left arrow
+              GestureDetector(
+                onTap: _currentTimetableIndex > 0
+                    ? () {
+                        setState(() {
+                          _currentTimetableIndex--;
+                          _currentSubjectPage = 0;
+                        });
+                      }
+                    : null,
+                child: Container(
+                  width: getResponsiveSize(24),
+                  height: getResponsiveSize(24),
+                  decoration: BoxDecoration(
+                    color: _currentTimetableIndex > 0
+                        ? AppColors.primaryBlue.withOpacity(0.1)
+                        : Colors.transparent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.chevron_left,
+                      size: getResponsiveSize(16),
+                      color: _currentTimetableIndex > 0
+                          ? AppColors.primaryBlue
+                          : Colors.grey[300],
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Day and date
+              Expanded(
+                child: Center(
+                  child: RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: '$dayLabel • ',
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(13),
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryBlue,
+                          ),
+                        ),
+                        TextSpan(
+                          text: _formatDate(date),
+                          style: TextStyle(
+                            fontSize: getResponsiveSize(11),
+                            color: AppColors.textGrey,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              
+              // Right arrow
+              GestureDetector(
+                onTap: _currentTimetableIndex < _timetableDays.length - 1
+                    ? () {
+                        setState(() {
+                          _currentTimetableIndex++;
+                          _currentSubjectPage = 0;
+                        });
+                      }
+                    : null,
+                child: Container(
+                  width: getResponsiveSize(24),
+                  height: getResponsiveSize(24),
+                  decoration: BoxDecoration(
+                    color: _currentTimetableIndex < _timetableDays.length - 1
+                        ? AppColors.primaryBlue.withOpacity(0.1)
+                        : Colors.transparent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Icon(
+                      Icons.chevron_right,
+                      size: getResponsiveSize(16),
+                      color: _currentTimetableIndex < _timetableDays.length - 1
+                          ? AppColors.primaryBlue
+                          : Colors.grey[300],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          
+          SizedBox(height: getResponsiveSize(6)),
+          
+          // Divider
+          Container(height: 1, color: Colors.grey[200]),
+          
+          SizedBox(height: getResponsiveSize(6)),
+          
+          // Subject area - Takes remaining space
+          Expanded(
+            child: entries.isNotEmpty
+                ? Column(
+                    children: [
+                      // Subject content area
+                      Expanded(
+                        child: PageView.builder(
+                          controller: _subjectPageController,
+                          itemCount: entries.length,
+                          onPageChanged: (index) {
+                            setState(() {
+                              _currentSubjectPage = index;
+                            });
+                          },
+                          itemBuilder: (context, subjectIndex) {
+                            final entry = entries[subjectIndex];
+                            final subjectTitle = entry['subject_title'] ?? '';
+                            final topicTitles = (entry['topic_titles'] as List<dynamic>?)?.join(', ') ?? '';
+                            
+                            return Padding(
+                              padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                              child: Container(
+                                padding: EdgeInsets.all(getResponsiveSize(8)),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryBlue.withOpacity(0.03),
+                                  borderRadius: BorderRadius.circular(getResponsiveSize(8)),
+                                  border: Border.all(
+                                    color: AppColors.primaryBlue.withOpacity(0.1),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Subject title row
+                                    Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Container(
+                                          padding: EdgeInsets.all(getResponsiveSize(3)),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primaryBlue.withOpacity(0.1),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            Icons.book_rounded,
+                                            size: getResponsiveSize(10),
+                                            color: AppColors.primaryBlue,
+                                          ),
+                                        ),
+                                        SizedBox(width: getResponsiveSize(6)),
+                                        Expanded(
+                                          child: Text(
+                                            subjectTitle,
+                                            style: TextStyle(
+                                              fontSize: getResponsiveSize(12),
+                                              fontWeight: FontWeight.bold,
+                                              color: AppColors.textDark,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    
+                                    SizedBox(height: getResponsiveSize(4)),
+                                    
+                                    // Topics
+                                    if (topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty)
+                                      Text(
+                                        topicTitles,
+                                        style: TextStyle(
+                                          fontSize: getResponsiveSize(10),
+                                          color: AppColors.textDark,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      
+                      // Dot indicators - only if multiple subjects
+                      if (entries.length > 1)
+                        SizedBox(
+                          height: getResponsiveSize(12),
+                          child: Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(entries.length, (index) {
+                                return Container(
+                                  margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                                  width: _currentSubjectPage == index ? getResponsiveSize(6) : getResponsiveSize(4),
+                                  height: getResponsiveSize(4),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _currentSubjectPage == index
+                                        ? AppColors.primaryBlue
+                                        : AppColors.primaryBlue.withOpacity(0.3),
+                                  ),
+                                );
+                              }),
+                            ),
+                          ),
+                        ),
+                    ],
+                  )
+                : Center(
+                    child: Text(
+                      'No classes',
+                      style: TextStyle(
+                        fontSize: getResponsiveSize(11),
+                        color: AppColors.textGrey,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
   // Build Section Header
   Widget _buildSectionHeader(String title, double Function(double) getResponsiveSize) {
     return Column(

@@ -16,6 +16,7 @@ import '../Academics/results.dart';
 import 'assignments/assignments.dart';
 import '../../screens/performance.dart';
 import '../../screens/Academics/my_leave_application/my_leave_application.dart';
+import '../Academics/time_table.dart';
 
 class AcademicsScreen extends StatefulWidget {
   const AcademicsScreen({Key? key}) : super(key: key);
@@ -92,6 +93,15 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
       debugPrint('Error loading student type: $e');
     }
   }
+
+  // Check if student type is Online or Offline (not Public)
+  bool get isRegularStudent {
+    final type = studentType.toLowerCase();
+    return type == 'online' || type == 'offline';
+  }
+
+  // Check if student is online specifically
+  bool get isOnlineStudent => studentType.toLowerCase() == 'online';
 
   // Update the bottom navbar badge based on unread counts
   void _updateAcademicsBadge() {
@@ -400,6 +410,16 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     );
   }
 
+  // Navigate to Time Table
+  void _navigateToTimeTable() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const TimeTableScreen(),
+      ),
+    );
+  }
+
   // Navigate to View Profile
   void _navigateToViewProfile() async {
     final result = await Navigator.of(context).push(
@@ -531,9 +551,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
       _scaffoldKey,
     );
   }
-
-  // Helper method to check if student is online
-  bool get isOnlineStudent => studentType.toLowerCase() == 'online';
 
   @override
   Widget build(BuildContext context) {
@@ -692,6 +709,19 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                         subtitle: 'Check your exam results',
                         color: AppColors.primaryYellowLight,
                         onTap: _navigateToResults,
+                      ),
+
+                      const SizedBox(height: 12),
+                    ],
+
+                    // Time Table Card (For Online and Offline students, not Public)
+                    if (isRegularStudent) ...[
+                      _buildAcademicCard(
+                        icon: Icons.schedule_rounded,
+                        title: 'Time Table',
+                        subtitle: 'View your class schedule',
+                        color: AppColors.primaryBlue,
+                        onTap: _navigateToTimeTable,
                       ),
 
                       const SizedBox(height: 12),

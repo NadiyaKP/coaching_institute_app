@@ -11,19 +11,30 @@ class FocusModeEntryScreen extends StatefulWidget {
   State<FocusModeEntryScreen> createState() => _FocusModeEntryScreenState();
 }
 
-class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with WidgetsBindingObserver {
+class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final TimerService _timerService = TimerService();
   late Future<Duration> _initializationFuture;
   Duration _focusTimeToday = Duration.zero;
   bool _hasOverlayPermission = false;
   bool _isStartingFocusMode = false;
-  bool _isRestoredFromDisconnect = false; // 🆕 Track if time was restored
+  bool _isRestoredFromDisconnect = false;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializationFuture = _initializeData();
+    
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat(reverse: true);
+    
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
   }
 
   @override
@@ -37,16 +48,12 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     try {
       debugPrint('🔄 Starting focus mode entry initialization...');
       
-      // Initialize timer service first
       await _timerService.initialize();
-      
-      // Get SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       final today = DateTime.now().toIso8601String().split('T')[0];
       
       debugPrint('📅 Today: $today');
       
-      // 🆕 NEW LOGIC: Check WebSocket disconnect time first
       final disconnectTimeStr = prefs.getString(TimerService.websocketDisconnectTimeKey);
       if (disconnectTimeStr != null) {
         final disconnectTime = DateTime.parse(disconnectTimeStr);
@@ -55,20 +62,16 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
         debugPrint('🔌 Found WebSocket disconnect time: $disconnectDate');
         
         if (disconnectDate == today) {
-          // Same day as disconnect - check for stored focus time
           await _handleWebSocketDisconnectRecovery(prefs, today);
         } else {
-          // Different day - clear disconnect time and proceed normally
           debugPrint('📅 Disconnect was on different day, clearing');
           await prefs.remove(TimerService.websocketDisconnectTimeKey);
           await _handleNormalInitialization(prefs, today);
         }
       } else {
-        // No WebSocket disconnect - proceed with normal initialization
         await _handleNormalInitialization(prefs, today);
       }
       
-      // Check overlay permission using TimerService
       _hasOverlayPermission = await _timerService.checkOverlayPermission();
       
       debugPrint('📋 Initialization Summary:');
@@ -85,12 +88,10 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     }
   }
 
-  // 🆕 NEW: Handle WebSocket disconnect recovery
   Future<void> _handleWebSocketDisconnectRecovery(SharedPreferences prefs, String today) async {
     try {
       debugPrint('🔌 Recovering from WebSocket disconnect...');
       
-      // Check for last stored focus time
       final lastStoredTime = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
       final lastStoredDate = prefs.getString(TimerService.lastStoredFocusDateKey);
       final savedFocusTime = prefs.getInt(TimerService.focusKey) ?? 0;
@@ -99,7 +100,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
       debugPrint('   - Last stored date: $lastStoredDate');
       debugPrint('   - Saved focus time: ${savedFocusTime}s');
       
-      // Determine which time to use (use the maximum)
       int focusSeconds = 0;
       if (lastStoredDate == today) {
         focusSeconds = lastStoredTime > savedFocusTime ? lastStoredTime : savedFocusTime;
@@ -110,20 +110,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
         debugPrint('   ⚠️ Last stored date mismatch, using saved time: ${focusSeconds}s');
       }
       
-      // Update focus time
       _focusTimeToday = Duration(seconds: focusSeconds);
-      
-      // Ensure SharedPreferences is consistent
       await prefs.setInt(TimerService.focusKey, focusSeconds);
-      
-      // Clear the disconnect flag since we've recovered
       await prefs.remove(TimerService.websocketDisconnectTimeKey);
       
-      // Also clear WebSocket disconnect tracking in TimerService
       final bool wasStoppedByWebSocket = await _timerService.wasFocusStoppedByWebSocket();
       if (wasStoppedByWebSocket) {
         debugPrint('   🧹 Clearing WebSocket disconnect tracking');
-        // The timer service should handle this internally
       }
       
     } catch (e) {
@@ -132,22 +125,18 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     }
   }
 
-  // 🆕 NEW: Handle normal initialization (no WebSocket disconnect)
   Future<void> _handleNormalInitialization(SharedPreferences prefs, String today) async {
     final lastDate = prefs.getString(TimerService.lastDateKey);
     
     debugPrint('📅 Normal initialization - Last saved date: $lastDate');
     
     if (lastDate != today) {
-      // New day detected - Reset timer
       debugPrint('🔄 New day detected! Resetting timer...');
       await _resetTimerForNewDay(prefs, today);
     } else {
-      // Same day - Load saved timer
       final savedFocusTime = prefs.getInt(TimerService.focusKey) ?? 0;
       final lastStoredTime = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
       
-      // Use the greater of the two values
       final focusSeconds = savedFocusTime > lastStoredTime ? savedFocusTime : lastStoredTime;
       _focusTimeToday = Duration(seconds: focusSeconds);
       
@@ -157,7 +146,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     }
   }
 
-  // 🆕 NEW: Helper method to reset timer for new day
   Future<void> _resetTimerForNewDay(SharedPreferences prefs, String today) async {
     await prefs.setString(TimerService.lastDateKey, today);
     await prefs.setString(TimerService.heartbeatDateKey, today);
@@ -167,8 +155,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     await prefs.remove(TimerService.focusElapsedKey);
     await prefs.remove(TimerService.appStateKey);
     await prefs.remove(TimerService.lastHeartbeatKey);
-    
-    // Clear all stored times
     await prefs.remove(TimerService.lastStoredFocusTimeKey);
     await prefs.remove(TimerService.lastStoredFocusDateKey);
     await prefs.remove(TimerService.websocketDisconnectTimeKey);
@@ -186,7 +172,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     });
 
     try {
-      // Check WebSocket connection first
       if (!WebSocketManager.isConnected) {
         await _showWebSocketErrorPopup();
         setState(() {
@@ -195,7 +180,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
         return;
       }
 
-      // Verify date one more time before starting
       final prefs = await SharedPreferences.getInstance();
       final today = DateTime.now().toIso8601String().split('T')[0];
       final lastDate = prefs.getString(TimerService.lastDateKey);
@@ -208,32 +192,22 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
         _isRestoredFromDisconnect = false;
       }
 
-      // Ensure timer service is initialized
       await _timerService.initialize();
-      
-      // 🆕 IMPORTANT: Clear any WebSocket disconnect flags before starting
       await prefs.remove(TimerService.websocketDisconnectTimeKey);
       
-      // Check overlay permission using TimerService
       final hasPermission = await _timerService.checkOverlayPermission();
       
       if (!hasPermission) {
-        // Show popup asking for permission
         final shouldOpenSettings = await _showPermissionPopup();
         
         if (shouldOpenSettings == true) {
-          // User clicked OK - open settings
           await openAppSettings();
-          
-          // After returning from settings, check permission again
           await Future.delayed(const Duration(milliseconds: 500));
           final newPermissionStatus = await _timerService.checkOverlayPermission();
           
           if (newPermissionStatus) {
-            // Permission granted, start focus mode
             await _actuallyStartFocusMode();
           } else {
-            // User still hasn't granted permission
             await _showPermissionRequiredPopup();
             setState(() {
               _isStartingFocusMode = false;
@@ -241,20 +215,17 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
             return;
           }
         } else {
-          // User clicked Cancel, stay on this page
           setState(() {
             _isStartingFocusMode = false;
           });
           return;
         }
       } else {
-        // Already have permission, start focus mode
         await _actuallyStartFocusMode();
       }
     } catch (e) {
       debugPrint('❌ Error starting focus mode: $e');
       
-      // Check if error is about overlay permission
       if (e.toString().contains('Overlay permission required')) {
         final shouldOpenSettings = await _showPermissionPopup();
         
@@ -290,11 +261,12 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.wifi_off, color: Colors.red, size: 28),
-              SizedBox(width: 10),
-              Text('Connection Error'),
+              Icon(Icons.wifi_off, color: Colors.red, size: 22),
+              SizedBox(width: 8),
+              Text('Connection Error', style: TextStyle(fontSize: 16)),
             ],
           ),
           content: const Column(
@@ -303,13 +275,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
             children: [
               Text(
                 'Unable to start Focus Mode. The app is not connected to the server.',
-                style: TextStyle(fontSize: 14),
+                style: TextStyle(fontSize: 13),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               Text(
                 'Please check your internet connection and try again.',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                   color: Colors.red,
                 ),
@@ -318,13 +290,8 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text(
-                'CANCEL',
-                style: TextStyle(color: Colors.grey),
-              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 13)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -335,15 +302,15 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
                     content: Row(
                       children: [
                         SizedBox(
-                          width: 20,
-                          height: 20,
+                          width: 16,
+                          height: 16,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         ),
-                        SizedBox(width: 12),
-                        Text('Reconnecting...'),
+                        SizedBox(width: 10),
+                        Text('Reconnecting...', style: TextStyle(fontSize: 13)),
                       ],
                     ),
                     duration: Duration(seconds: 3),
@@ -356,7 +323,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
                 if (WebSocketManager.isConnected) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Connected successfully!'),
+                      content: Text('Connected successfully!', style: TextStyle(fontSize: 13)),
                       backgroundColor: Colors.green,
                       duration: Duration(seconds: 2),
                     ),
@@ -364,7 +331,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Reconnection failed. Please check your connection.'),
+                      content: Text('Reconnection failed. Please check your connection.', style: TextStyle(fontSize: 13)),
                       backgroundColor: Colors.red,
                       duration: Duration(seconds: 3),
                     ),
@@ -373,11 +340,9 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF43E97B),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text(
-                'RETRY',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('RETRY', style: TextStyle(color: Colors.white, fontSize: 13)),
             ),
           ],
         );
@@ -391,11 +356,12 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.lock, color: Colors.orange, size: 28),
-              SizedBox(width: 10),
-              Text('Permission Required'),
+              Icon(Icons.lock, color: Colors.orange, size: 22),
+              SizedBox(width: 8),
+              Text('Permission Required', style: TextStyle(fontSize: 16)),
             ],
           ),
           content: Column(
@@ -404,18 +370,18 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
             children: [
               const Text(
                 'To enable Focus Mode with distraction blocking, you need to grant "Display over other apps" permission.',
-                style: TextStyle(fontSize: 14),
+                style: TextStyle(fontSize: 13),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               _buildPermissionStep('1. Click "OK" below'),
               _buildPermissionStep('2. Find "Display over other apps" in settings'),
               _buildPermissionStep('3. Enable it for this app'),
               _buildPermissionStep('4. Return to this app'),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               const Text(
                 'Without this permission, Focus Mode will not block other apps.',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontStyle: FontStyle.italic,
                   color: Colors.grey,
                 ),
@@ -424,25 +390,16 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
           ),
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.of(context).pop(false);
-              },
-              child: const Text(
-                'CANCEL',
-                style: TextStyle(color: Colors.grey),
-              ),
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 13)),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop(true);
-              },
+              onPressed: () => Navigator.of(context).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF43E97B),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text(
-                'OK',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 13)),
             ),
           ],
         );
@@ -456,11 +413,12 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Row(
             children: [
-              Icon(Icons.warning, color: Colors.orange, size: 28),
-              SizedBox(width: 10),
-              Text('Permission Not Granted'),
+              Icon(Icons.warning, color: Colors.orange, size: 22),
+              SizedBox(width: 8),
+              Text('Permission Not Granted', style: TextStyle(fontSize: 16)),
             ],
           ),
           content: const Column(
@@ -469,13 +427,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
             children: [
               Text(
                 'Focus Mode requires "Display over other apps" permission to block distractions.',
-                style: TextStyle(fontSize: 14),
+                style: TextStyle(fontSize: 13),
               ),
-              SizedBox(height: 12),
+              SizedBox(height: 10),
               Text(
                 'Please enable it in Settings to use Focus Mode.',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: FontWeight.bold,
                   color: Colors.red,
                 ),
@@ -490,10 +448,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
                   _isStartingFocusMode = false;
                 });
               },
-              child: const Text(
-                'STAY HERE',
-                style: TextStyle(color: Colors.grey),
-              ),
+              child: const Text('STAY HERE', style: TextStyle(color: Colors.grey, fontSize: 13)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -511,11 +466,9 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF43E97B),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
               ),
-              child: const Text(
-                'OPEN SETTINGS',
-                style: TextStyle(color: Colors.white),
-              ),
+              child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.white, fontSize: 13)),
             ),
           ],
         );
@@ -525,17 +478,14 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
 
   Widget _buildPermissionStep(String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.arrow_right, size: 16, color: Colors.grey),
+          const Icon(Icons.arrow_right, size: 14, color: Colors.grey),
           const SizedBox(width: 4),
           Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(fontSize: 13),
-            ),
+            child: Text(text, style: const TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -546,18 +496,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     try {
       debugPrint('🚀 Starting focus mode with current time: ${_focusTimeToday.inSeconds}s');
       
-      // 🆕 IMPORTANT: Update TimerService with current focus time before starting
       _timerService.focusTimeToday.value = _focusTimeToday;
-      
-      // Start focus mode
       await _timerService.startFocusMode();
       
       debugPrint('✅ Focus mode started, navigating to home');
       
-      // Send WebSocket event for focus start
       _sendFocusStartEvent();
       
-      // Navigate to home screen with focus mode active
       Navigator.pushReplacementNamed(
         context, 
         '/home',
@@ -606,200 +551,349 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFF5F7FA),
       body: FutureBuilder<Duration>(
         future: _initializationFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Failed to initialize timer',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    snapshot.error.toString(),
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.grey),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        _initializationFuture = _initializeData();
-                      });
-                    },
-                    child: const Text('Retry'),
-                  ),
-                ],
+            return const Center(
+              child: CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF43E97B)),
               ),
             );
           }
           
-          // 🆕 Get the actual focus time with proper fallback
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Failed to Initialize',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      snapshot.error.toString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _initializationFuture = _initializeData();
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF43E97B),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('Retry', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white)),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }
+          
           final Duration focusTime = snapshot.data ?? Duration.zero;
           
-          return Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Focus Icon
-                Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF43E97B).withOpacity(0.1),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: const Color(0xFF43E97B),
-                      width: 3,
+          return SafeArea(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              child: Column(
+                children: [
+                  const SizedBox(height: 20),
+                  
+                  // Hero Section with Icon and Title
+                  ScaleTransition(
+                    scale: _pulseAnimation,
+                    child: Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+                        ),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF43E97B).withOpacity(0.3),
+                            blurRadius: 20,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(Icons.psychology_rounded, size: 50, color: Colors.white),
                     ),
                   ),
-                  child: const Icon(
-                    Icons.timer,
-                    size: 60,
-                    color: Color(0xFF43E97B),
+                  
+                  const SizedBox(height: 20),
+                  
+                  const Text(
+                    'Focus Mode',
+                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: -0.5),
                   ),
-                ),
-                
-                const SizedBox(height: 32),
-                
-                // Title
-                const Text(
-                  'Enter Focus Mode',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                  
+                  const SizedBox(height: 6),
+                  
+                  Text(
+                    _hasOverlayPermission ? 'Ready to boost productivity' : 'Grant permission to start',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w500),
                   ),
-                ),
-                
-                const SizedBox(height: 16),
-                
-                // Description
-                Text(
-                  _hasOverlayPermission 
-                    ? 'Full distraction blocking is enabled. Stay focused!'
-                    : 'Grant permission to block distractions and maximize focus.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.black54,
-                    height: 1.5,
-                  ),
-                ),
-                
-                const SizedBox(height: 40),
-                
-                // Today's Focus Time Statistics
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[50],
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.grey[200]!),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildStatItem(
-                        icon: Icons.timer,
-                        value: _formatDuration(focusTime),
-                        label: 'Focus Today',
-                        color: const Color(0xFF43E97B),
-                      ),
-                      const SizedBox(height: 8),
-                      // 🆕 Show restoration status
-                      if (_isRestoredFromDisconnect)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Restored from last session',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.green[700],
-                              fontStyle: FontStyle.italic,
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Main Stats Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 15,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        // Timer Display
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                const Color(0xFF43E97B).withOpacity(0.08),
+                                const Color(0xFF38F9D7).withOpacity(0.08),
+                              ],
                             ),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF43E97B).withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(Icons.timer_rounded, color: Color(0xFF43E97B), size: 18),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Today\'s Focus Time',
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                _formatDuration(focusTime),
+                                style: const TextStyle(
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF43E97B),
+                                  fontFamily: 'monospace',
+                                  letterSpacing: 1.5,
+                                ),
+                              ),
+                              if (_isRestoredFromDisconnect) ...[
+                                const SizedBox(height: 10),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.restore, size: 12, color: Colors.green),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        'Restored from last session',
+                                        style: TextStyle(fontSize: 11, color: Colors.green[700], fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
-                      const SizedBox(height: 8),
-                      _buildPermissionStatus(),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 40),
-                
-                // Start Button
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: _isStartingFocusMode ? null : _startFocusMode,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF43E97B),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 4,
-                      shadowColor: const Color(0xFF43E97B).withOpacity(0.3),
-                    ),
-                    child: _isStartingFocusMode
-                        ? const SizedBox(
-                            width: 24,
-                            height: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        
+                        const SizedBox(height: 16),
+                        
+                        // Permission Status
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                              width: 1,
                             ),
-                          )
-                        : const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
+                          ),
+                          child: Row(
                             children: [
-                              Icon(Icons.play_arrow_rounded, color: Colors.white),
-                              SizedBox(width: 10),
-                              Text(
-                                'Start Focus Session',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                              Icon(
+                                _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
+                                color: _hasOverlayPermission ? Colors.green : Colors.orange,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _hasOverlayPermission ? 'Full Protection Enabled' : 'Permission Required',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _hasOverlayPermission ? 'Distraction blocking is active' : 'Enable overlay for best results',
+                                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Skip for now button
-                TextButton(
-                  onPressed: () {
-                    Navigator.pushReplacementNamed(
-                      context, 
-                      '/home',
-                      arguments: {'isFocusMode': false}
-                    );
-                  },
-                  child: const Text(
-                    'Skip for now',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 16,
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                  
+                  const SizedBox(height: 20),
+                  
+                  // Features Grid
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 15,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'What You Get',
+                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                        const SizedBox(height: 14),
+                        _buildFeatureItem(
+                          icon: Icons.block_rounded,
+                          title: 'App Blocking',
+                          description: 'Block distracting apps',
+                          color: const Color(0xFF43E97B),
+                        ),
+                        const SizedBox(height: 10),
+                        _buildFeatureItem(
+                          icon: Icons.analytics_rounded,
+                          title: 'Time Tracking',
+                          description: 'Monitor focus sessions',
+                          color: const Color(0xFF38F9D7),
+                        ),
+                        const SizedBox(height: 10),
+                        _buildFeatureItem(
+                          icon: Icons.trending_up_rounded,
+                          title: 'Productivity Boost',
+                          description: 'Stay focused, achieve more',
+                          color: const Color(0xFFF4B400),
+                        ),
+                      ],
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 24),
+                  
+                  // Start Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 54,
+                    child: ElevatedButton(
+                      onPressed: _isStartingFocusMode ? null : _startFocusMode,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF43E97B),
+                        disabledBackgroundColor: Colors.grey[300],
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: _isStartingFocusMode ? 0 : 6,
+                        shadowColor: const Color(0xFF43E97B).withOpacity(0.4),
+                      ),
+                      child: _isStartingFocusMode
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(7),
+                                  ),
+                                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 20),
+                                ),
+                                const SizedBox(width: 10),
+                                const Text(
+                                  'Start Focus Session',
+                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.3),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 16),
+                ],
+              ),
             ),
           );
         },
@@ -807,55 +901,37 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
     );
   }
 
-  Widget _buildPermissionStatus() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Icon(
-          _hasOverlayPermission ? Icons.check_circle : Icons.warning,
-          color: _hasOverlayPermission ? Colors.green : Colors.orange,
-          size: 16,
-        ),
-        const SizedBox(width: 8),
-        Text(
-          _hasOverlayPermission 
-            ? 'Permission granted'
-            : 'Permission required for full features',
-          style: TextStyle(
-            fontSize: 12,
-            color: _hasOverlayPermission ? Colors.green : Colors.orange,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatItem({
+  Widget _buildFeatureItem({
     required IconData icon,
-    required String value,
-    required String label,
+    required String title,
+    required String description,
     required Color color,
   }) {
-    return Column(
+    return Row(
       children: [
-        Icon(icon, color: color, size: 28),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-            fontFamily: 'monospace',
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
           ),
+          child: Icon(icon, color: color, size: 20),
         ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                description,
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
           ),
         ),
       ],
@@ -871,6 +947,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> with Widget
 
   @override
   void dispose() {
+    _pulseController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
