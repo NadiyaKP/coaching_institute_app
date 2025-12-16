@@ -94,81 +94,88 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
     }
   }
 
-  Future<void> _fetchTimeTable() async {
-    if (_accessToken == null || _accessToken!.isEmpty) {
-      _showError('Access token not found');
-      return;
-    }
+ Future<void> _fetchTimeTable() async {
+  if (_accessToken == null || _accessToken!.isEmpty) {
+    _showError('Access token not found');
+    return;
+  }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
+  setState(() {
+    _isLoading = true;
+    _errorMessage = '';
+  });
 
-    final client = _createHttpClientWithCustomCert();
+  final client = _createHttpClientWithCustomCert();
 
-    try {
-      final apiUrl = '${ApiConfig.currentBaseUrl}/api/attendance/time_table/list/';
+  try {
+    final apiUrl = '${ApiConfig.currentBaseUrl}/api/attendance/time_table/list/';
+    
+    final response = await globalHttpClient.get(
+      Uri.parse(apiUrl),
+      headers: _getAuthHeaders(),
+    ).timeout(ApiConfig.requestTimeout);
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
       
-      final response = await globalHttpClient.get(
-        Uri.parse(apiUrl),
-        headers: _getAuthHeaders(),
-      ).timeout(ApiConfig.requestTimeout);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        
-        final String? title = data['title'];
-        final List<dynamic>? daysJson = data['days'];
-        
-        if (daysJson != null) {
-          setState(() {
-            _timeTableTitle = title ?? 'Time Table';
-            _timeTableDays = daysJson
-                .map((json) => TimeTableDay.fromJson(json))
-                .toList();
-            _isLoading = false;
-          });
-        } else {
-          throw Exception('Invalid response format');
-        }
-      } else if (response.statusCode == 401) {
-        _handleTokenExpiration();
+      final String? title = data['title'];
+      final List<dynamic>? daysJson = data['days'];
+      
+      if (daysJson != null) {
+        setState(() {
+          _timeTableTitle = title ?? 'Time Table';
+          _timeTableDays = daysJson
+              .map((json) => TimeTableDay.fromJson(json))
+              .toList();
+          _isLoading = false;
+        });
       } else {
-        throw Exception('Server error: ${response.statusCode}');
+        throw Exception('Invalid response format');
       }
-    } on HandshakeException catch (e) {
-      debugPrint('SSL Handshake error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('SSL certificate issue - this is normal in development'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } on SocketException catch (e) {
-      debugPrint('Network error: $e');
-      setState(() => _isLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No network connection'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error fetching time table: $e');
+    } else if (response.statusCode == 401) {
+      _handleTokenExpiration();
+    } else if (response.statusCode == 404) {
+      // Handle 404 - Time Table not set
       setState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _timeTableDays = [];
+        _errorMessage = 'Time Table not set';
         _isLoading = false;
       });
-    } finally {
-      client.close();
+    } else {
+      throw Exception('Server error: ${response.statusCode}');
     }
+  } on HandshakeException catch (e) {
+    debugPrint('SSL Handshake error: $e');
+    setState(() => _isLoading = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('SSL certificate issue - this is normal in development'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    }
+  } on SocketException catch (e) {
+    debugPrint('Network error: $e');
+    setState(() => _isLoading = false);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No network connection'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('Error fetching time table: $e');
+    setState(() {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      _isLoading = false;
+    });
+  } finally {
+    client.close();
   }
+}
 
   void _showError(String message) {
     setState(() => _isLoading = false);

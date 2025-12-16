@@ -314,43 +314,44 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     return false; // Prevent default back behavior since we're handling navigation
   }
 
-  // Navigation methods
   void _navigateToExamSchedule() async {
-    // Clear exam badge immediately for instant feedback
-    setState(() {
-      unreadExamsCount = 0;
-    });
-    
-    // Update bottom navbar badge immediately
-    _updateAcademicsBadge();
-    
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ExamScheduleScreen(),
-        settings: const RouteSettings(name: '/exam_schedule'),
+  // Clear exam badge immediately for instant feedback
+  setState(() {
+    unreadExamsCount = 0;
+  });
+  
+  // Update bottom navbar badge immediately
+  _updateAcademicsBadge();
+  
+  await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => ExamScheduleScreen(
+        studentType: studentType, // Pass student type
       ),
-    );
-    
-    // After returning from exam_schedule, wait for dispose to complete
-    debugPrint('🔄 Returned from Exam Schedule');
-    await Future.delayed(const Duration(milliseconds: 300));
-    
-    // Now reload counts - exam notifications should be removed
-    debugPrint('🔄 Reloading notification counts');
-    await _loadUnreadNotificationCounts();
-    
-    // Ensure exam count stays 0 even if there's a timing issue
-    setState(() {
-      if (unreadExamsCount > 0) {
-        debugPrint('⚠️ Exam count still showing, forcing to 0');
-        unreadExamsCount = 0;
-      }
-    });
-    
-    // Update badge again after return
-    _updateAcademicsBadge();
-  }
+      settings: const RouteSettings(name: '/exam_schedule'),
+    ),
+  );
+  
+  // After returning from exam_schedule, wait for dispose to complete
+  debugPrint('🔄 Returned from Exam Schedule');
+  await Future.delayed(const Duration(milliseconds: 300));
+  
+  // Now reload counts - exam notifications should be removed
+  debugPrint('🔄 Reloading notification counts');
+  await _loadUnreadNotificationCounts();
+  
+  // Ensure exam count stays 0 even if there's a timing issue
+  setState(() {
+    if (unreadExamsCount > 0) {
+      debugPrint('⚠️ Exam count still showing, forcing to 0');
+      unreadExamsCount = 0;
+    }
+  });
+  
+  // Update badge again after return
+  _updateAcademicsBadge();
+}
 
   void _navigateToResults() {
     Navigator.push(
@@ -675,31 +676,32 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                     
                     const SizedBox(height: 18),
 
-                    // Conditional rendering based on student type
-                    if (isOnlineStudent) ...[
-                      // Exam Schedule Card (Only for Online students) - With unread badge
-                      _buildAcademicCard(
-                        icon: Icons.calendar_today_rounded,
-                        title: 'Exam Schedule',
-                        subtitle: 'View your upcoming exams',
-                        color: AppColors.primaryBlue,
-                        onTap: _navigateToExamSchedule,
-                        badgeCount: unreadExamsCount,
-                      ),
+                    if (isRegularStudent) ...[
+  // Exam Schedule Card (For Online and Offline students) - With unread badge
+                        _buildAcademicCard(
+                          icon: Icons.calendar_today_rounded,
+                          title: 'Exam Schedule',
+                          subtitle: 'View your upcoming exams',
+                          color: AppColors.primaryBlue,
+                          onTap: _navigateToExamSchedule,
+                          badgeCount: unreadExamsCount,
+                        ),
 
-                      const SizedBox(height: 12),
+                        const SizedBox(height: 12),
+                      ],
 
-                      // Performance Card (Only for online students)
-                      _buildAcademicCard(
-                        icon: Icons.trending_up_rounded,
-                        title: 'Performance',
-                        subtitle: 'Track your learning progress',
-                        color: AppColors.primaryBlue,
-                        onTap: _navigateToPerformance,
-                      ),
+                      if (isOnlineStudent) ...[
+                        // Performance Card (Only for online students)
+                        _buildAcademicCard(
+                          icon: Icons.trending_up_rounded,
+                          title: 'Performance',
+                          subtitle: 'Track your learning progress',
+                          color: AppColors.primaryBlue,
+                          onTap: _navigateToPerformance,
+                        ),
 
-                      const SizedBox(height: 12),
-                    ],
+                        const SizedBox(height: 12),
+                      ],
 
                     if (!isOnlineStudent) ...[
                       // Results Card (Only for offline students)

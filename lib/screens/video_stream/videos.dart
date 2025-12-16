@@ -1377,7 +1377,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
         case 'subjects':
           return 'Subjects';
         case 'units':
-          return 'Units';
+          return 'Sections';
         case 'chapters':
           return 'Chapters';
         case 'videos':
@@ -1391,7 +1391,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       case 'subjects':
         return 'Subjects';
       case 'units':
-        return 'Units';
+        return 'Sections';
       case 'chapters':
         return 'Chapters';
       case 'videos':
@@ -1811,287 +1811,287 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   }
 
   Widget _buildSubjectsPage() {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+  return SingleChildScrollView(
+    physics: const BouncingScrollPhysics(),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Section
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryYellow,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Text(
+                    'Subjects',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textDark,
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 4,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryYellow,
-                        borderRadius: BorderRadius.circular(2),
+                    const Text(
+                      'Choose a subject to view videos',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
+                        letterSpacing: 0.1,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_subjects.length} subject${_subjects.length != 1 ? 's' : ''} available',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.grey400,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          if (_subjects.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.subject_rounded,
+                        size: 50,
+                        color: AppColors.primaryYellow.withOpacity(0.5),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     const Text(
-                      'Subjects',
+                      'No subjects available',
                       style: TextStyle(
-                        fontSize: 20,
+                        fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: AppColors.textDark,
-                        letterSpacing: -0.3,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Please load study materials first',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Choose a subject to view videos',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                          letterSpacing: 0.1,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${_subjects.length} subject${_subjects.length != 1 ? 's' : ''} available',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.grey400,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            if (_subjects.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryYellow.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.subject_rounded,
-                          size: 50,
-                          color: AppColors.primaryYellow.withOpacity(0.5),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No subjects available',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Please load study materials first',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Column(
-                children: _subjects
-                    .map((subject) {
-                      // Get units and chapters with proper null checking
-                      final dynamic unitsData = subject['units'];
-                      final dynamic chaptersData = subject['chapters'];
-                      
-                      final List<dynamic> units = (unitsData is List) ? unitsData : [];
-                      final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
-                      
-                      final bool hasUnits = units.isNotEmpty;
-                      final bool hasChapters = chapters.isNotEmpty;
-                      
-                      String contentCount;
-                      if (hasUnits) {
-                        contentCount = '${units.length} units';
-                      } else if (hasChapters) {
-                        contentCount = '${chapters.length} chapters';
-                      } else {
-                        contentCount = 'No content';
-                      }
-                              
-                      return _buildSubjectCard(
-                        title: subject['title']?.toString() ?? 'Untitled Subject',
-                        subtitle: contentCount,
-                        icon: Icons.subject_rounded,
-                        color: AppColors.primaryBlue,
-                        onTap: () => _loadUnits(
-                          subject['id']?.toString() ?? '',
-                          subject['title']?.toString() ?? 'Unknown Subject',
-                        ),
-                        showBadge: _hasUnreadSubjectNotifications(subject['id']?.toString() ?? ''),
-                      );
-                    })
-                    .toList(),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUnitsPage() {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header Section
+            )
+          else
             Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              children: _subjects
+                  .map((subject) {
+                    // Get units and chapters with proper null checking
+                    final dynamic unitsData = subject['units'];
+                    final dynamic chaptersData = subject['chapters'];
+                    
+                    final List<dynamic> units = (unitsData is List) ? unitsData : [];
+                    final List<dynamic> chapters = (chaptersData is List) ? chaptersData : [];
+                    
+                    final bool hasUnits = units.isNotEmpty;
+                    final bool hasChapters = chapters.isNotEmpty;
+                    
+                    String contentCount;
+                    if (hasUnits) {
+                      contentCount = '${units.length} section${units.length != 1 ? 's' : ''}'; // CHANGED from 'units'
+                    } else if (hasChapters) {
+                      contentCount = '${chapters.length} chapter${chapters.length != 1 ? 's' : ''}';
+                    } else {
+                      contentCount = 'No content';
+                    }
+                            
+                    return _buildSubjectCard(
+                      title: subject['title']?.toString() ?? 'Untitled Subject',
+                      subtitle: contentCount,
+                      icon: Icons.subject_rounded,
+                      color: AppColors.primaryBlue,
+                      onTap: () => _loadUnits(
+                        subject['id']?.toString() ?? '',
+                        subject['title']?.toString() ?? 'Unknown Subject',
+                      ),
+                      showBadge: _hasUnreadSubjectNotifications(subject['id']?.toString() ?? ''),
+                    );
+                  })
+                  .toList(),
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+ Widget _buildUnitsPage() {
+  return SingleChildScrollView(
+    physics: const BouncingScrollPhysics(),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header Section
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 4,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryBlue,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Sections', // CHANGED from 'Units'
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _selectedSubjectName,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.primaryBlue,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.1,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Text(
+                  '${_units.length} section${_units.length != 1 ? 's' : ''} available', // CHANGED from 'unit'
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.grey400,
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 24),
+
+          if (_units.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      width: 4,
-                      height: 24,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryBlue,
-                        borderRadius: BorderRadius.circular(2),
+                        color: AppColors.primaryBlue.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.library_books_rounded,
+                        size: 50,
+                        color: AppColors.primaryBlue.withOpacity(0.5),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Units',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textDark,
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _selectedSubjectName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.primaryBlue,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: -0.1,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 16),
+                    const Text(
+                      'No sections available', // CHANGED from 'No units available'
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textDark,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Sections for this subject will be added soon', // CHANGED from 'Units'
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textGrey,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 16),
-                  child: Text(
-                    '${_units.length} unit${_units.length != 1 ? 's' : ''} available',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: AppColors.grey400,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            if (_units.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 40),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryBlue.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.library_books_rounded,
-                          size: 50,
-                          color: AppColors.primaryBlue.withOpacity(0.5),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'No units available',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.textDark,
-                          letterSpacing: -0.2,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Units for this subject will be added soon',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppColors.textGrey,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else
-              Column(
-                children: _units
-                    .map((unit) => _buildSubjectCard(
-                          title: unit['title']?.toString() ?? 'Unknown Unit',
-                          subtitle: '${unit['chapters']?.length ?? 0} chapters available',
-                          icon: Icons.library_books_rounded,
-                          color: AppColors.primaryBlue,
-                          onTap: () => _loadChapters(
-                            unit['id']?.toString() ?? '',
-                            unit['title']?.toString() ?? 'Unknown Unit',
-                          ),
-                          showBadge: _hasUnreadUnitNotifications(unit['id']?.toString() ?? ''),
-                        ))
-                    .toList(),
               ),
-          ],
-        ),
+            )
+          else
+            Column(
+              children: _units
+                  .map((unit) => _buildSubjectCard(
+                        title: unit['title']?.toString() ?? 'Unknown Section', // CHANGED from 'Unknown Unit'
+                        subtitle: '${unit['chapters']?.length ?? 0} chapter${(unit['chapters']?.length ?? 0) != 1 ? 's' : ''} available', // Added plural handling
+                        icon: Icons.library_books_rounded,
+                        color: AppColors.primaryBlue,
+                        onTap: () => _loadChapters(
+                          unit['id']?.toString() ?? '',
+                          unit['title']?.toString() ?? 'Unknown Section', // CHANGED from 'Unknown Unit'
+                        ),
+                        showBadge: _hasUnreadUnitNotifications(unit['id']?.toString() ?? ''),
+                      ))
+                  .toList(),
+            ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildChaptersPage() {
     return SingleChildScrollView(

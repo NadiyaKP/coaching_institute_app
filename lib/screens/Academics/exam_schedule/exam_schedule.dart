@@ -14,7 +14,12 @@ import 'dart:ui' show FontFeature;
 import 'dart:async';
 
 class ExamScheduleScreen extends StatefulWidget {
-  const ExamScheduleScreen({super.key});
+  final String studentType;
+  
+  const ExamScheduleScreen({
+    super.key,
+    this.studentType = '', 
+  });
 
   @override
   State<ExamScheduleScreen> createState() => _ExamScheduleScreenState();
@@ -641,12 +646,15 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
       return examDay.isBefore(currentDay);
     }
   }
-
-  void _navigateToExamInstruction(Map<String, dynamic> exam) async {
-    String examId = exam['id'] ?? '';
-    bool isNewExam = _notificationExamIds.contains(examId);
-    
-    // If this exam has NEW badge, remove it from the set
+void _navigateToExamInstruction(Map<String, dynamic> exam) async {
+  String examId = exam['id'] ?? '';
+  bool isNewExam = _notificationExamIds.contains(examId);
+  
+  // Check if student is offline
+  bool isOfflineStudent = widget.studentType.toLowerCase() == 'offline';
+  
+  if (isOfflineStudent) {
+    // For offline students, just mark as viewed without navigation
     if (isNewExam) {
       // Remove the exam ID from notification set immediately for UI update
       setState(() {
@@ -657,28 +665,53 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
       _categorizeAndCacheExams();
     }
     
-    // Navigate to the exam instruction screen
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ExamInstructionScreen(
-          examId: exam['id'] ?? '',
-          examTitle: exam['title'] ?? 'Untitled Exam',
-          examDate: exam['date'] ?? '',
-          startTime: exam['start_time'] ?? '',
-          endTime: exam['end_time'] ?? '',
-          subject: exam['subject'] ?? '',
-          isNewExam: isNewExam,
-        ),
-      ),
-    );
-    
-    // When returning from exam instruction, refresh the data
+    // Show a message that offline students cannot access online exams
     if (mounted) {
-      await _fetchExamSchedule();
-      await _loadUnreadNotifications(); // Reload notifications to update state
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Exam details are not available for offline students'),
+          backgroundColor: AppColors.warningOrange,
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
+    return; // Exit without navigation
   }
+  
+  // For online students, proceed with normal navigation
+  // If this exam has NEW badge, remove it from the set
+  if (isNewExam) {
+    // Remove the exam ID from notification set immediately for UI update
+    setState(() {
+      _notificationExamIds.remove(examId);
+    });
+    
+    // Update the cached filtered lists to reflect the change
+    _categorizeAndCacheExams();
+  }
+  
+  // Navigate to the exam instruction screen
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => ExamInstructionScreen(
+        examId: exam['id'] ?? '',
+        examTitle: exam['title'] ?? 'Untitled Exam',
+        examDate: exam['date'] ?? '',
+        startTime: exam['start_time'] ?? '',
+        endTime: exam['end_time'] ?? '',
+        subject: exam['subject'] ?? '',
+        isNewExam: isNewExam,
+      ),
+    ),
+  );
+  
+  // When returning from exam instruction, refresh the data
+  if (mounted) {
+    await _fetchExamSchedule();
+    await _loadUnreadNotifications(); // Reload notifications to update state
+  }
+}
 
   void _navigateToLogin() {
     if (mounted) {
@@ -828,96 +861,101 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
     );
   }
 
-  Widget _buildExamList(bool isDailyTest) {
-    final exams = _getFilteredExams(isDailyTest);
-    
-    return _isLoading
-        ? _buildSkeletonLoading()
-        : _errorMessage.isNotEmpty
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.error_outline_rounded,
-                      size: 50,
-                      color: AppColors.errorRed,
+ Widget _buildExamList(bool isDailyTest) {
+  final exams = _getFilteredExams(isDailyTest);
+  bool isOfflineStudent = widget.studentType.toLowerCase() == 'offline';
+  
+  return _isLoading
+      ? _buildSkeletonLoading()
+      : _errorMessage.isNotEmpty
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    size: 50,
+                    color: AppColors.errorRed,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorMessage,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: AppColors.textGrey,
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _errorMessage,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: AppColors.textGrey,
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _fetchExamSchedule,
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Retry', style: TextStyle(fontSize: 13)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primaryYellow,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 10,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _fetchExamSchedule,
-                      icon: const Icon(Icons.refresh_rounded, size: 16),
-                      label: const Text('Retry', style: TextStyle(fontSize: 13)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryYellow,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                  ),
+                ],
+              ),
+            )
+          : exams.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.calendar_today_rounded,
+                        size: 50,
+                        color: AppColors.grey400,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No exams found',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.textDark,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              )
-            : exams.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.calendar_today_rounded,
-                          size: 50,
-                          color: AppColors.grey400,
+                      const SizedBox(height: 6),
+                      Text(
+                        'No ${isDailyTest ? 'Daily Test' : 'Mock Test'} exams ${_selectedFilter == 'All' ? '' : _selectedFilter.toLowerCase()}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textGrey,
                         ),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'No exams found',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          'No ${isDailyTest ? 'Daily Test' : 'Mock Test'} exams ${_selectedFilter == 'All' ? '' : _selectedFilter.toLowerCase()}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textGrey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : RefreshIndicator(
-                    color: AppColors.primaryYellow,
-                    onRefresh: _fetchExamSchedule,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      itemCount: exams.length,
-                      itemBuilder: (context, index) {
-                        return GestureDetector(
-                          onTap: () => _navigateToExamInstruction(exams[index]),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  color: AppColors.primaryYellow,
+                  onRefresh: _fetchExamSchedule,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    itemCount: exams.length,
+                    itemBuilder: (context, index) {
+                      return GestureDetector(
+                        onTap: isOfflineStudent 
+                            ? null // Disable tap for offline students
+                            : () => _navigateToExamInstruction(exams[index]),
+                        child: Opacity(
+                          opacity: isOfflineStudent ? 0.6 : 1.0, // Visual feedback for disabled state
                           child: _buildExamCard(exams[index], isDailyTest),
-                        );
-                      },
-                    ),
-                  );
-  }
-
+                        ),
+                      );
+                    },
+                  ),
+                );
+}
   // Skeleton Loading Widget
   Widget _buildSkeletonLoading() {
     return ListView.builder(

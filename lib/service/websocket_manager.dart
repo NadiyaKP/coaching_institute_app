@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
-
 import '../service/api_config.dart';
 
 class WebSocketManager {
@@ -13,6 +12,8 @@ class WebSocketManager {
   static Timer? _reconnectTimer;
   static bool _isConnecting = false;
   static bool _isForceDisconnected = false;
+  static bool _isManualReconnect = false;
+  static bool _shouldReconnect = true;
 
   static int _reconnectAttempt = 0;
   static const int _maxReconnectAttempts = 5;
@@ -21,136 +22,274 @@ class WebSocketManager {
   static final StreamController<dynamic> _messageController =
       StreamController.broadcast();
   
-  // 🆕 NEW: Connection state stream
   static final StreamController<bool> _connectionStateController =
       StreamController<bool>.broadcast();
   
+  static Function()? _onDisconnectionCallback;
+  static Function()? _onReconnectionCallback;
+  
   static Stream<dynamic> get stream => _messageController.stream;
-  static Stream<bool> get connectionStateStream => _connectionStateController.stream; // 🆕 NEW
+  static Stream<bool> get connectionStateStream => _connectionStateController.stream;
 
-  static Future<void> connect() async {
-    if (_isConnecting || _isForceDisconnected) {
-      print("⏳ Already connecting or force disconnected...");
+  static void registerDisconnectionCallback(Function() callback) {
+    _onDisconnectionCallback = callback;
+  }
+  
+  static void registerReconnectionCallback(Function() callback) {
+    _onReconnectionCallback = callback;
+  }
+  
+  static void removeCallbacks() {
+    _onDisconnectionCallback = null;
+    _onReconnectionCallback = null;
+  }
+static Future<void> connect({bool isManual = false}) async {
+  // 🎯 DEBUG: Track entry
+  print("🎯🎯🎯 CONNECT ENTERED - isManual param: $isManual, _isManualReconnect: $_isManualReconnect, _isConnecting: $_isConnecting");
+  
+  // If manual reconnect requested, set flag
+  if (isManual) {
+    print("🔵 Manual reconnect requested via parameter - setting flag");
+    _isManualReconnect = true;
+    _isForceDisconnected = false; // Override force disconnect
+  }
+  
+  // 🔥 FIX: For manual reconnects, always proceed even if "connected"
+  if (isConnected && !_isManualReconnect) {
+    print("✅ Already connected to WebSocket (not manual)");
+    return;
+  }
+  
+  // 🔥 FIX: For manual reconnects, override "already connecting" state
+  if (_isConnecting) {
+    if (_isManualReconnect) {
+      print("🔄 Manual reconnect overriding existing connection attempt");
+      // Cancel current attempt and proceed
+      await _forceDisconnectForReconnect();
+      _isConnecting = false;
+    } else {
+      print("⏳ Already attempting to connect...");
       return;
     }
-
-    _isConnecting = true;
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('accessToken') ?? '';
-
-      if (token.isEmpty) {
-        print("❌ No token found. Cannot connect WebSocket.");
-        _isConnecting = false;
-        return;
+  }
+  
+  // Check force disconnect flag (but allow manual overrides)
+  if (_isForceDisconnected && !_isManualReconnect) {
+    print("⛔ Force disconnected - skipping connection");
+    return;
+  }
+  
+  _isConnecting = true;
+  print("🔄🔄🔄 NEW CONNECTION ATTEMPT ${_reconnectAttempt + 1} - manual flag: $_isManualReconnect 🔄🔄🔄");
+  
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('accessToken') ?? '';
+    
+    if (token.isEmpty) {
+      print("❌ No token found. Cannot connect WebSocket.");
+      _isConnecting = false;
+      _isManualReconnect = false;
+      return;
+    }
+    
+    // Add unique timestamp to prevent caching
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final url = "${ApiConfig.websocketBase}/ws/monitoring/?token=$token&_t=$timestamp&manual=$_isManualReconnect";
+    print("🔗 Connecting WebSocket to: ${url.split('token=')[0]}...");
+    
+    // 🔥 FIX: Always create new channel
+    print("📡 Creating new WebSocket channel...");
+    _channel = WebSocketChannel.connect(
+      Uri.parse(url),
+    );
+    
+    bool firstMessageReceived = false;
+    final completer = Completer<bool>();
+    
+    final timeoutTimer = Timer(const Duration(seconds: 15), () {
+      print("⏰⏰⏰ CONNECTION TIMEOUT after 15 seconds ⏰⏰⏰");
+      if (!completer.isCompleted) {
+        completer.complete(false);
       }
-
-      final url = "${ApiConfig.websocketBase}/ws/monitoring/?token=$token";
-      print("🔗 Connecting WebSocket to: $url");
-
-      await disconnect();
-
-      _channel = WebSocketChannel.connect(Uri.parse(url));
-
-      bool firstMessageReceived = false;
-      final completer = Completer<bool>();
-
-      final timeoutTimer = Timer(const Duration(seconds: 8), () {
+    });
+    
+    _wsSubscription = _channel!.stream.listen(
+      (event) {
+        print("📩 WebSocket Received: ${event.toString().length > 100 ? '${event.toString().substring(0, 100)}...' : event}");
+        
+        if (!firstMessageReceived) {
+          firstMessageReceived = true;
+          timeoutTimer.cancel();
+          
+          print("✅✅✅ FIRST MESSAGE RECEIVED - Connection established! ✅✅✅");
+          
+          // Reset reconnect attempt on successful connection
+          _reconnectAttempt = 0;
+          _isManualReconnect = false;
+          _shouldReconnect = true;
+          
+          if (!completer.isCompleted) {
+            completer.complete(true);
+          }
+          
+          _connectionStateController.add(true);
+          
+          if (_onReconnectionCallback != null) {
+            _onReconnectionCallback!();
+          }
+        }
+        
+        _messageController.add(event);
+      },
+      onError: (error) {
+        print("❌❌❌ WEB SOCKET ERROR: $error ❌❌❌");
+        
+        timeoutTimer.cancel();
+        
         if (!completer.isCompleted) {
-          print("⏰ Timeout - No response from server");
           completer.complete(false);
         }
-      });
-
-      _wsSubscription = _channel!.stream.listen(
-        (event) {
-          print("📩 WebSocket Received: $event");
-
-          if (!firstMessageReceived) {
-            firstMessageReceived = true;
-            timeoutTimer.cancel();
-            completer.complete(true);
-            
-            // 🆕 NEW: Notify connection established
-            _connectionStateController.add(true);
-          }
-
-          _messageController.add(event);
-          _reconnectAttempt = 0;
-        },
-        onError: (error) {
-          print("❌ WebSocket Error: $error");
-
-          if (!completer.isCompleted) {
-            timeoutTimer.cancel();
-            completer.complete(false);
-          }
-
-          _messageController.addError(error);
-          
-          // 🆕 NEW: Notify connection lost
-          _connectionStateController.add(false);
-          
-          if (!_isForceDisconnected) _scheduleReconnection();
-        },
-        onDone: () {
-          print("🔌 WebSocket Closed");
-
-          if (!completer.isCompleted) {
-            timeoutTimer.cancel();
-            completer.complete(false);
-          }
-
-          // 🆕 NEW: Notify connection closed
-          _connectionStateController.add(false);
-          
-          if (_channel?.closeCode != 1000 && !_isForceDisconnected) {
-            _scheduleReconnection();
-          }
-        },
-        cancelOnError: true,
-      );
-
-      print("📡 Sending probe heartbeat...");
-      send({"event": "heartbeat", "probe": true});
-
-      final verified = await completer.future;
-
-      if (!verified) {
-        print("❌❌❌ WEB SOCKET CONNECTION FAILED");
-
-        await _wsSubscription?.cancel();
-        _wsSubscription = null;
-
-        try {
-          await _channel?.sink.close();
-        } catch (_) {}
-
-        _channel = null;
+        
+        _messageController.addError(error);
+        _connectionStateController.add(false);
+        
+        if (_onDisconnectionCallback != null) {
+          _onDisconnectionCallback!();
+        }
+        
+        // Reset flags
         _isConnecting = false;
         
-        // 🆕 NEW: Notify connection failed
+        if (_shouldReconnect && !_isForceDisconnected) {
+          _scheduleReconnection();
+        }
+      },
+      onDone: () {
+        final closeCode = _channel?.closeCode;
+        final closeReason = _channel?.closeReason;
+        print("🔌🔌🔌 WEB SOCKET CLOSED - Code: $closeCode, Reason: $closeReason 🔌🔌🔌");
+        
+        timeoutTimer.cancel();
+        
+        if (!completer.isCompleted) {
+          completer.complete(false);
+        }
+        
         _connectionStateController.add(false);
-
-        if (!_isForceDisconnected) _scheduleReconnection();
-        return;
+        
+        if (_onDisconnectionCallback != null) {
+          _onDisconnectionCallback!();
+        }
+        
+        // Reset connecting flag
+        _isConnecting = false;
+        
+        // Only reconnect if not a clean close (1000) and not force disconnected
+        if (_shouldReconnect && closeCode != 1000 && !_isForceDisconnected) {
+          _scheduleReconnection();
+        }
+      },
+      cancelOnError: true,
+    );
+    
+    print("📡 Sending probe heartbeat...");
+    _sendProbeHeartbeat();
+    
+    final verified = await completer.future;
+    
+    // Always cancel timer
+    timeoutTimer.cancel();
+    
+    if (!verified) {
+      print("❌❌❌ WEB SOCKET CONNECTION FAILED - No response from server ❌❌❌");
+      await _forceDisconnectForReconnect();
+      
+      _isConnecting = false;
+      _connectionStateController.add(false);
+      
+      if (_onDisconnectionCallback != null) {
+        _onDisconnectionCallback!();
+      }
+      
+      if (_shouldReconnect && !_isForceDisconnected) {
+        _scheduleReconnection();
+      }
+      return;
+    }
+    
+    print("✅ WebSocket Connection Verified");
+    _startHeartbeat();
+    print("✨✨✨ WEB SOCKET CONNECTED SUCCESSFULLY ✨✨✨");
+    
+    _isConnecting = false;
+    
+  } catch (e, stack) {
+    print("❌❌❌ WEB SOCKET EXCEPTION ❌❌❌");
+    print("Error: $e");
+    print("Stack: $stack");
+    
+    // Always reset connecting flag on exception
+    _isConnecting = false;
+    _connectionStateController.add(false);
+    
+    if (_onDisconnectionCallback != null) {
+      _onDisconnectionCallback!();
+    }
+    
+    if (_shouldReconnect && !_isForceDisconnected) {
+      _scheduleReconnection();
+    }
+  }
+}
+  // Safe disconnect method
+  static Future<void> _safeDisconnect({int closeCode = 1000}) async {
+    print("🔧 SAFE DISCONNECT called with code: $closeCode");
+    
+    try {
+      _stopHeartbeat();
+      
+      // Cancel subscription first
+      if (_wsSubscription != null) {
+        print("📝 Cancelling subscription...");
+        await _wsSubscription?.cancel();
+        _wsSubscription = null;
+        print("✅ Subscription cancelled");
       }
 
-      print("✅ WebSocket Connection Verified");
-
-      _startHeartbeat();
-
-      print("✨ WebSocket Connected Successfully");
+      // Then close channel
+      if (_channel != null) {
+        print("📝 Closing channel...");
+        try {
+          await _channel?.sink.close(closeCode, _isManualReconnect ? "Manual reconnect" : "Disconnecting");
+          print("✅ Channel sink closed");
+        } catch (e) {
+          print("⚠️ Error closing channel sink: $e");
+        }
+        _channel = null;
+        print("✅ Channel nullified");
+      }
+    } catch (e) {
+      print("⚠️ Error in safe disconnect: $e");
+    } finally {
+      // Always ensure connecting flag is false
       _isConnecting = false;
-    } catch (e, stack) {
-      print("❌ WebSocket exception: $e");
-      print(stack);
+      print("🔧 Safe disconnect completed");
+    }
+  }
 
-      _isConnecting = false;
-      // 🆕 NEW: Notify connection error
-      _connectionStateController.add(false);
-      if (!_isForceDisconnected) _scheduleReconnection();
+  // Send probe heartbeat
+  static void _sendProbeHeartbeat() {
+    try {
+      if (_channel != null && _channel!.closeCode == null) {
+        final probeData = jsonEncode({"event": "heartbeat", "probe": true, "manual": _isManualReconnect});
+        _channel!.sink.add(probeData);
+        print("📤 Probe heartbeat sent (manual: $_isManualReconnect)");
+      } else {
+        print("⚠️ Cannot send probe - channel: ${_channel != null}, closeCode: ${_channel?.closeCode}");
+      }
+    } catch (e) {
+      print("❌ Failed to send probe heartbeat: $e");
     }
   }
 
@@ -160,18 +299,23 @@ class WebSocketManager {
       const Duration(seconds: 6),
       (_) {
         try {
-          send({"event": "heartbeat"});
+          send({"event": "heartbeat", "ts": DateTime.now().millisecondsSinceEpoch});
           print("💓 Heartbeat sent");
         } catch (e) {
           print("❌ Heartbeat failed: $e");
+          if (_shouldReconnect && !_isForceDisconnected && !_isConnecting) {
+            _scheduleReconnection();
+          }
         }
       },
     );
+    print("💓 Heartbeat timer started");
   }
 
   static void _stopHeartbeat() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
+    print("💓 Heartbeat timer stopped");
   }
 
   static void send(dynamic data) {
@@ -183,121 +327,131 @@ class WebSocketManager {
     try {
       final jsonData = (data is String) ? data : jsonEncode(data);
       _channel!.sink.add(jsonData);
-      print("📤 WebSocket Sent: $jsonData");
+      print("📤 WebSocket Sent: ${jsonData.length > 100 ? '${jsonData.substring(0, 100)}...' : jsonData}");
     } catch (e) {
       print("❌ Failed to send WS message: $e");
-      if (!_isForceDisconnected) _scheduleReconnection();
+      if (_shouldReconnect && !_isForceDisconnected && !_isConnecting) {
+        _scheduleReconnection();
+      }
     }
   }
 
-  static Future<void> disconnect() async {
-    print("🔌 Starting WebSocket disconnect process...");
+  static Future<void> resetConnectionState() async {
+    print('🔄🔄🔄 RESETTING CONNECTION STATE 🔄🔄🔄');
     
-    _stopHeartbeat();
+    // Cancel all timers
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    
+    // Reset connection flags
+    _isConnecting = false;
+    _isForceDisconnected = false;
+    _isManualReconnect = false;
+    _shouldReconnect = true;
+    _reconnectAttempt = 0;
+    
+    print("✅ Flags reset");
+    
+    // Clean up existing connections
+    await _safeDisconnect();
+    
+    print('✅ WebSocket connection state reset complete');
+  }
+
+  static Future<void> disconnect() async {
+    print("🔌🔌🔌 DISCONNECT CALLED 🔌🔌🔌");
+    
+    // Stop reconnection attempts
+    _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
     _isConnecting = false;
-
-    if (_wsSubscription != null) {
-      try {
-        await _wsSubscription?.cancel();
-        print("✅ WebSocket subscription cancelled");
-      } catch (e) {
-        print("⚠️ Error cancelling subscription: $e");
-      }
-      _wsSubscription = null;
-    }
-
-    if (_channel != null) {
-      try {
-        if (_channel?.sink != null) {
-          await _channel?.sink.close(1000, "Normal disconnect");
-        }
-        print("✅ WebSocket channel closed");
-      } catch (e) {
-        print("⚠️ Error closing channel: $e");
-        try {
-          _channel = null;
-        } catch (_) {}
-      }
-      _channel = null;
-    }
+    _isManualReconnect = false;
     
-    // 🆕 NEW: Notify disconnection
+    await _safeDisconnect();
+    
     _connectionStateController.add(false);
-
     print("🔌 WebSocket Disconnected Successfully");
   }
 
   static Future<void> forceDisconnect() async {
-    print("🚨 Force disconnecting WebSocket...");
+    print("🚨🚨🚨 FORCE DISCONNECT CALLED 🚨🚨🚨");
     
     _isForceDisconnected = true;
-    
-    _stopHeartbeat();
+    _shouldReconnect = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _reconnectAttempt = 0;
     _isConnecting = false;
+    _isManualReconnect = false;
     
-    try {
-      _wsSubscription?.cancel();
-      _wsSubscription = null;
-      print("✅ Subscription forcefully cancelled");
-    } catch (e) {
-      print("⚠️ Error forcefully cancelling subscription: $e");
-    }
+    await _safeDisconnect();
     
-    if (_channel != null) {
-      try {
-        await _channel?.sink.close(1000, "User logout");
-        print("✅ Channel forcefully closed");
-      } catch (e) {
-        print("⚠️ Error forcefully closing channel: $e");
-      }
-      _channel = null;
-    }
-    
-    // 🆕 NEW: Notify force disconnection
     _connectionStateController.add(false);
-    
     print("🚨 WebSocket Force Disconnected");
   }
 
   static void resetForceDisconnect() {
+    print("🔄 Resetting force disconnect flag");
     _isForceDisconnected = false;
-    print("🔄 Force disconnect flag reset");
+    _shouldReconnect = true;
   }
 
   static void _scheduleReconnection() {
-    if (_isForceDisconnected) {
-      print("⛔ Force disconnected - no reconnection");
+    print("⏰ _scheduleReconnection called");
+    
+    // Don't schedule if already scheduled or shouldn't reconnect
+    if (!_shouldReconnect || _isForceDisconnected) {
+      print("⛔ Reconnection disabled - shouldReconnect: $_shouldReconnect, isForceDisconnected: $_isForceDisconnected");
       return;
     }
     
+    if (_reconnectTimer != null) {
+      print("⏳ Reconnection already scheduled, cancelling previous");
+      _reconnectTimer?.cancel();
+    }
+    
     if (_reconnectAttempt >= _maxReconnectAttempts) {
-      print("⛔ Max reconnect attempts reached");
+      print("⛔ Max reconnect attempts reached ($_reconnectAttempt/$_maxReconnectAttempts)");
+      Timer(const Duration(seconds: 30), () {
+        _reconnectAttempt = 0;
+        _shouldReconnect = true;
+        print("🔄 Reset reconnect attempts after cooldown");
+      });
       return;
     }
 
     _reconnectAttempt++;
 
-    final baseDelay = _initialReconnectDelay * (1 << (_reconnectAttempt - 1));
-    final jitter = Duration(seconds: Random().nextInt(2));
-    final delay = baseDelay + jitter;
-
-    print("⏰ Reconnecting in ${delay.inSeconds}s (attempt $_reconnectAttempt)");
+    // Exponential backoff with jitter
+    final delay = _calculateReconnectDelay(_reconnectAttempt);
+    
+    print("⏰⏰⏰ SCHEDULING RECONNECTION in ${delay.inSeconds}s (attempt $_reconnectAttempt) ⏰⏰⏰");
 
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, connect);
+    _reconnectTimer = Timer(delay, () {
+      print("🔄🔄🔄 RECONNECTION TIMER FIRED - Attempt $_reconnectAttempt 🔄🔄🔄");
+      connect();
+    });
+  }
+
+  static Duration _calculateReconnectDelay(int attempt) {
+    final baseDelay = pow(2, min(attempt - 1, 5)).toInt();
+    final jitter = Random().nextInt(3);
+    final totalSeconds = min(baseDelay + jitter, 30);
+    print("📊 Reconnect delay calculation: base=$baseDelay, jitter=$jitter, total=$totalSeconds");
+    return Duration(seconds: totalSeconds);
   }
 
   static bool get isConnected =>
       _channel != null &&
       _wsSubscription != null &&
       (_channel?.closeCode == null) &&
-      !_isForceDisconnected;
+      !_isForceDisconnected &&
+      !_isConnecting;
 
   static String get connectionStatus {
     if (_isForceDisconnected) return "force_disconnected";
@@ -308,16 +462,19 @@ class WebSocketManager {
 
   static void logConnectionState() {
     print("""
-  📊 WebSocket Connection State:
-    Channel: ${_channel != null ? "Exists" : "Null"}
-    Subscription: ${_wsSubscription != null ? "Exists" : "Null"}
-    Heartbeat Timer: ${_heartbeatTimer != null ? "Active" : "Inactive"}
-    Reconnect Timer: ${_reconnectTimer != null ? "Active" : "Inactive"}
-    Is Connecting: $_isConnecting
-    Is Force Disconnected: $_isForceDisconnected
-    Reconnect Attempt: $_reconnectAttempt
-    Connection Status: $connectionStatus
-  """);
+📊📊📊 WEB SOCKET CONNECTION STATE 📊📊📊
+  Channel: ${_channel != null ? "Exists (closeCode: ${_channel?.closeCode})" : "Null"}
+  Subscription: ${_wsSubscription != null ? "Exists" : "Null"}
+  Heartbeat Timer: ${_heartbeatTimer != null ? "Active" : "Inactive"}
+  Reconnect Timer: ${_reconnectTimer != null ? "Active" : "Inactive"}
+  Is Connecting: $_isConnecting
+  Is Force Disconnected: $_isForceDisconnected
+  Is Manual Reconnect: $_isManualReconnect
+  Should Reconnect: $_shouldReconnect
+  Reconnect Attempt: $_reconnectAttempt
+  Connection Status: $connectionStatus
+📊📊📊 END STATE 📊📊📊
+""");
   }
 
   static Future<void> cleanReconnect() async {
@@ -328,10 +485,104 @@ class WebSocketManager {
     await connect();
   }
 
+  static Future<void> forceReconnect() async {
+  print('🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄');
+  print('🔄         FORCE RECONNECT        🔄');
+  print('🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄🔄');
+  
+  // Cancel any pending reconnection timer
+  _reconnectTimer?.cancel();
+  _reconnectTimer = null;
+  
+  // 🔥 CRITICAL FIX: Set ALL flags BEFORE any async operations
+  print("🔄 Setting flags for force reconnect...");
+  _isManualReconnect = true;
+  _isForceDisconnected = false;
+  _shouldReconnect = true;
+  _reconnectAttempt = 0;
+  _isConnecting = false;
+  
+  print("✅✅✅ Flags set: _isManualReconnect=$_isManualReconnect, _isConnecting=$_isConnecting ✅✅✅");
+  
+  // Log current state before disconnect
+  print("📊 State before disconnect:");
+  logConnectionState();
+  
+  try {
+    // 🔥 FIX: Use different disconnect method that doesn't reset our flags
+    await _forceDisconnectForReconnect();
+    
+    // 🔥 CRITICAL: Small delay to ensure clean state
+    print("⏱️ Waiting for clean state...");
+    await Future.delayed(const Duration(milliseconds: 800));
+    
+    // 🔥 FIX: Double-check flags are still correct
+    print("🔍 Checking flags after disconnect:");
+    print("  _isManualReconnect: $_isManualReconnect");
+    print("  _isConnecting: $_isConnecting");
+    print("  _isForceDisconnected: $_isForceDisconnected");
+    
+    // Now connect with manual flag
+    print("🔗🔗🔗 CALLING connect(isManual: true) 🔗🔗🔗");
+    await connect(isManual: true);
+    
+  } catch (e) {
+    print("❌❌❌ Error in forceReconnect: $e ❌❌❌");
+    // Reset flags on error
+    _isConnecting = false;
+    _isManualReconnect = false;
+    throw e;
+  }
+}
+
+// 🔥 NEW: Special disconnect method for force reconnection
+static Future<void> _forceDisconnectForReconnect() async {
+  print("🔧 _forceDisconnectForReconnect called");
+  
+  try {
+    // Stop heartbeat but don't reset our manual flag
+    if (_heartbeatTimer != null) {
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = null;
+      print("💓 Heartbeat timer stopped");
+    }
+    
+    // Cancel subscription
+    if (_wsSubscription != null) {
+      print("📝 Cancelling subscription...");
+      await _wsSubscription?.cancel();
+      _wsSubscription = null;
+      print("✅ Subscription cancelled");
+    }
+    
+    // Close channel with manual reconnect code
+    if (_channel != null) {
+      print("📝 Closing channel with code 1001 (manual reconnect)...");
+      try {
+        await _channel?.sink.close(1001, "Manual reconnect");
+        print("✅ Channel sink closed");
+      } catch (e) {
+        print("⚠️ Error closing channel: $e");
+      }
+      _channel = null;
+      print("✅ Channel nullified");
+    }
+    
+    print("✅ _forceDisconnectForReconnect completed");
+  } catch (e) {
+    print("❌ Error in _forceDisconnectForReconnect: $e");
+    // Even if error, ensure channel is null
+    _channel = null;
+    _wsSubscription = null;
+  }
+}
   static void dispose() {
+    print("🗑️ Disposing WebSocketManager...");
+    removeCallbacks();
+    _shouldReconnect = false;
     disconnect();
     _messageController.close();
-    _connectionStateController.close(); // 🆕 NEW: Close connection state stream
+    _connectionStateController.close();
     print("🗑️ WS Manager disposed");
   }
 }

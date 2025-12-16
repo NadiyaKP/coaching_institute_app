@@ -5,6 +5,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter/services.dart'; 
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'websocket_manager.dart'; // 🆕 IMPORT WebSocketManager
 
 class TimerService {
   static final TimerService _instance = TimerService._internal();
@@ -25,11 +26,13 @@ class TimerService {
   static const String lastStoredFocusTimeKey = 'last_stored_focus_time';
   static const String lastStoredFocusDateKey = 'last_stored_focus_date';
   static const String websocketDisconnectTimeKey = 'websocket_disconnect_time';
+  static const String wasWebsocketDisconnectedKey = 'was_websocket_disconnected';
   
   // 🆕 WebSocket state tracking
   static bool _isWebSocketConnected = false;
   static DateTime? _lastWebSocketDisconnectTime;
   StreamSubscription? _websocketSubscription;
+  StreamSubscription<bool>? _websocketConnectionSubscription;
 
   final ValueNotifier<bool> _isFocusMode = ValueNotifier<bool>(false);
   ValueNotifier<bool> get isFocusMode => _isFocusMode;
@@ -40,17 +43,25 @@ class TimerService {
   Timer? _activeTimer;
   Timer? _heartbeatTimer;
   DateTime? _timerStartTime;
-  Duration _baseTimeWhenTimerStarted = Duration.zero; // 🔥 NEW: Track base time when timer starts
+  Duration _baseTimeWhenTimerStarted = Duration.zero;
   bool _isInitialized = false;
   String? _currentUserEmail;
   bool _hasOverlayPermission = false;
   DateTime? _lastAppResumeTime;
   bool _appInForeground = true;
+  
+  // 🆕 NEW: Callback to navigate back to entry screen
+  Function()? _onWebSocketDisconnectCallback;
 
   bool get hasOverlayPermission => _hasOverlayPermission;
   static const MethodChannel _overlayChannel = MethodChannel('focus_mode_overlay_channel');
 
-  // Initialize WebSocket monitoring
+  // 🆕 NEW: Set callback for WebSocket disconnection
+  void setWebSocketDisconnectCallback(Function() callback) {
+    _onWebSocketDisconnectCallback = callback;
+  }
+
+  // 🆕 NEW: Initialize WebSocket monitoring
   Future<void> _initializeWebSocketMonitoring() async {
     try {
       _startWebSocketMonitor();
@@ -60,39 +71,56 @@ class TimerService {
   }
 
   void _startWebSocketMonitor() {
-    Timer.periodic(const Duration(seconds: 2), (timer) async {
-      try {
-        final bool wasConnected = _isWebSocketConnected;
-        
-        // Replace this with actual WebSocket connection check
-        _isWebSocketConnected = true; // TODO: Replace with actual check
-        
-        if (wasConnected && !_isWebSocketConnected) {
-          debugPrint('🔌 WebSocket disconnected - stopping focus mode');
-          _handleWebSocketDisconnection();
-        } else if (!wasConnected && _isWebSocketConnected) {
-          debugPrint('🔗 WebSocket reconnected');
-          _lastWebSocketDisconnectTime = null;
-        }
-      } catch (e) {
-        debugPrint('❌ WebSocket monitor error: $e');
+    // 🆕 NEW: Listen to WebSocket connection state changes
+    _websocketConnectionSubscription?.cancel();
+  _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {  
+  debugPrint('🔌 WebSocket connection state changed: $isConnected');
+  
+  final bool wasConnected = _isWebSocketConnected;
+  _isWebSocketConnected = isConnected;
+  
+  if (wasConnected && !_isWebSocketConnected) {
+    debugPrint('🔌 WebSocket disconnected - stopping focus mode');
+    _handleWebSocketDisconnection();
+  } else if (!wasConnected && _isWebSocketConnected) {
+    debugPrint('🔗 WebSocket reconnected');
+    _lastWebSocketDisconnectTime = null;
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(wasWebsocketDisconnectedKey);
+  }
+});
+    
+    // 🆕 NEW: Register callback in WebSocketManager
+    WebSocketManager.registerDisconnectionCallback(() {
+      if (_isFocusMode.value) {
+        debugPrint('🔌 Immediate WebSocket disconnection detected');
+        _handleWebSocketDisconnection();
       }
+    });
+    
+    // 🆕 NEW: Register reconnection callback
+    WebSocketManager.registerReconnectionCallback(() {
+      debugPrint('🔗 WebSocket reconnection callback');
+      _lastWebSocketDisconnectTime = null;
     });
   }
 
   Future<void> _handleWebSocketDisconnection() async {
     try {
       if (_isFocusMode.value) {
-        debugPrint('⏸️ WebSocket disconnected - pausing focus timer');
+        debugPrint('🔌 WebSocket disconnected - immediately stopping focus timer');
         
         await _storeFocusTimeOnDisconnect();
         
+        // 🆕 NEW: Stop everything immediately
         _isFocusMode.value = false;
         _stopActiveTimer();
         _stopHeartbeat();
         
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool(isFocusModeKey, false);
+        await prefs.setBool(wasWebsocketDisconnectedKey, true); // 🆕 NEW: Mark as disconnected
         
         _lastWebSocketDisconnectTime = DateTime.now();
         await prefs.setString(websocketDisconnectTimeKey, 
@@ -103,8 +131,19 @@ class TimerService {
         final today = DateTime.now().toIso8601String().split('T')[0];
         await prefs.setString(lastStoredFocusDateKey, today);
         
-        debugPrint('✅ Focus mode paused due to WebSocket disconnect');
+        debugPrint('✅ Focus mode stopped due to WebSocket disconnect');
         debugPrint('💾 Stored focus time: ${currentTime}s on $today');
+        
+        // 🆕 NEW: Hide overlay if shown
+        if (_hasOverlayPermission) {
+          await hideOverlay();
+        }
+        
+        // 🆕 NEW: Trigger callback to navigate back
+        if (_onWebSocketDisconnectCallback != null) {
+          debugPrint('🔄 Triggering navigation callback');
+          _onWebSocketDisconnectCallback!();
+        }
       }
     } catch (e) {
       debugPrint('❌ Error handling WebSocket disconnection: $e');
@@ -204,6 +243,7 @@ class TimerService {
           await prefs.remove(lastStoredFocusTimeKey);
           await prefs.remove(lastStoredFocusDateKey);
           await prefs.remove(websocketDisconnectTimeKey);
+          await prefs.remove(wasWebsocketDisconnectedKey);
           return Future.value(true);
         }
         
@@ -223,6 +263,7 @@ class TimerService {
             }
           } else {
             await prefs.remove(websocketDisconnectTimeKey);
+            await prefs.remove(wasWebsocketDisconnectedKey);
           }
         }
         
@@ -296,6 +337,7 @@ class TimerService {
       await prefs.remove(lastStoredFocusTimeKey);
       await prefs.remove(lastStoredFocusDateKey);
       await prefs.remove(websocketDisconnectTimeKey);
+      await prefs.remove(wasWebsocketDisconnectedKey);
       
       _resetInstance();
       
@@ -415,6 +457,7 @@ class TimerService {
         await prefs.remove(lastStoredFocusTimeKey);
         await prefs.remove(lastStoredFocusDateKey);
         await prefs.remove(websocketDisconnectTimeKey);
+        await prefs.remove(wasWebsocketDisconnectedKey);
       } else {
         await _checkAndRestoreFocusTime();
       }
@@ -462,6 +505,7 @@ class TimerService {
     await prefs.remove(lastStoredFocusTimeKey);
     await prefs.remove(lastStoredFocusDateKey);
     await prefs.remove(websocketDisconnectTimeKey);
+    await prefs.remove(wasWebsocketDisconnectedKey);
     
     final today = DateTime.now().toIso8601String().split('T')[0];
     await prefs.setString(lastDateKey, today);
@@ -491,9 +535,15 @@ class TimerService {
     }
   }
 
-  // 🔥 FIXED: startFocusMode method
+  // 🆕 MODIFIED: Check WebSocket connection before starting
   Future<void> startFocusMode({bool skipPermissionCheck = false}) async {
     try {
+      // 🆕 NEW: Check WebSocket connection first
+      if (!WebSocketManager.isConnected) {
+        debugPrint('❌ Cannot start focus mode: WebSocket not connected');
+        throw Exception('WebSocket connection required');
+      }
+      
       if (_currentUserEmail == null) {
         _currentUserEmail = await _getCurrentUserEmail();
         if (_currentUserEmail == null) throw Exception('No user');
@@ -505,8 +555,8 @@ class TimerService {
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(websocketDisconnectTimeKey);
+      await prefs.remove(wasWebsocketDisconnectedKey);
       
-      // 🔥 CRITICAL: Save the current accumulated time as the base
       final currentSavedSeconds = prefs.getInt(focusKey) ?? 0;
       _baseTimeWhenTimerStarted = Duration(seconds: currentSavedSeconds);
       
@@ -539,7 +589,6 @@ class TimerService {
     }
   }
 
-  // 🔥 FIXED: stopFocusMode method
   Future<void> stopFocusMode() async {
     try {
       debugPrint('🛑 Stopping focus mode...');
@@ -554,8 +603,6 @@ class TimerService {
       
       if (_timerStartTime != null) {
         final elapsed = DateTime.now().difference(_timerStartTime!);
-        
-        // 🔥 CRITICAL: Use the base time that was set when timer STARTED
         final finalTotal = _baseTimeWhenTimerStarted + elapsed;
         
         _focusTimeToday.value = finalTotal;
@@ -584,6 +631,7 @@ class TimerService {
       await prefs.remove(focusStartTimeKey);
       await prefs.remove(focusElapsedKey);
       await prefs.remove(lastHeartbeatKey);
+      await prefs.remove(wasWebsocketDisconnectedKey);
       
       await _saveAppState('stopped');
       
@@ -611,14 +659,10 @@ class TimerService {
     }
   }
 
-  Future<void> handleWebSocketDisconnection() async {
-    await _handleWebSocketDisconnection();
-  }
-
-  Future<bool> wasFocusStoppedByWebSocket() async {
+  // 🆕 NEW: Check if focus was stopped by WebSocket
+  Future<bool> wasStoppedByWebSocket() async {
     final prefs = await SharedPreferences.getInstance();
-    final disconnectTimeStr = prefs.getString(websocketDisconnectTimeKey);
-    return disconnectTimeStr != null;
+    return prefs.getBool(wasWebsocketDisconnectedKey) ?? false;
   }
 
   Future<Duration?> getLastStoredFocusTime() async {
@@ -699,7 +743,6 @@ class TimerService {
     if (_hasOverlayPermission) await hideOverlay();
   }
 
-  // 🔥 FIXED: _startFocusTimer method
   void _startFocusTimer() {
     _stopActiveTimer();
     
@@ -708,8 +751,6 @@ class TimerService {
     _activeTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       if (_timerStartTime != null && _isFocusMode.value && _appInForeground) {
         final elapsed = DateTime.now().difference(_timerStartTime!);
-        
-        // 🔥 CRITICAL: Use base time from when timer started
         final total = _baseTimeWhenTimerStarted + elapsed;
         
         if (_focusTimeToday.value != total) {
@@ -751,6 +792,7 @@ class TimerService {
       await prefs.remove(lastStoredFocusTimeKey);
       await prefs.remove(lastStoredFocusDateKey);
       await prefs.remove(websocketDisconnectTimeKey);
+      await prefs.remove(wasWebsocketDisconnectedKey);
       
       await Workmanager().cancelAll();
       TimerService()._resetInstance();
@@ -765,13 +807,19 @@ class TimerService {
     _focusTimeToday.value = Duration.zero;
     _isFocusMode.value = false;
     _timerStartTime = null;
-    _baseTimeWhenTimerStarted = Duration.zero; // 🔥 RESET BASE TIME
+    _baseTimeWhenTimerStarted = Duration.zero;
     _isInitialized = false;
     _hasOverlayPermission = false;
     _appInForeground = true;
     _lastAppResumeTime = null;
     _isWebSocketConnected = false;
     _lastWebSocketDisconnectTime = null;
+    _onWebSocketDisconnectCallback = null;
+    
+    // 🆕 NEW: Clean up WebSocket subscriptions
+    _websocketConnectionSubscription?.cancel();
+    _websocketConnectionSubscription = null;
+    WebSocketManager.removeCallbacks();
   }
 
   String getFormattedFocusTime() => _formatDuration(_focusTimeToday.value);
@@ -787,6 +835,8 @@ class TimerService {
     if (_isInitialized) {
       _stopActiveTimer();
       _stopHeartbeat();
+      _websocketConnectionSubscription?.cancel();
+      WebSocketManager.removeCallbacks();
       _isFocusMode.dispose();
       _focusTimeToday.dispose();
       _isInitialized = false;

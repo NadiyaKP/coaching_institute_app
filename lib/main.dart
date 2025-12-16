@@ -265,7 +265,7 @@ void _handleAttendanceUpdate(Map<String, dynamic> payload) {
   scaffoldMessengerKey.currentState?.showSnackBar(
     SnackBar(
       content: Text('Attendance updated: $status at ${timestamp.toString()}'),
-      duration: Duration(seconds: 3),
+      duration: const Duration(seconds: 3),
       backgroundColor: Colors.green,
     ),
   );
@@ -283,7 +283,7 @@ void _handleExamUpdate(Map<String, dynamic> payload) {
     scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text('New exam update: $title'),
-        duration: Duration(seconds: 4),
+        duration: const Duration(seconds: 4),
         backgroundColor: Colors.blue,
         action: SnackBarAction(
           label: 'View',
@@ -312,7 +312,7 @@ void _handleAssignmentUpdate(Map<String, dynamic> payload) {
     scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text('New assignment: $title (Due: $deadline)'),
-        duration: Duration(seconds: 5),
+        duration: const Duration(seconds: 5),
         backgroundColor: Colors.orange,
         action: SnackBarAction(
           label: 'View',
@@ -355,7 +355,7 @@ void _handleWebSocketNotification(Map<String, dynamic> payload) {
     scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text('$title: $message'),
-        duration: Duration(seconds: 5),
+        duration: const Duration(seconds: 5),
         backgroundColor: Colors.red,
       ),
     );
@@ -374,7 +374,7 @@ void _handleFocusModeUpdate(Map<String, dynamic> payload) {
     scaffoldMessengerKey.currentState?.showSnackBar(
       SnackBar(
         content: Text('Focus mode ${action == 'completed' ? 'completed' : 'interrupted'} after $duration minutes'),
-        duration: Duration(seconds: 3),
+        duration: const Duration(seconds: 3),
         backgroundColor: action == 'completed' ? Colors.green : Colors.amber,
       ),
     );
@@ -401,7 +401,7 @@ void _showSystemMessage(Map<String, dynamic> payload) {
   scaffoldMessengerKey.currentState?.showSnackBar(
     SnackBar(
       content: Text(message),
-      duration: Duration(seconds: 4),
+      duration: const Duration(seconds: 4),
       backgroundColor: backgroundColor,
     ),
   );
@@ -535,9 +535,11 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   Timer? _locationCheckTimer;
   StreamSubscription? _locationServiceSubscription;
   StreamSubscription? _websocketSubscription; // WebSocket subscription
+  StreamSubscription? _connectionStateSubscription; // 🆕 Connection state subscription
   final TimerService _timerService = TimerService(); // 🆕 Timer service instance
   bool _isFocusModeActive = false; // 🆕 Track focus mode state
   bool _appInForeground = true; // 🆕 Track if app is in foreground
+  bool _isShowingReconnectionSnackbar = false; // 🆕 Track reconnection snackbar state
 
   @override
   void initState() {
@@ -545,17 +547,12 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     WidgetsBinding.instance.addObserver(this);
     _initNotificationService();
     
-    // Initialize WebSocket listener
-    _initWebSocketListener();
-
+    // Initialize WebSocket handler
+    _initWebSocketHandler();
+    
     // 🆕 Ensure overlay is hidden when app starts
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await ensureOverlayHidden();
-    });
-
-    // Check WebSocket connection after app starts
-    Timer(const Duration(seconds: 3), () {
-      _checkWebSocketConnection();
     });
     
     // 🆕 Initialize timer service and check focus mode state
@@ -598,52 +595,56 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     }
   }
   
-  // Initialize WebSocket listener
-  void _initWebSocketListener() {
+  // Enhanced WebSocket initialization
+  void _initWebSocketHandler() async {
+    // Initialize WebSocket listener
     _websocketSubscription = WebSocketManager.stream.listen(
       _handleWebSocketMessage,
       onError: (error) {
         debugPrint('❌ WebSocket stream error: $error');
-        _showWebSocketErrorSnackbar('WebSocket connection error');
-      },
-      onDone: () {
-        debugPrint('🔌 WebSocket stream closed');
-        if (WebSocketManager.connectionStatus != 'disconnected') {
-          _showWebSocketErrorSnackbar('WebSocket connection lost');
+        if (_appInForeground) {
+          _showWebSocketErrorSnackbar('Connection error. Reconnecting...');
         }
       },
     );
-  }
 
-  // Show WebSocket error snackbar
-  void _showWebSocketErrorSnackbar(String message) {
-    scaffoldMessengerKey.currentState?.showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(Icons.wifi_off, color: Colors.white, size: 24),
-            SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(fontSize: 15),
-              ),
+    // Listen to connection state
+    _connectionStateSubscription = WebSocketManager.connectionStateStream.listen((isConnected) {
+      debugPrint('📡 WebSocket connection state changed: $isConnected');
+      
+      if (!isConnected && _appInForeground) {
+        if (WebSocketManager.connectionStatus != 'force_disconnected') {
+          // Don't show if we're already showing a snackbar
+          if (!_isShowingReconnectionSnackbar) {
+            _showWebSocketErrorSnackbar('Connection lost. Reconnecting...');
+          }
+        }
+      } else if (isConnected && _appInForeground) {
+        // Connection restored
+        _isShowingReconnectionSnackbar = false;
+        scaffoldMessengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 24),
+                SizedBox(width: 12),
+                Text('Connected to server', style: TextStyle(fontSize: 15)),
+              ],
             ),
-          ],
-        ),
-        duration: Duration(seconds: 5),
-        backgroundColor: Colors.orange.shade700,
-        action: SnackBarAction(
-          label: 'RECONNECT',
-          textColor: Colors.white,
-          onPressed: () {
-            _checkWebSocketConnection();
-          },
-        ),
-      ),
-    );
+            duration: Duration(seconds: 2),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    });
+
+    // Initial connection check with delay
+    Timer(const Duration(seconds: 3), () async {
+      await _checkWebSocketConnection();
+    });
   }
 
+  // Enhanced WebSocket connection check
   Future<void> _checkWebSocketConnection() async {
     debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     debugPrint("🔍 WEB SOCKET CONNECTION CHECK");
@@ -660,8 +661,16 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     
     debugPrint("✅ Token exists - checking connection...");
     debugPrint("📊 Current WebSocket status: ${WebSocketManager.connectionStatus}");
+    WebSocketManager.logConnectionState(); // 🆕 Log detailed state
     
-    // Only connect if not already connected and not currently connecting
+    // Reset if stuck in connecting state for too long
+    if (WebSocketManager.connectionStatus == 'connecting') {
+      debugPrint("🔄 Resetting stuck connection state...");
+      await WebSocketManager.resetConnectionState();
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    
+    // Connect if disconnected
     if (WebSocketManager.connectionStatus == 'disconnected') {
       debugPrint("🔄 Attempting to connect WebSocket...");
       await WebSocketManager.connect();
@@ -670,6 +679,37 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     }
     
     debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  }
+
+  // Show WebSocket error snackbar
+  void _showWebSocketErrorSnackbar(String message) {
+    _isShowingReconnectionSnackbar = true;
+    scaffoldMessengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.wifi_off, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 15),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 5),
+        backgroundColor: Colors.orange.shade700,
+        action: SnackBarAction(
+          label: 'RECONNECT',
+          textColor: Colors.white,
+          onPressed: () {
+            _isShowingReconnectionSnackbar = false;
+            WebSocketManager.forceReconnect(); // 🔥 Use forceReconnect method
+          },
+        ),
+      ),
+    );
   }
   
   // Check if user should be redirected to focus mode
@@ -981,6 +1021,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     _locationCheckTimer?.cancel();
     _locationServiceSubscription?.cancel();
     _websocketSubscription?.cancel(); // Dispose WebSocket subscription
+    _connectionStateSubscription?.cancel(); // 🆕 Dispose connection state subscription
     ApiConfig.stopAutoListen();
     ApiConfig.onApiSwitch = null;
     ApiConfig.onLocationRequired = null;
@@ -1142,7 +1183,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     await Workmanager().cancelAll();
     
     // 🆕 Disconnect WebSocket on logout
-    await WebSocketManager.disconnect();
+    await WebSocketManager.forceDisconnect();
     
     // 🆕 Clear user-specific data
     await prefs.remove('user_id');

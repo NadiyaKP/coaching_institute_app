@@ -77,6 +77,9 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _keyTimetableLastFetchDate = 'timetable_last_fetch_date';
   static const String _keyTimetableCache = 'timetable_cache';
 
+  // 🆕 Timetable page controller for subject swiping
+  late PageController _timetablePageController;
+
   // 🆕 REMOVED: All UI timers - using ValueNotifier listeners instead
 
   // 🆕 WillPopScope handling
@@ -104,64 +107,66 @@ class _HomeScreenState extends State<HomeScreen> {
   // 🆕 Flag to prevent duplicate notification API calls
   bool _isFetchingNotifications = false;
 
-@override
-void initState() {
-  super.initState();
-  
-  _pageController = PageController(viewportFraction: 0.75);
-  _startAutoScroll();
-  
-  // Initialize focus mode
-  _initializeFocusMode();
-  
-  WidgetsBinding.instance.addObserver(_AppLifecycleObserver(
-    onResumed: () async {
-      debugPrint('📱 App resumed - syncing focus mode state');
-      await _syncFocusModeState();
-    },
-  ));
-}
-  
-
-Future<void> _initializeFocusMode() async {
-  // Initialize timer service
-  await _timerService.initialize();
-  
-  // Check focus mode status
-  final prefs = await SharedPreferences.getInstance();
-  final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
-  final today = DateTime.now().toIso8601String().split('T')[0];
-  final lastDate = prefs.getString(TimerService.lastDateKey);
-  
-  // Check and restore focus time if same day
-  if (lastDate == today) {
-    final savedSeconds = prefs.getInt(TimerService.focusKey) ?? 0;
-    final lastStoredSeconds = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
+  @override
+  void initState() {
+    super.initState();
     
-    // Use the greater value
-    final focusSeconds = savedSeconds > lastStoredSeconds ? savedSeconds : lastStoredSeconds;
+    _pageController = PageController(viewportFraction: 0.75);
+    _timetablePageController = PageController(viewportFraction: 0.9); // Initialize timetable page controller
+    _startAutoScroll();
     
-    if (focusSeconds > 0) {
-      _timerService.focusTimeToday.value = Duration(seconds: focusSeconds);
-      debugPrint('🔄 Initialized focus time: ${focusSeconds}s');
-    }
+    // Initialize focus mode
+    _initializeFocusMode();
+    
+    WidgetsBinding.instance.addObserver(_AppLifecycleObserver(
+      onResumed: () async {
+        debugPrint('📱 App resumed - syncing focus mode state');
+        await _syncFocusModeState();
+      },
+    ));
   }
   
-  _isFocusModeActive = isFocusActiveInPrefs;
-  
-  if (mounted) setState(() {});
-}
 
-@override
-void dispose() {
-  _autoScrollTimer?.cancel();
-  _autoScrollTimer = null;
-  
-  _pageController.dispose();
-  _scrollController.dispose();
-  
-  super.dispose();
-}
+  Future<void> _initializeFocusMode() async {
+    // Initialize timer service
+    await _timerService.initialize();
+    
+    // Check focus mode status
+    final prefs = await SharedPreferences.getInstance();
+    final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    final lastDate = prefs.getString(TimerService.lastDateKey);
+    
+    // Check and restore focus time if same day
+    if (lastDate == today) {
+      final savedSeconds = prefs.getInt(TimerService.focusKey) ?? 0;
+      final lastStoredSeconds = prefs.getInt(TimerService.lastStoredFocusTimeKey) ?? 0;
+      
+      // Use the greater value
+      final focusSeconds = savedSeconds > lastStoredSeconds ? savedSeconds : lastStoredSeconds;
+      
+      if (focusSeconds > 0) {
+        _timerService.focusTimeToday.value = Duration(seconds: focusSeconds);
+        debugPrint('🔄 Initialized focus time: ${focusSeconds}s');
+      }
+    }
+    
+    _isFocusModeActive = isFocusActiveInPrefs;
+    
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+    
+    _pageController.dispose();
+    _timetablePageController.dispose(); // Dispose timetable page controller
+    _scrollController.dispose();
+    
+    super.dispose();
+  }
 
   // 🆕 Format duration for display
   String _formatTimerDuration(Duration duration) {
@@ -171,11 +176,35 @@ void dispose() {
     return '$hours:$minutes:$seconds';
   }
 
-// 🆕 FIXED: Stop Focus Mode
-Future<void> _stopFocusMode() async {
-  debugPrint('🛑 Stopping focus mode');
-  
-  try {
+  // 🆕 FIXED: Stop Focus Mode
+  Future<void> _stopFocusMode() async {
+    debugPrint('🛑 Stopping focus mode');
+    
+    try {
+      // Send WebSocket event for focus end
+      _sendFocusEndEvent();
+      
+      // Stop the timer service
+      await _timerService.stopFocusMode();
+      
+      // Update local state
+      setState(() {
+        _isFocusModeActive = false;
+      });
+      
+      // Navigate back to focus mode entry screen
+      if (mounted) {
+        await Navigator.of(context).pushReplacementNamed('/focus_mode');
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error stopping focus mode: $e');
+    }
+  }
+
+  Future<void> stopFocusModeForLogout() async {
+    debugPrint('⏱️ Focus mode stopped for logout');
+    
     // Send WebSocket event for focus end
     _sendFocusEndEvent();
     
@@ -183,32 +212,8 @@ Future<void> _stopFocusMode() async {
     await _timerService.stopFocusMode();
     
     // Update local state
-    setState(() {
-      _isFocusModeActive = false;
-    });
-    
-    // Navigate back to focus mode entry screen
-    if (mounted) {
-      await Navigator.of(context).pushReplacementNamed('/focus_mode');
-    }
-    
-  } catch (e) {
-    debugPrint('❌ Error stopping focus mode: $e');
+    _isFocusModeActive = false;
   }
-}
-
- Future<void> stopFocusModeForLogout() async {
-  debugPrint('⏱️ Focus mode stopped for logout');
-  
-  // Send WebSocket event for focus end
-  _sendFocusEndEvent();
-  
-  // Stop the timer service
-  await _timerService.stopFocusMode();
-  
-  // Update local state
-  _isFocusModeActive = false;
-}
 
   // Method to send focus_end event via WebSocket
   void _sendFocusEndEvent() {
@@ -222,90 +227,90 @@ Future<void> _stopFocusMode() async {
   }
 
   Future<bool> _onWillPop() async {
-  // Check if student type is Online or Offline
-  final isEligibleStudent = studentType.toUpperCase() == 'ONLINE' || 
-                             studentType.toUpperCase() == 'OFFLINE';
-  
-  // Check if focus mode is active
-  if (isEligibleStudent && _isFocusModeActive) {
-    return await _showExitConfirmationDialog();
-  }
-  
-  // For other cases, allow normal back press behavior
-  return true;
-}
- 
-Future<bool> _showExitConfirmationDialog() async {
-  final result = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => AlertDialog(
-      title: const Text('Focus Mode Active'),
-      content: const Text('Your focus time will stop on going out of the app. Are you sure you want to exit?'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text(
-            'CANCEL',
-            style: TextStyle(
-              color: Colors.grey,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        TextButton(
-          onPressed: () async {
-            Navigator.of(context).pop(true);
-            await _navigateToFocusModeEntry();
-          },
-          child: const Text(
-            'OK',
-            style: TextStyle(
-              color: Colors.red,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
-  
-  return result ?? false;
-}
-
-Future<void> _navigateToFocusModeEntry() async {
-  debugPrint('📊 Navigating to focus mode entry');
-  
-  // Send WebSocket event for focus end
-  _sendFocusEndEvent();
-  
-  // Stop the timer
-  await _timerService.stopFocusMode();
-  
-  // Navigate to focus mode entry screen
-  if (mounted) {
-    await Navigator.of(context).pushReplacementNamed('/focus_mode');
-  }
-}
-
-Future<void> _syncFocusModeState() async {
-  try {
-    if (!mounted) return;
+    // Check if student type is Online or Offline
+    final isEligibleStudent = studentType.toUpperCase() == 'ONLINE' || 
+                               studentType.toUpperCase() == 'OFFLINE';
     
-    final prefs = await SharedPreferences.getInstance();
-    final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
-    
-    if (_isFocusModeActive != isFocusActiveInPrefs) {
-      debugPrint('🔄 Syncing focus mode state: $_isFocusModeActive -> $isFocusActiveInPrefs');
-      
-      setState(() {
-        _isFocusModeActive = isFocusActiveInPrefs;
-      });
+    // Check if focus mode is active
+    if (isEligibleStudent && _isFocusModeActive) {
+      return await _showExitConfirmationDialog();
     }
-  } catch (e) {
-    debugPrint('❌ Error syncing focus mode state: $e');
+    
+    // For other cases, allow normal back press behavior
+    return true;
   }
-}
+ 
+  Future<bool> _showExitConfirmationDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Focus Mode Active'),
+        content: const Text('Your focus time will stop on going out of the app. Are you sure you want to exit?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text(
+              'CANCEL',
+              style: TextStyle(
+                color: Colors.grey,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop(true);
+              await _navigateToFocusModeEntry();
+            },
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    
+    return result ?? false;
+  }
+
+  Future<void> _navigateToFocusModeEntry() async {
+    debugPrint('📊 Navigating to focus mode entry');
+    
+    // Send WebSocket event for focus end
+    _sendFocusEndEvent();
+    
+    // Stop the timer
+    await _timerService.stopFocusMode();
+    
+    // Navigate to focus mode entry screen
+    if (mounted) {
+      await Navigator.of(context).pushReplacementNamed('/focus_mode');
+    }
+  }
+
+  Future<void> _syncFocusModeState() async {
+    try {
+      if (!mounted) return;
+      
+      final prefs = await SharedPreferences.getInstance();
+      final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+      
+      if (_isFocusModeActive != isFocusActiveInPrefs) {
+        debugPrint('🔄 Syncing focus mode state: $_isFocusModeActive -> $isFocusActiveInPrefs');
+        
+        setState(() {
+          _isFocusModeActive = isFocusActiveInPrefs;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error syncing focus mode state: $e');
+    }
+  }
 
   // Helper method to capitalize first letter of each word
   String _capitalizeFirstLetter(String text) {
@@ -391,53 +396,85 @@ Future<void> _syncFocusModeState() async {
     });
   }
 
-@override
-void didChangeDependencies() {
-  super.didChangeDependencies();
-  
-  // Update page controller based on orientation
-  final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-  final newViewportFraction = isLandscape ? 0.45 : 0.75;
-  
-  if (_pageController.viewportFraction != newViewportFraction) {
-    _pageController.dispose();
-    _pageController = PageController(viewportFraction: newViewportFraction);
-    _startAutoScroll();
-  }
-  
-  // Only fetch data once during initial load
-  if (!_isInitialLoadComplete) {
-    _isInitialLoadComplete = true;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     
-    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+    // Update page controller based on orientation
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final newViewportFraction = isLandscape ? 0.45 : 0.75;
     
-    if (args != null) {
-      phoneNumber = args['phone_number'] ?? '';
-      countryCode = args['country_code'] ?? '+91';
-      name = args['name'] ?? '';
-      email = args['email'] ?? '';
-      
-      debugPrint('HomeScreen - Received phone_number: $phoneNumber');
-      debugPrint('HomeScreen - Received country_code: $countryCode');
-      debugPrint('HomeScreen - Received name: $name');
-      debugPrint('HomeScreen - Received email: $email');
+    if (_pageController.viewportFraction != newViewportFraction) {
+      _pageController.dispose();
+      _pageController = PageController(viewportFraction: newViewportFraction);
+      _startAutoScroll();
     }
     
-    _loadCachedProfileData().then((_) async {
-      // 🆕 REMOVED: _storeStartTime() call
-      await _fetchProfileData();
+    // Only fetch data once during initial load
+    if (!_isInitialLoadComplete) {
+      _isInitialLoadComplete = true;
       
-      // Register device token AFTER profile is fetched
-      await _registerDeviceTokenOnce();
+      final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       
-      // 🆕 NEW: Sync focus mode state after initial load
-      await _syncFocusModeState();
+      if (args != null) {
+        phoneNumber = args['phone_number'] ?? '';
+        countryCode = args['country_code'] ?? '+91';
+        name = args['name'] ?? '';
+        email = args['email'] ?? '';
+        
+        debugPrint('HomeScreen - Received phone_number: $phoneNumber');
+        debugPrint('HomeScreen - Received country_code: $countryCode');
+        debugPrint('HomeScreen - Received name: $name');
+        debugPrint('HomeScreen - Received email: $email');
+      }
       
-      // 🆕 MODIFIED: Load timetable with caching logic
-      await _loadTimetableWithCache();
-    });
+      _loadCachedProfileData().then((_) async {
+        // 🆕 REMOVED: _storeStartTime() call
+        await _fetchProfileData();
+        
+        // 🆕 NEW: Check and fetch subjects data if needed
+        await _checkAndFetchSubjectsData();
+        
+        // Register device token AFTER profile is fetched
+        await _registerDeviceTokenOnce();
+        
+        // 🆕 NEW: Sync focus mode state after initial load
+        await _syncFocusModeState();
+        
+        // 🆕 MODIFIED: Load timetable with caching logic
+        await _loadTimetableWithCache();
+      });
+    }
   }
-}
+
+  // 🆕 NEW: Check and fetch subjects data if not present
+  Future<void> _checkAndFetchSubjectsData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Check if subjects data exists
+      final String? cachedSubjectsData = prefs.getString('subjects_data');
+      final bool firstLoginSubjectsFetched = prefs.getBool(_keyFirstLoginSubjectsFetched) ?? false;
+      
+      if (!firstLoginSubjectsFetched || cachedSubjectsData == null || cachedSubjectsData.isEmpty) {
+        debugPrint('📚 No subjects data found in cache or first login, fetching...');
+        
+        // Get subcourse_id from SharedPreferences
+        final String? encryptedId = prefs.getString(_keySubcourseId);
+        
+        if (encryptedId != null && encryptedId.isNotEmpty) {
+          debugPrint('🎯 Fetching subjects for subcourse_id: $encryptedId');
+          await _fetchAndStoreSubjects(forceRefresh: true);
+        } else {
+          debugPrint('⚠️ Subcourse ID not available for subjects fetch');
+        }
+      } else {
+        debugPrint('✅ Subjects data already exists in cache');
+      }
+    } catch (e) {
+      debugPrint('❌ Error checking subjects data: $e');
+    }
+  }
 
   // 🆕 MODIFIED: Load timetable with caching logic
   Future<void> _loadTimetableWithCache() async {
@@ -528,81 +565,82 @@ void didChangeDependencies() {
   }
 
   Future<void> _refreshData() async {
-  debugPrint('🔄 Starting forced refresh...');
-  
-  // Prevent multiple simultaneous refreshes
-  if (isRefreshing) {
-    debugPrint('⏳ Refresh already in progress, skipping...');
-    return;
+    debugPrint('🔄 Starting forced refresh...');
+    
+    // Prevent multiple simultaneous refreshes
+    if (isRefreshing) {
+      debugPrint('⏳ Refresh already in progress, skipping...');
+      return;
+    }
+    
+    setState(() {
+      isRefreshing = true;
+    });
+
+    try {
+      // 🆕 NEW: Sync focus mode state before refreshing
+      await _syncFocusModeState();
+      
+      // Clear device registration flag to force re-registration
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_keyDeviceRegistered);
+      debugPrint('🧹 Cleared device registration flag for refresh');
+
+      // Reset notification flag to allow fresh fetch
+      _isFetchingNotifications = false;
+
+      // Fetch profile data first
+      await _fetchProfileData();
+      
+      // 🆕 FIXED: Force fetch fresh timetable data on refresh (always)
+      debugPrint('📡 Forced timetable refresh during manual refresh');
+      await _fetchTimetableData();
+
+      // Force refresh subjects data only during manual refresh
+      if (subcourseId.isNotEmpty) {
+        debugPrint('📚 Force refreshing subjects data for subcourse: $subcourseId');
+        await _fetchAndStoreSubjects(forceRefresh: true);
+      } else {
+        debugPrint('⚠️ No subcourseId available for subjects refresh');
+      }
+      
+      // Fetch notifications with duplicate prevention
+      await _fetchUnreadNotifications();
+      
+      // Register device token (will happen since we cleared the flag)
+      await _registerDeviceTokenOnce();
+      
+      debugPrint('✅ All data refreshed successfully from API');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Data refreshed successfully!'),
+            backgroundColor: AppColors.successGreen,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error during refresh: $e');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Refresh failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          isRefreshing = false;
+        });
+      }
+    }
   }
-  
-  setState(() {
-    isRefreshing = true;
-  });
-
-  try {
-    // 🆕 NEW: Sync focus mode state before refreshing
-    await _syncFocusModeState();
-    
-    // Clear device registration flag to force re-registration
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyDeviceRegistered);
-    debugPrint('🧹 Cleared device registration flag for refresh');
-
-    // Reset notification flag to allow fresh fetch
-    _isFetchingNotifications = false;
-
-    // Fetch profile data first
-    await _fetchProfileData();
-    
-    // 🆕 MODIFIED: Force fetch fresh timetable data on refresh
-    await _fetchTimetableData();
-
-    // Force refresh subjects data only during manual refresh
-    if (subcourseId.isNotEmpty) {
-      debugPrint('📚 Force refreshing subjects data for subcourse: $subcourseId');
-      await _fetchAndStoreSubjects(forceRefresh: true);
-    } else {
-      debugPrint('⚠️ No subcourseId available for subjects refresh');
-    }
-    
-    // Fetch notifications with duplicate prevention
-    await _fetchUnreadNotifications();
-    
-    // Register device token (will happen since we cleared the flag)
-    await _registerDeviceTokenOnce();
-    
-    debugPrint('✅ All data refreshed successfully from API');
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Data refreshed successfully!'),
-          backgroundColor: AppColors.successGreen,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-  } catch (e) {
-    debugPrint('❌ Error during refresh: $e');
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Refresh failed: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  } finally {
-    if (mounted) {
-      setState(() {
-        isRefreshing = false;
-      });
-    }
-  }
-}
 
   Future<void> _loadCachedProfileData() async {
     try {
@@ -838,7 +876,8 @@ void didChangeDependencies() {
               isLoading = false;
             });
 
-            // 🆕 REMOVED: _storeStartTime() call
+            // 🆕 NEW: Check and fetch subjects data after profile is loaded
+            await _checkAndFetchSubjectsData();
 
           } else {
             debugPrint('Profile data not found in response');
@@ -1341,140 +1380,141 @@ void didChangeDependencies() {
     );
   }
 
-  // 🆕 MODIFIED: Show Focus Mode Dialog with new design
-  void _showFocusModeDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(
+ void _showFocusModeDialog() {
+  showDialog(
+    context: context,
+    barrierDismissible: true,
+    builder: (BuildContext context) {
+      return Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
+            color: Colors.white,
           ),
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(20),
-              color: Colors.white,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header with icon and title
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryYellow.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(
-                        Icons.timer,
-                        color: AppColors.primaryYellow,
-                        size: 28,
-                      ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with icon and title
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryYellow.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(width: 12),
+                    child: const Icon(
+                      Icons.timer,
+                      color: AppColors.primaryYellow,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Focus Mode Active',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.textDark,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Timer is running',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.textGrey,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Timer display
+              Center(
+                child: ValueListenableBuilder<Duration>(
+                  valueListenable: _timerService.focusTimeToday,
+                  builder: (context, focusTime, _) {
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryYellow.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: AppColors.primaryYellow.withOpacity(0.2),
+                          width: 1,
+                        ),
+                      ),
+                      child: Text(
+                        _formatTimerDuration(focusTime),
+                        style: const TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF43E97B),
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Informational text about raise hand
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF43E97B).withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0xFF43E97B).withOpacity(0.1),
+                  ),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      color: Color(0xFF43E97B),
+                      size: 18,
+                    ),
+                    SizedBox(width: 8),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Focus Mode Active',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.textDark,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Timer is running',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppColors.textGrey,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        'If you have any doubts during focus session, click "Raise Hand"',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.textDark,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                
-                const SizedBox(height: 20),
-                
-                // Timer display
-                Center(
-                  child: ValueListenableBuilder<Duration>(
-                    valueListenable: _timerService.focusTimeToday,
-                    builder: (context, focusTime, _) {
-                      return Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryYellow.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: AppColors.primaryYellow.withOpacity(0.2),
-                            width: 1,
-                          ),
-                        ),
-                        child: Text(
-                          _formatTimerDuration(focusTime),
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primaryYellow,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Informational text about raise hand
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF43E97B).withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFF43E97B).withOpacity(0.1),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: const Color(0xFF43E97B),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'If you have any doubts during focus session, click "Raise Hand"',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textDark,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 20),
-                
-                // Action buttons
-                Row(
-                  children: [
-                    // Raise Hand Button
-                    Expanded(
+              ),
+              
+              const SizedBox(height: 20),
+              
+              // Action buttons - FIXED: Both buttons same size
+              Row(
+                children: [
+                  // Raise Hand Button
+                  Expanded(
+                    child: SizedBox(
+                      height: 48, // Fixed height for both buttons
                       child: OutlinedButton.icon(
                         onPressed: () {
                           Navigator.of(context).pop();
@@ -1488,9 +1528,9 @@ void didChangeDependencies() {
                         style: OutlinedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: const Color(0xFF43E97B),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          side: BorderSide(
-                            color: const Color(0xFF43E97B),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          side: const BorderSide(
+                            color: Color(0xFF43E97B),
                             width: 2,
                           ),
                           shape: RoundedRectangleBorder(
@@ -1499,11 +1539,14 @@ void didChangeDependencies() {
                         ),
                       ),
                     ),
-                    
-                    const SizedBox(width: 12),
-                    
-                    // Stop Button
-                    Expanded(
+                  ),
+                  
+                  const SizedBox(width: 12),
+                  
+                  // Stop Button
+                  Expanded(
+                    child: SizedBox(
+                      height: 48, // Fixed height for both buttons
                       child: ElevatedButton.icon(
                         onPressed: _stopFocusMode,
                         icon: const Icon(Icons.stop, size: 20),
@@ -1514,113 +1557,114 @@ void didChangeDependencies() {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.errorRed,
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
                       ),
                     ),
-                  ],
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+              
+              // Close button
+              Center(
+                child: TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text(
+                    'Close',
+                    style: TextStyle(
+                      color: AppColors.textGrey,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-                
-                const SizedBox(height: 12),
-                
-                // Close button
-                Center(
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text(
-                      'Close',
-                      style: TextStyle(
-                        color: AppColors.textGrey,
-                        fontWeight: FontWeight.w600,
-                      ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+  // Send Raise Hand Event via WebSocket
+  void _raiseHandForDoubt() {
+    try {
+      // Send the raise_hand event
+      WebSocketManager.send({"event": "raise_hand"});
+      debugPrint('📤 WebSocket event sent: {"event": "raise_hand"}');
+      
+      // Show success message with better text
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(
+                  Icons.check_circle,
+                  color: Colors.white,
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Your doubt has been registered! Your teacher will assist you shortly.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                 ),
               ],
             ),
+            backgroundColor: const Color(0xFF43E97B),
+            duration: const Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(16),
           ),
         );
-      },
-    );
-  }
-
-// Send Raise Hand Event via WebSocket
-void _raiseHandForDoubt() {
-  try {
-    // Send the raise_hand event
-    WebSocketManager.send({"event": "raise_hand"});
-    debugPrint('📤 WebSocket event sent: {"event": "raise_hand"}');
-    
-    // Show success message with better text
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(
-                Icons.check_circle,
-                color: Colors.white,
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Your doubt has been registered! Your teacher will assist you shortly.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
+      }
+    } catch (e) {
+      debugPrint('❌ Error sending raise_hand event: $e');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(
+                  Icons.error_outline,
+                  color: Colors.white,
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Failed to raise hand. Please check your connection.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+            ),
+            margin: EdgeInsets.all(16),
           ),
-          backgroundColor: const Color(0xFF43E97B),
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-    }
-  } catch (e) {
-    debugPrint('❌ Error sending raise_hand event: $e');
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              Icon(
-                Icons.error_outline,
-                color: Colors.white,
-              ),
-              SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Failed to raise hand. Please check your connection.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.red,
-          duration: Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-          ),
-          margin: EdgeInsets.all(16),
-        ),
-      );
+        );
+      }
     }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -1684,9 +1728,9 @@ void _raiseHandForDoubt() {
                           if (_timetableDays.isNotEmpty)
                             Padding(
                               padding: EdgeInsets.fromLTRB(
-                                getResponsiveSize(20),
                                 getResponsiveSize(16),
-                                getResponsiveSize(20),
+                                getResponsiveSize(16),
+                                getResponsiveSize(16),
                                 getResponsiveSize(8),
                               ),
                               child: _buildCompactTimetableCard(getResponsiveSize),
@@ -2005,11 +2049,11 @@ void _raiseHandForDoubt() {
             ),
           ],
         ),
-        // 🆕 MODIFIED: Floating Action Button for Focus Mode with primary yellow color
+      
         floatingActionButton: _isFocusModeActive
             ? FloatingActionButton.extended(
                 onPressed: _showFocusModeDialog,
-                backgroundColor: AppColors.primaryYellow, // Changed to primary yellow
+                backgroundColor: Color(0xFF43E97B), 
                 foregroundColor: Colors.white,
                 elevation: 4,
                 icon: ValueListenableBuilder<Duration>(
@@ -2063,271 +2107,288 @@ void _raiseHandForDoubt() {
     );
   }
 
-Widget _buildCompactTimetableCard(double Function(double) getResponsiveSize) {
-  if (_timetableDays.isEmpty || _currentTimetableIndex >= _timetableDays.length) {
-    return Container();
-  }
+   Widget _buildCompactTimetableCard(double Function(double) getResponsiveSize) {
+    if (_timetableDays.isEmpty || _currentTimetableIndex >= _timetableDays.length) {
+      return Container();
+    }
 
-  final dayData = _timetableDays[_currentTimetableIndex];
-  final entries = dayData['entries'] as List<dynamic>? ?? [];
-  final date = dayData['date'] as String? ?? '';
-  final dayLabel = _getDayLabel(_currentTimetableIndex);
-  
-  // Create a PageController for horizontal swiping
-  final PageController _subjectPageController = PageController(viewportFraction: 0.9);
-  int _currentSubjectPage = 0;
-
-  return Container(
-    height: getResponsiveSize(140), // Back to original height
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(getResponsiveSize(12)),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: getResponsiveSize(8),
-          offset: Offset(0, getResponsiveSize(2)),
-        ),
-      ],
-    ),
-    child: Padding(
-      padding: EdgeInsets.all(getResponsiveSize(12)),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header row - compact
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Left arrow
-              GestureDetector(
-                onTap: _currentTimetableIndex > 0
-                    ? () {
-                        setState(() {
-                          _currentTimetableIndex--;
-                          _currentSubjectPage = 0;
-                        });
-                      }
-                    : null,
-                child: Container(
-                  width: getResponsiveSize(24),
-                  height: getResponsiveSize(24),
-                  decoration: BoxDecoration(
-                    color: _currentTimetableIndex > 0
-                        ? AppColors.primaryBlue.withOpacity(0.1)
-                        : Colors.transparent,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.chevron_left,
-                      size: getResponsiveSize(16),
-                      color: _currentTimetableIndex > 0
-                          ? AppColors.primaryBlue
-                          : Colors.grey[300],
-                    ),
-                  ),
-                ),
-              ),
-              
-              // Day and date
-              Expanded(
-                child: Center(
-                  child: RichText(
-                    textAlign: TextAlign.center,
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: '$dayLabel • ',
-                          style: TextStyle(
-                            fontSize: getResponsiveSize(13),
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primaryBlue,
-                          ),
-                        ),
-                        TextSpan(
-                          text: _formatDate(date),
-                          style: TextStyle(
-                            fontSize: getResponsiveSize(11),
-                            color: AppColors.textGrey,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              
-              // Right arrow
-              GestureDetector(
-                onTap: _currentTimetableIndex < _timetableDays.length - 1
-                    ? () {
-                        setState(() {
-                          _currentTimetableIndex++;
-                          _currentSubjectPage = 0;
-                        });
-                      }
-                    : null,
-                child: Container(
-                  width: getResponsiveSize(24),
-                  height: getResponsiveSize(24),
-                  decoration: BoxDecoration(
-                    color: _currentTimetableIndex < _timetableDays.length - 1
-                        ? AppColors.primaryBlue.withOpacity(0.1)
-                        : Colors.transparent,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Icon(
-                      Icons.chevron_right,
-                      size: getResponsiveSize(16),
-                      color: _currentTimetableIndex < _timetableDays.length - 1
-                          ? AppColors.primaryBlue
-                          : Colors.grey[300],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          
-          SizedBox(height: getResponsiveSize(6)),
-          
-          // Divider
-          Container(height: 1, color: Colors.grey[200]),
-          
-          SizedBox(height: getResponsiveSize(6)),
-          
-          // Subject area - Takes remaining space
-          Expanded(
-            child: entries.isNotEmpty
-                ? Column(
-                    children: [
-                      // Subject content area
-                      Expanded(
-                        child: PageView.builder(
-                          controller: _subjectPageController,
-                          itemCount: entries.length,
-                          onPageChanged: (index) {
-                            setState(() {
-                              _currentSubjectPage = index;
-                            });
-                          },
-                          itemBuilder: (context, subjectIndex) {
-                            final entry = entries[subjectIndex];
-                            final subjectTitle = entry['subject_title'] ?? '';
-                            final topicTitles = (entry['topic_titles'] as List<dynamic>?)?.join(', ') ?? '';
-                            
-                            return Padding(
-                              padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
-                              child: Container(
-                                padding: EdgeInsets.all(getResponsiveSize(8)),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryBlue.withOpacity(0.03),
-                                  borderRadius: BorderRadius.circular(getResponsiveSize(8)),
-                                  border: Border.all(
-                                    color: AppColors.primaryBlue.withOpacity(0.1),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // Subject title row
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Container(
-                                          padding: EdgeInsets.all(getResponsiveSize(3)),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.primaryBlue.withOpacity(0.1),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Icon(
-                                            Icons.book_rounded,
-                                            size: getResponsiveSize(10),
-                                            color: AppColors.primaryBlue,
-                                          ),
-                                        ),
-                                        SizedBox(width: getResponsiveSize(6)),
-                                        Expanded(
-                                          child: Text(
-                                            subjectTitle,
-                                            style: TextStyle(
-                                              fontSize: getResponsiveSize(12),
-                                              fontWeight: FontWeight.bold,
-                                              color: AppColors.textDark,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    
-                                    SizedBox(height: getResponsiveSize(4)),
-                                    
-                                    // Topics
-                                    if (topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty)
-                                      Text(
-                                        topicTitles,
-                                        style: TextStyle(
-                                          fontSize: getResponsiveSize(10),
-                                          color: AppColors.textDark,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      
-                      // Dot indicators - only if multiple subjects
-                      if (entries.length > 1)
-                        SizedBox(
-                          height: getResponsiveSize(12),
-                          child: Center(
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(entries.length, (index) {
-                                return Container(
-                                  margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
-                                  width: _currentSubjectPage == index ? getResponsiveSize(6) : getResponsiveSize(4),
-                                  height: getResponsiveSize(4),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _currentSubjectPage == index
-                                        ? AppColors.primaryBlue
-                                        : AppColors.primaryBlue.withOpacity(0.3),
-                                  ),
-                                );
-                              }),
-                            ),
-                          ),
-                        ),
-                    ],
-                  )
-                : Center(
-                    child: Text(
-                      'No classes',
-                      style: TextStyle(
-                        fontSize: getResponsiveSize(11),
-                        color: AppColors.textGrey,
-                      ),
-                    ),
-                  ),
+    final dayData = _timetableDays[_currentTimetableIndex];
+    final entries = dayData['entries'] as List<dynamic>? ?? [];
+    final date = dayData['date'] as String? ?? '';
+    final dayLabel = _getDayLabel(_currentTimetableIndex);
+    
+    return Container(
+      height: getResponsiveSize(120), // Reduced from 140 to 120
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(getResponsiveSize(12)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: getResponsiveSize(8),
+            offset: Offset(0, getResponsiveSize(2)),
           ),
         ],
       ),
-    ),
-  );
-}
+      child: Padding(
+        padding: EdgeInsets.all(getResponsiveSize(10)), // Reduced padding
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Header row - compact
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Left arrow
+                GestureDetector(
+                  onTap: _currentTimetableIndex > 0
+                      ? () {
+                          setState(() {
+                            _currentTimetableIndex--;
+                            _timetablePageController.jumpToPage(0);
+                          });
+                        }
+                      : null,
+                  child: Container(
+                    width: getResponsiveSize(24),
+                    height: getResponsiveSize(24),
+                    decoration: BoxDecoration(
+                      color: _currentTimetableIndex > 0
+                          ? AppColors.primaryBlue.withOpacity(0.1)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.chevron_left,
+                        size: getResponsiveSize(16),
+                        color: _currentTimetableIndex > 0
+                            ? AppColors.primaryBlue
+                            : Colors.grey[300],
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Day and date
+                Expanded(
+                  child: Center(
+                    child: RichText(
+                      textAlign: TextAlign.center,
+                      text: TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '$dayLabel • ',
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(13),
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.primaryBlue,
+                            ),
+                          ),
+                          TextSpan(
+                            text: _formatDate(date),
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(11),
+                              color: AppColors.textGrey,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                
+                // Right arrow
+                GestureDetector(
+                  onTap: _currentTimetableIndex < _timetableDays.length - 1
+                      ? () {
+                          setState(() {
+                            _currentTimetableIndex++;
+                            _timetablePageController.jumpToPage(0);
+                          });
+                        }
+                      : null,
+                  child: Container(
+                    width: getResponsiveSize(24),
+                    height: getResponsiveSize(24),
+                    decoration: BoxDecoration(
+                      color: _currentTimetableIndex < _timetableDays.length - 1
+                          ? AppColors.primaryBlue.withOpacity(0.1)
+                          : Colors.transparent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(
+                        Icons.chevron_right,
+                        size: getResponsiveSize(16),
+                        color: _currentTimetableIndex < _timetableDays.length - 1
+                            ? AppColors.primaryBlue
+                            : Colors.grey[300],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            
+            SizedBox(height: getResponsiveSize(4)), // Reduced spacing
+            
+            // Divider
+            Container(height: 1, color: Colors.grey[200]),
+            
+            SizedBox(height: getResponsiveSize(6)),
+            
+            // Subject area - Takes remaining space
+            Expanded(
+              child: entries.isNotEmpty
+                  ? Column(
+                      children: [
+                        // Subject content area
+                        Expanded(
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: (scrollNotification) {
+                              if (scrollNotification is ScrollEndNotification) {
+                                // Update current page when scrolling ends
+                                final currentPage = _timetablePageController.page?.round() ?? 0;
+                                if (mounted) {
+                                  setState(() {});
+                                }
+                              }
+                              return false;
+                            },
+                            child: PageView.builder(
+                              controller: _timetablePageController,
+                              itemCount: entries.length,
+                              onPageChanged: (index) {
+                                // This will be called properly when page changes
+                                if (mounted) {
+                                  setState(() {});
+                                }
+                              },
+                              itemBuilder: (context, subjectIndex) {
+                                final entry = entries[subjectIndex];
+                                // 🆕 MODIFIED: Use section_title if available, otherwise subject_title
+                                final String title = entry['section_title']?.toString().trim().isNotEmpty == true
+                                    ? entry['section_title']
+                                    : entry['subject_title'] ?? '';
+                                final topicTitles = (entry['topic_titles'] as List<dynamic>?)?.join(', ') ?? '';
+                                
+                                return Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                                  child: Container(
+                                    padding: EdgeInsets.all(getResponsiveSize(8)),
+                                    decoration: BoxDecoration(
+                                      // 🆕 MODIFIED: Light blue shade for timetable container
+                                      color: Color(0xFFE8F4FD), // Light blue shade
+                                      borderRadius: BorderRadius.circular(getResponsiveSize(8)),
+                                      border: Border.all(
+                                        color: AppColors.primaryBlue.withOpacity(0.1),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Subject title row
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Container(
+                                              padding: EdgeInsets.all(getResponsiveSize(3)),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.primaryBlue.withOpacity(0.1),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Icon(
+                                                Icons.book_rounded,
+                                                size: getResponsiveSize(10),
+                                                color: AppColors.primaryBlue,
+                                              ),
+                                            ),
+                                            SizedBox(width: getResponsiveSize(6)),
+                                            Expanded(
+                                              child: Text(
+                                                title,
+                                                style: TextStyle(
+                                                  fontSize: getResponsiveSize(12),
+                                                  fontWeight: FontWeight.bold,
+                                                  color: AppColors.textDark,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        
+                                        SizedBox(height: getResponsiveSize(4)),
+                                        
+                                        // Topics
+                                        if (topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty)
+                                          Text(
+                                            topicTitles,
+                                            style: TextStyle(
+                                              fontSize: getResponsiveSize(10),
+                                              color: AppColors.textDark,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        
+                        // Dot indicators - only if multiple subjects
+                        if (entries.length > 1)
+                          SizedBox(
+                            height: getResponsiveSize(12),
+                            child: Center(
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: List.generate(entries.length, (index) {
+                                  final currentPage = _timetablePageController.hasClients 
+                                      ? (_timetablePageController.page?.round() ?? 0)
+                                      : 0;
+                                  
+                                  return Container(
+                                    margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                                    width: currentPage == index ? getResponsiveSize(8) : getResponsiveSize(4),
+                                    height: getResponsiveSize(4),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: currentPage == index
+                                          ? AppColors.primaryBlue
+                                          : AppColors.primaryBlue.withOpacity(0.3),
+                                    ),
+                                  );
+                                }),
+                              ),
+                            ),
+                          ),
+                      ],
+                    )
+                  : Center(
+                      child: Text(
+                        'No classes',
+                        style: TextStyle(
+                          fontSize: getResponsiveSize(11),
+                          color: AppColors.textGrey,
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
   // Build Section Header
   Widget _buildSectionHeader(String title, double Function(double) getResponsiveSize) {
     return Column(
