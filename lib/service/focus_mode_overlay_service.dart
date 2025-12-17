@@ -4,6 +4,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_apps/device_apps.dart';
 
 class FocusModeOverlayService {
   static final FocusModeOverlayService _instance = FocusModeOverlayService._internal();
@@ -12,6 +13,7 @@ class FocusModeOverlayService {
 
   // Channel for platform-specific overlay implementation
   static const platform = MethodChannel('focus_mode_overlay_channel');
+  static FocusModeOverlayService get instance => _instance;
   
   // Stream controllers for overlay events
   final StreamController<bool> _overlayVisibilityController = StreamController<bool>.broadcast();
@@ -33,6 +35,7 @@ class FocusModeOverlayService {
   
   // SharedPreferences keys
   static const String _allowedAppsOverlayKey = 'overlay_allowed_apps';
+  static const String _mainAllowedAppsKey = 'allowed_apps_list'; // 🆕 Main allowed apps key
   
   // Check if overlay permission is granted
   Future<bool> checkOverlayPermission() async {
@@ -146,6 +149,247 @@ class FocusModeOverlayService {
       debugPrint('❌ Error in getAllowedApps: $e');
       return _allowedApps;
     }
+  }
+
+  // 🆕 UPDATED: Handle app permission updates from WebSocket
+  Future<void> handleAppPermissionUpdate(String packageName, bool isAllowed) async {
+    try {
+      debugPrint('🔥 [GLOBAL] Handling app permission update for overlay: $packageName -> allowed: $isAllowed');
+      
+      // Get current allowed apps
+      await loadAllowedApps();
+      
+      if (isAllowed) {
+        // Check if app is already in allowed list
+        final existingApp = _allowedApps.firstWhere(
+          (app) => app['packageName'] == packageName,
+          orElse: () => {},
+        );
+        
+        if (existingApp.isEmpty) {
+          String appName = _getReadableAppName(packageName);
+          String? iconBase64;
+          
+          // Try to get app details if possible
+          try {
+            final app = await DeviceApps.getApp(packageName);
+            
+            if (app is Application) {
+              appName = app.appName ?? appName;
+              
+              if (app is ApplicationWithIcon) {
+                try {
+                  final iconBytes = app.icon;
+                  if (iconBytes != null) {
+                    iconBase64 = base64.encode(iconBytes);
+                  }
+                } catch (e) {
+                  debugPrint('⚠️ Could not encode icon for $packageName: $e');
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('⚠️ Could not get app details for $packageName: $e');
+          }
+          
+          // Add to allowed apps
+          final newApp = {
+            'appName': appName,
+            'packageName': packageName,
+            'iconBytes': iconBase64,
+            'addedFromWebSocket': true,
+            'timestamp': DateTime.now().toIso8601String(),
+          };
+          
+          _allowedApps.add(newApp);
+          debugPrint('✅ [GLOBAL] Added $appName ($packageName) to overlay allowed apps');
+          
+        } else {
+          debugPrint('⚠️ [GLOBAL] App $packageName already in allowed apps');
+        }
+      } else {
+        // 🆕 CRITICAL: Remove app from allowed list when allowed: false
+        final initialCount = _allowedApps.length;
+        _allowedApps.removeWhere((app) => app['packageName'] == packageName);
+        
+        if (_allowedApps.length < initialCount) {
+          debugPrint('❌ [GLOBAL] Removed $packageName from overlay allowed apps');
+        } else {
+          debugPrint('⚠️ [GLOBAL] App $packageName not found in allowed apps');
+        }
+      }
+      
+      // 🔥 CRITICAL: Save to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_allowedAppsOverlayKey, json.encode(_allowedApps));
+      
+      // 🆕 Also update main allowed apps list
+      await _updateMainAllowedAppsList(packageName, isAllowed);
+      
+      // 🔥 CRITICAL: Update platform immediately
+      await _updatePlatformImmediately();
+      
+      // 🔥 CRITICAL: Refresh overlay if visible
+      if (_isOverlayVisible) {
+        await refreshAllowedAppsInOverlay();
+        debugPrint('🔄 [GLOBAL] Overlay refreshed in real-time');
+      }
+      
+    } catch (e) {
+      debugPrint('❌ [GLOBAL] Error handling app permission update: $e');
+      debugPrint('❌ Stack trace: ${e.toString()}');
+    }
+  }
+
+  // 🆕 NEW: Update main allowed apps list in SharedPreferences
+  Future<void> _updateMainAllowedAppsList(String packageName, bool isAllowed) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAllowedApps = prefs.getStringList(_mainAllowedAppsKey) ?? [];
+      
+      if (isAllowed) {
+        // Add if not already present
+        if (!savedAllowedApps.contains(packageName)) {
+          savedAllowedApps.add(packageName);
+          await prefs.setStringList(_mainAllowedAppsKey, savedAllowedApps);
+          debugPrint('✅ Updated main allowed apps list: Added $packageName');
+        }
+      } else {
+        // Remove if present
+        if (savedAllowedApps.contains(packageName)) {
+          savedAllowedApps.remove(packageName);
+          await prefs.setStringList(_mainAllowedAppsKey, savedAllowedApps);
+          debugPrint('✅ Updated main allowed apps list: Removed $packageName');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error updating main allowed apps list: $e');
+    }
+  }
+
+  // 🆕 NEW: Immediate platform update with better error handling
+  Future<void> _updatePlatformImmediately() async {
+    try {
+      debugPrint('🔥 [GLOBAL] Updating platform immediately with ${_allowedApps.length} apps');
+      
+      if (_allowedApps.isEmpty) {
+        debugPrint('📱 No apps to update, sending empty list');
+      }
+      
+      final result = await platform.invokeMethod('updateAllowedApps', {
+        'apps': json.encode(_allowedApps),
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'isImmediateUpdate': true,
+      });
+      
+      if (result == true) {
+        debugPrint('✅ [GLOBAL] Platform updated successfully');
+      } else {
+        debugPrint('⚠️ [GLOBAL] Platform update returned: $result');
+        
+        // Try alternative method
+        try {
+          await platform.invokeMethod('setAllowedApps', {
+            'apps': json.encode(_allowedApps),
+          });
+          debugPrint('✅ Used alternative setAllowedApps method');
+        } catch (e) {
+          debugPrint('⚠️ Alternative method also failed: $e');
+        }
+      }
+    } on PlatformException catch (e) {
+      debugPrint('❌ [GLOBAL] Platform exception: ${e.message}');
+      debugPrint('❌ Platform details: ${e.details}');
+      
+      // Try to recover by reloading and retrying
+      if (e.message?.contains('overlay') == true) {
+        debugPrint('🔄 Attempting to recover from overlay error...');
+        await Future.delayed(Duration(milliseconds: 300));
+        await loadAllowedApps(); // Reload
+      }
+    } catch (e) {
+      debugPrint('❌ [GLOBAL] Error updating platform: $e');
+    }
+  }
+
+  // 🆕 NEW: Force immediate overlay refresh with current data
+  Future<void> forceRefreshOverlay() async {
+    try {
+      debugPrint('🔥 [GLOBAL] Force refreshing overlay');
+      
+      // First ensure we have latest data
+      await loadAllowedApps();
+      
+      // Update platform
+      await _updatePlatformImmediately();
+      
+      // Refresh overlay UI if visible
+      if (_isOverlayVisible) {
+        await refreshAllowedAppsInOverlay();
+      }
+      
+      debugPrint('✅ [GLOBAL] Overlay force refreshed');
+    } catch (e) {
+      debugPrint('❌ [GLOBAL] Error force refreshing overlay: $e');
+    }
+  }
+  
+  // Helper to convert package name to readable app name
+  String _getReadableAppName(String packageName) {
+    // Common app package names mapping
+    final appNameMap = {
+      'com.whatsapp': 'WhatsApp',
+      'com.instagram.android': 'Instagram',
+      'com.facebook.katana': 'Facebook',
+      'com.google.android.youtube': 'YouTube',
+      'com.google.android.gm': 'Gmail',
+      'com.android.chrome': 'Chrome',
+      'com.google.android.apps.maps': 'Google Maps',
+      'com.android.vending': 'Google Play Store',
+      'com.google.android.apps.photos': 'Google Photos',
+      'com.google.android.calendar': 'Google Calendar',
+      'com.google.android.contacts': 'Contacts',
+      'com.android.dialer': 'Phone',
+      'com.android.mms': 'Messages',
+      'com.android.camera2': 'Camera',
+      'com.android.gallery3d': 'Gallery',
+      'com.google.android.apps.docs': 'Google Docs',
+      'com.google.android.apps.messaging': 'Messages',
+      'com.android.email': 'Email',
+      'com.android.calculator2': 'Calculator',
+      'com.android.settings': 'Settings',
+    };
+    
+    // Check if package exists in map
+    if (appNameMap.containsKey(packageName)) {
+      return appNameMap[packageName]!;
+    }
+    
+    // Try to extract and format the last part of package name
+    try {
+      final parts = packageName.split('.');
+      if (parts.isNotEmpty) {
+        String lastPart = parts.last;
+        
+        // Clean up the name
+        lastPart = lastPart
+            .replaceAll('_', ' ')
+            .replaceAll('-', ' ');
+        
+        // Convert to title case
+        if (lastPart.isNotEmpty) {
+          return lastPart.split(' ').map((word) {
+            if (word.isEmpty) return '';
+            return '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}';
+          }).join(' ');
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error formatting app name for $packageName: $e');
+    }
+    
+    // Final fallback: return the original package name
+    return packageName;
   }
   
   // 🆕 NEW: Clear allowed apps

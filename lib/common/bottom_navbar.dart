@@ -550,7 +550,7 @@ class CommonProfileDrawer extends StatelessWidget {
                         ),
                         
                         // Show "Allow Apps" button only for Online/Offline students
-                        if (isOnlineOrOffline) ...[
+                       if (isOnlineOrOffline) ...[
                           const SizedBox(height: 8),
                           _buildMenuItem(
                             icon: Icons.apps_rounded,
@@ -562,8 +562,8 @@ class CommonProfileDrawer extends StatelessWidget {
                               // Check and request permission
                               final hasPermission = await AppPermissionService.requestPermission(context);
                               
-                              if (hasPermission) {
-                                // Navigate to Allow Apps screen
+                              if (hasPermission && context.mounted) {
+                                // Navigate to Allow Apps screen only if permission is granted
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -571,20 +571,20 @@ class CommonProfileDrawer extends StatelessWidget {
                                     settings: const RouteSettings(name: '/allow_apps'),
                                   ),
                                 );
-                              } else {
+                              } else if (context.mounted) {
                                 // Show message that permission is required
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: const Text('Permission is required to view installed apps'),
+                                  const SnackBar(
+                                    content: Text('Permission is required to view installed apps'),
                                     backgroundColor: AppColors.errorRed,
-                                    duration: const Duration(seconds: 2),
+                                    duration: Duration(seconds: 2),
                                   ),
                                 );
                               }
                             },
                           ),
                         ],
-                        
+                                                
                         const SizedBox(height: 8),
                         _buildMenuItem(
                           icon: Icons.settings_outlined,

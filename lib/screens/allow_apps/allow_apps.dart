@@ -439,13 +439,13 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
     }
   }
   
-  // UPDATED: Method to save allowed apps for overlay
+  // UPDATED: Method to save allowed apps for overlay with better error handling
   Future<void> _saveAllowedAppsForOverlay(List<_AppData> apps) async {
     try {
       final List<Map<String, dynamic>> appsData = [];
       
       if (_debugMode) {
-        debugPrint('📱 Preparing ${apps.length} apps for overlay');
+        debugPrint('📱 Preparing ${apps.length} apps for overlay at ${DateTime.now()}');
       }
       
       for (var app in apps) {
@@ -453,8 +453,8 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
         if (app.iconBytes != null) {
           try {
             iconBase64 = base64.encode(app.iconBytes!);
-            if (_debugMode) {
-              debugPrint('📱 App: ${app.appName}, Has icon: ${iconBase64.length > 0}');
+            if (_debugMode && iconBase64.isNotEmpty) {
+              debugPrint('📱 App: ${app.appName}, Icon size: ${iconBase64.length} bytes');
             }
           } catch (e) {
             debugPrint('⚠️ Error encoding icon for ${app.appName}: $e');
@@ -466,11 +466,8 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
           'appName': app.appName,
           'packageName': app.packageName,
           'iconBytes': iconBase64,
+          'addedAt': DateTime.now().toIso8601String(), // Add timestamp for tracking
         });
-        
-        if (_debugMode) {
-          debugPrint('📱 Added app to overlay data: ${app.appName} (${app.packageName})');
-        }
       }
       
       // Save to overlay service
@@ -478,27 +475,53 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       
       if (success) {
         if (_debugMode) {
-          debugPrint('✅ Saved ${appsData.length} allowed apps for overlay');
+          debugPrint('✅ Saved ${appsData.length} allowed apps for overlay at ${DateTime.now()}');
         }
         
-        // Refresh overlay if it's showing
-        await _focusOverlayService.refreshAllowedAppsInOverlay();
-        
-        // Verify data was saved
-        try {
-          final savedData = await _focusOverlayService.getAllowedApps();
+        // Force overlay refresh if visible
+        if (_focusOverlayService.isOverlayVisible) {
+          await _focusOverlayService.refreshAllowedAppsInOverlay();
           if (_debugMode) {
-            debugPrint('📱 Verified saved data: ${savedData.length} apps');
+            debugPrint('🔄 Overlay content refreshed');
           }
-        } catch (e) {
-          debugPrint('⚠️ Could not verify saved data: $e');
         }
+        
       } else {
         debugPrint('❌ Failed to save allowed apps for overlay');
       }
     } catch (e) {
       debugPrint('❌ Error saving allowed apps for overlay: $e');
-      debugPrint('❌ Stack trace: ${e.toString()}');
+      if (_debugMode) {
+        debugPrint('❌ Stack trace: ${e.toString()}');
+      }
+    }
+  }
+
+  Future<void> _verifyOverlayApps() async {
+    try {
+      final overlayApps = await _focusOverlayService.getAllowedApps();
+      final currentAppNames = _allowedAppDetails.map((a) => a.appName).toSet();
+      final overlayAppNames = overlayApps.map((a) => a['appName']?.toString() ?? '').toSet();
+      
+      debugPrint('📊 VERIFICATION:');
+      debugPrint('  Current allowed apps: ${currentAppNames.length}');
+      debugPrint('  Overlay apps: ${overlayAppNames.length}');
+      
+      final missingInOverlay = currentAppNames.difference(overlayAppNames);
+      final extraInOverlay = overlayAppNames.difference(currentAppNames);
+      
+      if (missingInOverlay.isNotEmpty) {
+        debugPrint('⚠️ Missing in overlay: $missingInOverlay');
+      }
+      if (extraInOverlay.isNotEmpty) {
+        debugPrint('⚠️ Extra in overlay: $extraInOverlay');
+      }
+      
+      if (missingInOverlay.isEmpty && extraInOverlay.isEmpty) {
+        debugPrint('✅ Overlay sync is perfect!');
+      }
+    } catch (e) {
+      debugPrint('❌ Error verifying overlay apps: $e');
     }
   }
 
@@ -516,15 +539,21 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       }
 
       if (parsedMessage is Map<String, dynamic>) {
-        if (parsedMessage['type'] == 'app_permission') {
+        // Handle both message formats: 'app_permission' and 'app_permission_update'
+        if (parsedMessage['type'] == 'app_permission' || parsedMessage['type'] == 'app_permission_update') {
           final data = parsedMessage['data'] as Map<String, dynamic>;
           final appPackage = data['app'] as String;
           final isAllowed = data['allowed'] as bool;
+          
+          if (_debugMode) {
+            debugPrint('🎯 App permission update received: $appPackage -> allowed: $isAllowed');
+          }
           
           Application? targetApp;
           String appName = appPackage;
           Uint8List? iconBytes;
           
+          // Find the app in installed apps for details
           for (var app in _installedApps) {
             if (app.packageName == appPackage) {
               targetApp = app;
@@ -574,6 +603,15 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
                 ),
               );
             }
+            
+            // 🔥 CRITICAL: Immediately update overlay with new allowed apps
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (_debugMode) {
+                debugPrint('🔥 Immediately updating overlay after app permission granted');
+              }
+              await _updateOverlayWithCurrentAllowedApps();
+            });
+            
           } else {
             _removeAppFromAllowed(appPackage);
             
@@ -603,6 +641,14 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
                 ),
               );
             }
+            
+            // 🔥 CRITICAL: Immediately update overlay after removing app
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              if (_debugMode) {
+                debugPrint('🔥 Immediately updating overlay after app permission denied');
+              }
+              await _updateOverlayWithCurrentAllowedApps();
+            });
           }
         }
       }
@@ -611,30 +657,82 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
     }
   }
 
+  // NEW: Method to immediately update overlay with current allowed apps
+  Future<void> _updateOverlayWithCurrentAllowedApps() async {
+    try {
+      if (_debugMode) {
+        debugPrint('🔄 IMMEDIATELY updating overlay with ${_allowedAppDetails.length} allowed apps');
+      }
+      
+      // Save to overlay immediately
+      await _saveAllowedAppsForOverlay(_allowedAppDetails);
+      
+      // Refresh overlay if it's showing
+      if (_focusOverlayService.isOverlayVisible) {
+        await _focusOverlayService.refreshAllowedAppsInOverlay();
+        if (_debugMode) {
+          debugPrint('✅ Overlay refreshed in real-time');
+        }
+      }
+      
+      // Also verify the data was saved
+      try {
+        final savedData = await _focusOverlayService.getAllowedApps();
+        if (_debugMode) {
+          debugPrint('📱 Verified overlay has ${savedData.length} apps after update');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Could not verify overlay data: $e');
+      }
+    } catch (e) {
+      debugPrint('❌ Error immediately updating overlay: $e');
+    }
+  }
+
   void _addAppToAllowed(String appPackage, _AppData appData) {
     if (!_allowedAppsPackageNames.contains(appPackage)) {
+      if (_debugMode) {
+        debugPrint('✅ Adding $appPackage to allowed apps list');
+      }
+      
       setState(() {
         _allowedAppsPackageNames.add(appPackage);
         _allowedAppDetails.add(appData);
-        _saveAllowedAppsToPrefs(_allowedAppsPackageNames, _allowedAppDetails);
       });
+      
+      // Save to SharedPreferences in background
+      _saveAllowedAppsToPrefs(_allowedAppsPackageNames, _allowedAppDetails);
       
       if (_debugMode) {
         debugPrint('✅ Added $appPackage to allowed apps');
       }
+    } else {
+      if (_debugMode) {
+        debugPrint('⚠️ App $appPackage already in allowed apps');
+      }
     }
   }
-
+  
   void _removeAppFromAllowed(String appPackage) {
     if (_allowedAppsPackageNames.contains(appPackage)) {
+      if (_debugMode) {
+        debugPrint('❌ Removing $appPackage from allowed apps list');
+      }
+      
       setState(() {
         _allowedAppsPackageNames.remove(appPackage);
         _allowedAppDetails.removeWhere((app) => app.packageName == appPackage);
-        _saveAllowedAppsToPrefs(_allowedAppsPackageNames, _allowedAppDetails);
       });
+      
+      // Save to SharedPreferences in background
+      _saveAllowedAppsToPrefs(_allowedAppsPackageNames, _allowedAppDetails);
       
       if (_debugMode) {
         debugPrint('❌ Removed $appPackage from allowed apps');
+      }
+    } else {
+      if (_debugMode) {
+        debugPrint('⚠️ App $appPackage not found in allowed apps');
       }
     }
   }
@@ -955,214 +1053,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       return _allowedAppDetails;
     }
   }
-  
-  // Toggle overlay visibility
-  Future<void> _toggleOverlay() async {
-    try {
-      if (_focusOverlayService.isOverlayVisible) {
-        await _focusOverlayService.hideOverlay();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Overlay hidden'),
-              backgroundColor: AppColors.successGreen,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      } else {
-        await _testOverlayWithApps();
-      }
-    } catch (e) {
-      debugPrint('❌ Error toggling overlay: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-    }
-  }
-  
-  // NEW: Method to refresh overlay data immediately
-  Future<void> _refreshOverlayData() async {
-    try {
-      if (_debugMode) {
-        debugPrint('🔄 Refreshing overlay data...');
-      }
-      
-      // Make sure we have the latest allowed apps
-      await _fetchAllowedAppsFromAPI();
-      
-      // Update overlay with current data
-      await _saveAllowedAppsForOverlay(_allowedAppDetails);
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Overlay data refreshed with ${_allowedAppDetails.length} apps'),
-            backgroundColor: AppColors.successGreen,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error refreshing overlay data: $e');
-    }
-  }
-  
-  // NEW: Test overlay data flow
-  Future<void> _testOverlayDataFlow() async {
-    try {
-      if (_debugMode) {
-        debugPrint('🧪 Testing overlay data flow...');
-      }
-      
-      // 1. Check current allowed apps
-      debugPrint('📱 Current allowed apps count: ${_allowedAppDetails.length}');
-      
-      // 2. Check if overlay has data
-      final overlayData = await _focusOverlayService.getAllowedApps();
-      debugPrint('📱 Overlay data count: ${overlayData.length}');
-      
-      // 3. Send test data
-      if (_allowedAppDetails.isNotEmpty) {
-        debugPrint('📱 Sending first app to overlay: ${_allowedAppDetails.first.appName}');
-        await _saveAllowedAppsForOverlay([_allowedAppDetails.first]);
-      }
-      
-      // 4. Verify
-      final newOverlayData = await _focusOverlayService.getAllowedApps();
-      debugPrint('📱 After update - Overlay data count: ${newOverlayData.length}');
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Test complete. Overlay data: ${newOverlayData.length} apps'),
-            backgroundColor: AppColors.successGreen,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error testing overlay data flow: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Test failed: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-    }
-  }
-  
-  // NEW: Test overlay functionality
-  Future<void> _testOverlayWithApps() async {
-    try {
-      // First, ensure we have permission
-      if (!_focusOverlayService.hasPermission) {
-        final granted = await _focusOverlayService.requestOverlayPermission();
-        if (!granted) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Overlay permission required'),
-                backgroundColor: AppColors.errorRed,
-              ),
-            );
-          }
-          return;
-        }
-      }
-      
-      // Update overlay with current allowed apps
-      await _saveAllowedAppsForOverlay(_allowedAppDetails);
-      
-      // Show overlay
-      await _focusOverlayService.showOverlay();
-      
-      if (_debugMode) {
-        debugPrint('✅ Overlay shown with ${_allowedAppDetails.length} allowed apps');
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Overlay shown with ${_allowedAppDetails.length} allowed apps'),
-            backgroundColor: AppColors.successGreen,
-          ),
-        );
-      }
-      
-    } catch (e) {
-      debugPrint('❌ Error showing overlay: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: $e'),
-            backgroundColor: AppColors.errorRed,
-          ),
-        );
-      }
-    }
-  }
-  
-  // NEW: Clear overlay data
-  Future<void> _clearOverlayData() async {
-    try {
-      await _focusOverlayService.clearAllowedApps();
-      if (_debugMode) {
-        debugPrint('🗑️ Cleared overlay data');
-      }
-      
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Cleared overlay data'),
-            backgroundColor: AppColors.warningOrange,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error clearing overlay data: $e');
-    }
-  }
-  
-  // NEW: Check overlay status
-  Future<void> _checkOverlayStatus() async {
-    try {
-      final isShowing = await _focusOverlayService.isOverlayShowing();
-      final hasPerm = await _focusOverlayService.checkOverlayPermission();
-      
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Overlay Status'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Overlay Showing: ${isShowing ? "Yes" : "No"}'),
-              Text('Permission Granted: ${hasPerm ? "Yes" : "No"}'),
-              Text('Allowed Apps: ${_allowedAppDetails.length}'),
-              SizedBox(height: 8),
-              Text('Overlay Service Initialized: ✅'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('OK'),
-            ),
-          ],
-        ),
-      );
-    } catch (e) {
-      debugPrint('❌ Error checking overlay status: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1209,72 +1099,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
               }
             },
             tooltip: 'Refresh',
-          ),
-          IconButton(
-            icon: Icon(_focusOverlayService.isOverlayVisible 
-                ? Icons.visibility_off 
-                : Icons.visibility),
-            onPressed: _toggleOverlay,
-            tooltip: _focusOverlayService.isOverlayVisible 
-                ? 'Hide Overlay' 
-                : 'Show Overlay',
-          ),
-          // Add test overlay button
-          PopupMenuButton<String>(
-            icon: Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'test_data_flow') {
-                _testOverlayDataFlow();
-              } else if (value == 'clear_data') {
-                _clearOverlayData();
-              } else if (value == 'debug_info') {
-                _showDebugInfo();
-              } else if (value == 'overlay_status') {
-                _checkOverlayStatus();
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'test_data_flow',
-                child: Row(
-                  children: [
-                    Icon(Icons.architecture, size: 20),
-                    SizedBox(width: 8),
-                    Text('Test Data Flow'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'clear_data',
-                child: Row(
-                  children: [
-                    Icon(Icons.clear_all, size: 20),
-                    SizedBox(width: 8),
-                    Text('Clear Overlay Data'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'overlay_status',
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, size: 20),
-                    SizedBox(width: 8),
-                    Text('Check Overlay Status'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'debug_info',
-                child: Row(
-                  children: [
-                    Icon(Icons.bug_report, size: 20),
-                    SizedBox(width: 8),
-                    Text('Debug Info'),
-                  ],
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -1752,48 +1576,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
           tooltip: 'Open app',
         ),
         onTap: () => _handleAllowedAppTap(app),
-      ),
-    );
-  }
-  
-  // NEW: Show debug info
-  void _showDebugInfo() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Debug Information'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Current Tab: ${_currentTabIndex == 0 ? "All Apps" : "Allowed Apps"}'),
-              SizedBox(height: 8),
-              Text('Installed Apps: ${_installedApps.length}'),
-              Text('Filtered Apps: ${_filteredApps.length}'),
-              SizedBox(height: 8),
-              Text('Allowed Package Names: ${_allowedAppsPackageNames.length}'),
-              Text('Allowed App Details: ${_allowedAppDetails.length}'),
-              SizedBox(height: 8),
-              Text('Overlay Visible: ${_focusOverlayService.isOverlayVisible}'),
-              Text('Has Overlay Permission: ${_focusOverlayService.hasPermission}'),
-              SizedBox(height: 16),
-              if (_allowedAppDetails.isNotEmpty) ...[
-                Text('Allowed Apps List:', style: TextStyle(fontWeight: FontWeight.bold)),
-                for (var app in _allowedAppDetails.take(5))
-                  Text('  • ${app.appName} (${app.packageName})'),
-                if (_allowedAppDetails.length > 5)
-                  Text('  ... and ${_allowedAppDetails.length - 5} more'),
-              ],
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('Close'),
-          ),
-        ],
       ),
     );
   }

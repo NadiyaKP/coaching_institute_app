@@ -38,6 +38,7 @@ import 'hive_model.dart';
 import './screens/video_stream/videos.dart';
 import './screens/focus_mode/focus_mode_entry.dart';
 import './screens/focus_mode/focus_overlay_manager.dart';
+import 'service/focus_mode_overlay_service.dart'; // 🆕 Import overlay service
 
 // 🔹 Global Navigator Key
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -50,11 +51,14 @@ final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
+// 🆕 Global overlay service instance
+final FocusModeOverlayService overlayService = FocusModeOverlayService();
+
 // ✅ Handle notification taps (navigating to target page)
 void handleNotificationTap(Map<String, dynamic> data) {
   try {
     debugPrint('🔔 Notification tapped with data: $data');
-    final type = data['type']?.toString().toLowerCase();
+    final type = data['type']?.toString().toLowerCase() ?? '';
     final id = data['assignment_id'] ?? data['exam_id'] ?? '';
 
     if (type == 'assignment') {
@@ -196,7 +200,136 @@ void callbackDispatcher() {
   });
 }
 
-// 🆕 WebSocket message handler
+// 🆕 Handle app permission updates from WebSocket (UPDATED)
+Future<void> _handleAppPermissionUpdate(Map<String, dynamic> payload) async {
+  try {
+    final appPackage = payload['app']?.toString();
+    final allowedValue = payload['allowed'];
+    
+    // 🆕 FIX: Proper boolean handling
+    bool isAllowed;
+    if (allowedValue is bool) {
+      isAllowed = allowedValue;
+    } else if (allowedValue is String) {
+      isAllowed = allowedValue.toLowerCase() == 'true';
+    } else if (allowedValue is int) {
+      isAllowed = allowedValue == 1;
+    } else {
+      isAllowed = false;
+      debugPrint('⚠️ Unknown allowed value type: ${allowedValue.runtimeType}, value: $allowedValue');
+    }
+    
+    if (appPackage == null || appPackage.isEmpty) {
+      debugPrint('❌ Invalid app package: $appPackage');
+      return;
+    }
+    
+    debugPrint('🎯 [MAIN.DART] App permission update received: $appPackage -> allowed: $isAllowed (raw: $allowedValue)');
+    debugPrint('📍 From main.dart at: ${DateTime.now().toIso8601String()}');
+    
+    // 🔥 CRITICAL: Update overlay immediately from ANYWHERE using the singleton
+    await overlayService.handleAppPermissionUpdate(appPackage, isAllowed);
+    
+    // 🔥 ALSO: Update the app permission state globally for UI
+    await _updateAppPermissionGlobally(appPackage, isAllowed);
+    
+    // 🔥 Show notification to user
+    _showAppPermissionNotification(appPackage, isAllowed);
+    
+  } catch (e) {
+    debugPrint('❌ [MAIN.DART] Error handling app permission update: $e');
+    debugPrint('❌ Stack trace: ${e.toString()}');
+  }
+}
+// 🆕 Update app permission globally
+Future<void> _updateAppPermissionGlobally(String packageName, bool isAllowed) async {
+  try {
+    debugPrint('📢 Notifying global app permission change: $packageName -> $isAllowed');
+    
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Get current allowed apps
+    final savedAllowedApps = prefs.getStringList('allowed_apps_list') ?? [];
+    
+    if (isAllowed) {
+      // Add to allowed apps if not already present
+      if (!savedAllowedApps.contains(packageName)) {
+        savedAllowedApps.add(packageName);
+        await prefs.setStringList('allowed_apps_list', savedAllowedApps);
+        debugPrint('✅ Added $packageName to global allowed apps list');
+      }
+    } else {
+      // Remove from allowed apps
+      if (savedAllowedApps.contains(packageName)) {
+        savedAllowedApps.remove(packageName);
+        await prefs.setStringList('allowed_apps_list', savedAllowedApps);
+        debugPrint('❌ Removed $packageName from global allowed apps list');
+      }
+    }
+    
+    // You can use this to update UI state if needed
+    // Example with Provider:
+    // if (navigatorKey.currentContext != null) {
+    //   final provider = navigatorKey.currentContext!.read<AppPermissionsProvider>();
+    //   if (provider != null) {
+    //     provider.updateAppPermission(packageName, isAllowed);
+    //   }
+    // }
+    
+  } catch (e) {
+    debugPrint('❌ Error updating app permission globally: $e');
+  }
+}
+
+// 🆕 Show app permission notification
+void _showAppPermissionNotification(String packageName, bool isAllowed) {
+  final context = navigatorKey.currentContext;
+  if (context == null || !context.mounted) return;
+  
+  String appName = packageName;
+  // Try to get app name from package
+  if (packageName == 'com.whatsapp') appName = 'WhatsApp';
+  else if (packageName == 'com.instagram.android') appName = 'Instagram';
+  else if (packageName == 'com.facebook.katana') appName = 'Facebook';
+  else if (packageName == 'com.google.android.youtube') appName = 'YouTube';
+  
+  final message = isAllowed 
+    ? '$appName has been added to your allowed apps'
+    : '$appName has been removed from your allowed apps';
+  
+  final color = isAllowed ? Colors.green : Colors.orange;
+  final icon = isAllowed ? Icons.check_circle : Icons.block;
+  
+  scaffoldMessengerKey.currentState?.showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          Icon(icon, color: Colors.white, size: 24),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(fontSize: 15),
+            ),
+          ),
+        ],
+      ),
+      duration: Duration(seconds: 4),
+      backgroundColor: color,
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(
+        label: 'View',
+        textColor: Colors.white,
+        onPressed: () {
+          // Navigate to allowed apps screen
+          navigatorKey.currentState?.pushNamed('/allow_apps');
+        },
+      ),
+    ),
+  );
+}
+
+// 🆕 WebSocket message handler (UPDATED with FIX for boolean parsing)
 void _handleWebSocketMessage(dynamic message) {
   try {
     debugPrint('📩 WebSocket message received in main.dart: $message');
@@ -204,37 +337,94 @@ void _handleWebSocketMessage(dynamic message) {
     // Parse the message if it's JSON
     dynamic data;
     try {
-      data = jsonDecode(message.toString());
+      if (message is String) {
+        data = jsonDecode(message);
+      } else {
+        data = message;
+      }
     } catch (e) {
       // If not JSON, treat as string message
       data = {'message': message.toString()};
+      debugPrint('⚠️ Message is not JSON, treating as string');
     }
     
     // Handle different message formats
     if (data is Map<String, dynamic>) {
-      final type = data['event']?.toString().toLowerCase() ?? data['type']?.toString().toLowerCase();
-      final payload = data['data'] ?? data;
+      final type = data['type']?.toString().toLowerCase() ?? data['event']?.toString().toLowerCase();
       
       debugPrint('📊 WebSocket message type: $type');
+      debugPrint('📦 Full message data: $data'); // 🆕 ADD THIS FOR DEBUGGING
       
       // Handle different types of WebSocket messages
       switch (type) {
+        case 'app_permission':
+        case 'app_permission_update':
+          debugPrint('🎯 App permission update detected in main.dart');
+          
+          // 🆕 CRITICAL FIX: Properly extract data
+          Map<String, dynamic> permissionData;
+          
+          if (data.containsKey('data') && data['data'] is Map<String, dynamic>) {
+            permissionData = Map<String, dynamic>.from(data['data']);
+            debugPrint('📋 Permission data from "data" field: $permissionData');
+          } else {
+            permissionData = Map<String, dynamic>.from(data);
+            debugPrint('📋 Permission data from root: $permissionData');
+          }
+          
+          final appPackage = permissionData['app']?.toString();
+          
+          // 🆕 CRITICAL FIX: Handle boolean correctly
+          dynamic allowedValue = permissionData['allowed'];
+          bool isAllowed;
+          
+          if (allowedValue is bool) {
+            isAllowed = allowedValue;
+          } else if (allowedValue is String) {
+            isAllowed = allowedValue.toLowerCase() == 'true';
+          } else if (allowedValue is int) {
+            isAllowed = allowedValue == 1;
+          } else {
+            // Default to false if can't parse
+            isAllowed = false;
+            debugPrint('⚠️ Could not parse "allowed" value: $allowedValue, defaulting to false');
+          }
+          
+          debugPrint('🎯 Parsed values - app: $appPackage, allowed: $isAllowed (raw: $allowedValue)');
+          
+          if (appPackage != null && appPackage.isNotEmpty) {
+            // 🔥 CRITICAL: Handle app permission updates
+            _handleAppPermissionUpdate({
+              'app': appPackage,
+              'allowed': isAllowed,
+            });
+          } else {
+            debugPrint('❌ Missing or empty app package in permission update');
+          }
+          break;
+          
         case 'attendance_update':
+          final payload = data['data'] ?? data;
           _handleAttendanceUpdate(Map<String, dynamic>.from(payload));
           break;
         case 'exam_update':
+          final payload = data['data'] ?? data;
           _handleExamUpdate(Map<String, dynamic>.from(payload));
           break;
         case 'assignment_update':
+          final payload = data['data'] ?? data;
           _handleAssignmentUpdate(Map<String, dynamic>.from(payload));
           break;
         case 'notification':
+          final payload = data['data'] ?? data;
           _handleWebSocketNotification(Map<String, dynamic>.from(payload));
           break;
         case 'focus_mode':
+          final payload = data['data'] ?? data;
           _handleFocusModeUpdate(Map<String, dynamic>.from(payload));
           break;
         case 'system_message':
+          final payload = data['data'] ?? data;
           _showSystemMessage(Map<String, dynamic>.from(payload));
           break;
         case 'heartbeat':
@@ -250,6 +440,7 @@ void _handleWebSocketMessage(dynamic message) {
     }
   } catch (e) {
     debugPrint('❌ Error handling WebSocket message: $e');
+    debugPrint('❌ Stack trace: ${e.toString()}');
   }
 }
 
@@ -427,6 +618,10 @@ Future<void> main() async {
   
   debugPrint('✅ Timer background service initialized');
 
+  // ✅ Initialize overlay service
+  await overlayService.initialize();
+  debugPrint('✅ Overlay service initialized');
+
   // ✅ Request overlay permission at startup (optional)
   try {
     final timerService = TimerService();
@@ -479,6 +674,7 @@ Future<void> main() async {
   debugPrint("🌐  ACTIVE API BASE URL → ${ApiConfig.currentBaseUrl}");
   debugPrint("🌐  WEBSOCKET BASE URL → ${ApiConfig.websocketBase}");
   debugPrint("🎯  OVERLAY PERMISSION → ${await Permission.systemAlertWindow.status}");
+  debugPrint("🎯  OVERLAY SERVICE INIT → ✅");
   debugPrint("📱  INITIAL APP STATE → Initializing...");
   debugPrint("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -536,10 +732,15 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
   StreamSubscription? _locationServiceSubscription;
   StreamSubscription? _websocketSubscription; // WebSocket subscription
   StreamSubscription? _connectionStateSubscription; // 🆕 Connection state subscription
+  StreamSubscription? _reconnectedSubscription; // 🆕 Reconnection event subscription
   final TimerService _timerService = TimerService(); // 🆕 Timer service instance
   bool _isFocusModeActive = false; // 🆕 Track focus mode state
   bool _appInForeground = true; // 🆕 Track if app is in foreground
   bool _isShowingReconnectionSnackbar = false; // 🆕 Track reconnection snackbar state
+  bool _shouldNavigateOnReconnect = true; // 🆕 Control navigation on reconnection
+  bool _wasWebSocketConnected = false;
+  Timer? _reconnectionNavigationTimer;
+  bool _hasNavigatedOnReconnection = false;
 
   @override
   void initState() {
@@ -549,6 +750,9 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     
     // Initialize WebSocket handler
     _initWebSocketHandler();
+    
+    // 🆕 Setup global reconnection handler
+    _setupGlobalReconnectionHandler();
     
     // 🆕 Ensure overlay is hidden when app starts
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -595,54 +799,216 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     }
   }
   
-  // Enhanced WebSocket initialization
-  void _initWebSocketHandler() async {
-    // Initialize WebSocket listener
-    _websocketSubscription = WebSocketManager.stream.listen(
-      _handleWebSocketMessage,
-      onError: (error) {
-        debugPrint('❌ WebSocket stream error: $error');
-        if (_appInForeground) {
-          _showWebSocketErrorSnackbar('Connection error. Reconnecting...');
-        }
-      },
-    );
+ void _initWebSocketHandler() async {
+  // Initialize WebSocket listener
+  _websocketSubscription = WebSocketManager.stream.listen(
+    _handleWebSocketMessage,
+    onError: (error) {
+      debugPrint('❌ WebSocket stream error: $error');
+      if (_appInForeground) {
+        _showWebSocketErrorSnackbar('Connection error. Reconnecting...');
+      }
+      _wasWebSocketConnected = false;
+    },
+  );
 
-    // Listen to connection state
-    _connectionStateSubscription = WebSocketManager.connectionStateStream.listen((isConnected) {
-      debugPrint('📡 WebSocket connection state changed: $isConnected');
+  // Listen to connection state
+  _connectionStateSubscription = WebSocketManager.connectionStateStream.listen((isConnected) {
+    debugPrint('📡 WebSocket connection state changed: $isConnected | Previous: $_wasWebSocketConnected');
+    
+    if (!isConnected && _appInForeground) {
+      // WebSocket disconnected
+      _wasWebSocketConnected = false;
+      _hasNavigatedOnReconnection = false;
       
-      if (!isConnected && _appInForeground) {
-        if (WebSocketManager.connectionStatus != 'force_disconnected') {
-          // Don't show if we're already showing a snackbar
-          if (!_isShowingReconnectionSnackbar) {
-            _showWebSocketErrorSnackbar('Connection lost. Reconnecting...');
-          }
+      if (WebSocketManager.connectionStatus != 'force_disconnected') {
+        // Don't show if we're already showing a snackbar
+        if (!_isShowingReconnectionSnackbar) {
+          _showWebSocketErrorSnackbar('Connection lost. Reconnecting...');
         }
-      } else if (isConnected && _appInForeground) {
-        // Connection restored
-        _isShowingReconnectionSnackbar = false;
-        scaffoldMessengerKey.currentState?.showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 24),
-                SizedBox(width: 12),
-                Text('Connected to server', style: TextStyle(fontSize: 15)),
-              ],
-            ),
-            duration: Duration(seconds: 2),
-            backgroundColor: Colors.green,
+      }
+    } else if (isConnected && _appInForeground) {
+      // Connection restored
+      _isShowingReconnectionSnackbar = false;
+      
+      // 🆕 CRITICAL: Check if this is a reconnection (was previously disconnected)
+      if (!_wasWebSocketConnected && !_hasNavigatedOnReconnection) {
+        debugPrint('🔄🔄🔄 WEB SOCKET RECONNECTED FROM DISCONNECTED STATE! 🔄🔄🔄');
+        
+        // Cancel any existing timer
+        _reconnectionNavigationTimer?.cancel();
+        
+        // Schedule navigation with a delay to ensure connection is stable
+        _reconnectionNavigationTimer = Timer(const Duration(milliseconds: 1000), () {
+          if (WebSocketManager.isConnected) {
+            _navigateToFocusModeEntryOnReconnection();
+            _hasNavigatedOnReconnection = true;
+          }
+        });
+      }
+      
+      _wasWebSocketConnected = true;
+      
+      scaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white, size: 24),
+              SizedBox(width: 12),
+              Text('Connected to server', style: TextStyle(fontSize: 15)),
+            ],
           ),
-        );
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  });
+
+  // 🆕 Listen specifically for reconnection events
+  _reconnectedSubscription = WebSocketManager.reconnectedStream.listen((_) {
+    debugPrint('🔄 WebSocket reconnection event detected via stream');
+    
+    // Cancel any existing timer
+    _reconnectionNavigationTimer?.cancel();
+    
+    // Schedule navigation with delay
+    _reconnectionNavigationTimer = Timer(const Duration(milliseconds: 800), () {
+      if (!_hasNavigatedOnReconnection) {
+        _navigateToFocusModeEntryOnReconnection();
+        _hasNavigatedOnReconnection = true;
       }
     });
+  });
 
-    // Initial connection check with delay
-    Timer(const Duration(seconds: 3), () async {
-      await _checkWebSocketConnection();
+  // Check initial connection state
+  _wasWebSocketConnected = WebSocketManager.isConnected;
+  debugPrint('📡 Initial WebSocket connection state: $_wasWebSocketConnected');
+
+  // Initial connection check with delay
+  Timer(const Duration(seconds: 3), () async {
+    await _checkWebSocketConnection();
+  });
+}
+
+  // 🆕 Setup global reconnection handler
+  void _setupGlobalReconnectionHandler() {
+    // Listen for reconnection events globally
+    _reconnectedSubscription = WebSocketManager.reconnectedStream.listen((_) async {
+      if (!_appInForeground) return;
+      
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      // Check current route
+      final currentRoute = ModalRoute.of(navigatorKey.currentContext!);
+      if (currentRoute == null) return;
+      
+      final routeName = currentRoute.settings.name;
+      
+      // Skip if we're already on focus mode or on certain screens
+      final screensToSkip = [
+        '/focus_mode',
+        '/getin',
+        '/signup',
+        '/otp_verification',
+        '/account_creation',
+        '/profile_completion_page',
+      ];
+      
+      if (screensToSkip.contains(routeName)) {
+        return;
+      }
+      
+      // Check user type
+      final prefs = await SharedPreferences.getInstance();
+      final studentType = prefs.getString('profile_student_type')?.toUpperCase() ?? '';
+      final isFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+      
+      // Only navigate for Online/Offline students when focus mode is not active
+      if ((studentType == 'ONLINE' || studentType == 'OFFLINE') && !isFocusActive) {
+        debugPrint('🔄 Global reconnection handler: Navigating to focus mode');
+        
+        // Navigate with a slight delay for better UX
+        Timer(const Duration(milliseconds: 500), () {
+          if (navigatorKey.currentState?.mounted ?? false) {
+            navigatorKey.currentState?.pushReplacementNamed('/focus_mode');
+          }
+        });
+      }
     });
   }
+
+ void _navigateToFocusModeEntryOnReconnection() async {
+  try {
+    // Check if navigation should be prevented
+    if (!_shouldNavigateOnReconnect) {
+      debugPrint('⏸️ Navigation on reconnect is currently disabled');
+      return;
+    }
+    
+    // Reset flag at beginning
+    _hasNavigatedOnReconnection = true;
+    
+    // Check if we're already on focus mode or home screen
+    final currentRoute = ModalRoute.of(navigatorKey.currentContext!);
+    if (currentRoute == null) {
+      _hasNavigatedOnReconnection = false; // Reset if can't navigate
+      return;
+    }
+    
+    final routeName = currentRoute.settings.name;
+    
+    // Don't navigate if we're already on focus mode entry page
+    if (routeName == '/focus_mode') {
+      debugPrint('✅ Already on focus mode page, skipping navigation');
+      return;
+    }
+    
+    // List of routes where we shouldn't navigate away
+    final protectedRoutes = [
+      '/getin',
+      '/signup',
+      '/otp_verification',
+      '/account_creation',
+      '/profile_completion_page',
+      '/forgot_password',
+      '/forgot_otp_verification',
+      '/reset_password',
+      '/splash',
+    ];
+    
+    if (protectedRoutes.contains(routeName)) {
+      debugPrint('🛑 Protected route, not navigating away: $routeName');
+      return;
+    }
+    
+    // Check user type
+    final prefs = await SharedPreferences.getInstance();
+    final studentType = prefs.getString('profile_student_type')?.toUpperCase() ?? '';
+    
+    // Only redirect Online/Offline students
+    if (studentType == 'ONLINE' || studentType == 'OFFLINE') {
+      final isFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+      
+      // Only navigate if focus mode is not active
+      if (!isFocusActive) {
+        debugPrint('🔄🔄🔄 WEB SOCKET RECONNECTED - Navigating to focus mode entry 🔄🔄🔄');
+        
+        // Use pushReplacementNamed to replace current screen
+        if (navigatorKey.currentState?.mounted ?? false) {
+          navigatorKey.currentState?.pushReplacementNamed('/focus_mode');
+        }
+      } else {
+        debugPrint('🎯 Focus mode already active, staying on current page');
+      }
+    } else {
+      debugPrint('🎯 Student type $studentType does not require focus mode navigation');
+    }
+  } catch (e) {
+    debugPrint('❌ Error navigating to focus mode on reconnection: $e');
+    _hasNavigatedOnReconnection = false; // Reset on error
+  }
+}
 
   // Enhanced WebSocket connection check
   Future<void> _checkWebSocketConnection() async {
@@ -710,6 +1076,14 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         ),
       ),
     );
+  }
+  
+  // 🆕 Temporarily disable reconnect navigation
+  void _temporarilyDisableReconnectNavigation() {
+    _shouldNavigateOnReconnect = false;
+    Timer(const Duration(seconds: 5), () {
+      _shouldNavigateOnReconnect = true;
+    });
   }
   
   // Check if user should be redirected to focus mode
@@ -868,6 +1242,16 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         debugPrint('⚠️ Error with FocusOverlayManager: $e');
       }
       
+      // Also try overlay service
+      try {
+        if (overlayService.isOverlayVisible) {
+          await overlayService.hideOverlay();
+          debugPrint('✅ OverlayService: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with OverlayService: $e');
+      }
+      
       // Also try direct method channel call as fallback
       try {
         const platform = MethodChannel('focus_mode_overlay_channel');
@@ -1015,34 +1399,39 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     );
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _locationCheckTimer?.cancel();
-    _locationServiceSubscription?.cancel();
-    _websocketSubscription?.cancel(); // Dispose WebSocket subscription
-    _connectionStateSubscription?.cancel(); // 🆕 Dispose connection state subscription
-    ApiConfig.stopAutoListen();
-    ApiConfig.onApiSwitch = null;
-    ApiConfig.onLocationRequired = null;
-    ApiConfig.onShowSnackbar = null;
-    
-    // Clean up WebSocket resources
-    WebSocketManager.dispose();
-    
-    // 🆕 Handle app detachment when app is being disposed (completely closed)
-    if (_isFocusModeActive) {
-      // Save state before disposing
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await _timerService.handleAppDetached();
-      });
-    }
-    
-    // 🆕 Dispose timer service
-    _timerService.dispose();
-    
-    super.dispose();
+ @override
+void dispose() {
+  WidgetsBinding.instance.removeObserver(this);
+  _locationCheckTimer?.cancel();
+  _locationServiceSubscription?.cancel();
+  _websocketSubscription?.cancel();
+  _connectionStateSubscription?.cancel();
+  _reconnectedSubscription?.cancel();
+  _reconnectionNavigationTimer?.cancel(); 
+  ApiConfig.stopAutoListen();
+  ApiConfig.onApiSwitch = null;
+  ApiConfig.onLocationRequired = null;
+  ApiConfig.onShowSnackbar = null;
+  
+  // Clean up WebSocket resources
+  WebSocketManager.dispose();
+  
+  // 🆕 Dispose overlay service
+  overlayService.dispose();
+  
+  // 🆕 Handle app detachment when app is being disposed (completely closed)
+  if (_isFocusModeActive) {
+    // Save state before disposing
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _timerService.handleAppDetached();
+    });
   }
+  
+  // 🆕 Dispose timer service
+  _timerService.dispose();
+  
+  super.dispose();
+}
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) async {
@@ -1112,6 +1501,16 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
         }
       } catch (e) {
         debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      }
+      
+      // Also try overlay service
+      try {
+        if (overlayService.isOverlayVisible) {
+          await overlayService.hideOverlay();
+          debugPrint('✅ OverlayService: Overlay hidden');
+        }
+      } catch (e) {
+        debugPrint('⚠️ Error with OverlayService: $e');
       }
       
       // Also try direct method channel call as fallback

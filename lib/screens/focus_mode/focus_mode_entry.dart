@@ -53,52 +53,103 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     _startWebSocketMonitoring();
   }
 
-  // Monitor WebSocket connection
-  void _startWebSocketMonitoring() {
-    _websocketConnectionSubscription?.cancel();
-    _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {
-      debugPrint('📡 WebSocket state changed in entry screen: $isConnected');
-      
-      if (mounted) {
-        setState(() {}); // Update UI when connection state changes
-      }
-      
-      if (!isConnected && !WebSocketManager.isConnected) {
-        debugPrint('🔌 WebSocket disconnected detected in entry screen');
-        
-        // If focus mode was active, show notification
-        final prefs = await SharedPreferences.getInstance();
-        final wasFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
-        if (wasFocusActive && mounted) {
-          _showWebSocketDisconnectedNotification();
-        }
-      } else if (isConnected && mounted) {
-        // Connection restored
-        debugPrint('✅ WebSocket reconnected in entry screen');
-        
-        if (_isReconnecting) {
-          setState(() {
-            _isReconnecting = false;
-          });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 18),
-                  SizedBox(width: 8),
-                  Text('Connected successfully!', style: TextStyle(fontSize: 13)),
-                ],
+
+void _handleReconnectionNavigation() {
+  if (mounted) {
+    debugPrint('🔄 Navigating back to focus mode entry due to WebSocket reconnection');
+    
+    // Show a notification to user
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.wifi, size: 18, color: Colors.white),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Connection restored! Returning to focus mode.',
+                style: TextStyle(fontSize: 13),
               ),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
             ),
-          );
-        }
-      }
+          ],
+        ),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+    
+    // Refresh the screen data
+    setState(() {
+      _initializationFuture = _initializeData();
     });
   }
+}
 
+// Modify the WebSocket connection listener in initState:
+void _startWebSocketMonitoring() {
+  _websocketConnectionSubscription?.cancel();
+  _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {
+    debugPrint('📡 WebSocket state changed in entry screen: $isConnected');
+    
+    if (mounted) {
+      setState(() {}); // Update UI when connection state changes
+    }
+    
+    if (!isConnected && !WebSocketManager.isConnected) {
+      debugPrint('🔌 WebSocket disconnected detected in entry screen');
+      
+      // If focus mode was active, show notification
+      final prefs = await SharedPreferences.getInstance();
+      final wasFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+      if (wasFocusActive && mounted) {
+        _showWebSocketDisconnectedNotification();
+      }
+    } else if (isConnected && mounted) {
+      // Connection restored
+      debugPrint('✅ WebSocket reconnected in entry screen');
+      
+      // 🆕 Check if we're coming from reconnection navigation
+      if (ModalRoute.of(context)?.settings.name == '/focus_mode') {
+        debugPrint('✅ Already on focus mode page, showing reconnection message');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text('Connected successfully!', style: TextStyle(fontSize: 13)),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      
+      if (_isReconnecting) {
+        setState(() {
+          _isReconnecting = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text('Connected successfully!', style: TextStyle(fontSize: 13)),
+              ],
+            ),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  });
+}
   // Handle navigation back when WebSocket disconnects
   void _handleWebSocketDisconnectionNavigation() {
     if (mounted) {
