@@ -7,22 +7,54 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiConfig {
-  // --- Base URLs ---
-  static const String _coremicronUrl = 'http://192.168.20.102';
-  static const String _defaultUrl = 'http://117.241.73.134';
+  // --- Default Base URLs (fallback if SharedPreferences fails) ---
+  static const String _defaultCoremicronUrl = 'http://192.168.20.102';
+  static const String _defaultExternalUrl = 'http://117.241.73.134';
+
+  // Runtime URLs (loaded from SharedPreferences)
+  static String _coremicronUrl = _defaultCoremicronUrl;
+  static String _externalUrl = _defaultExternalUrl;
 
   // Current runtime base URL (auto-determined)
-  static String _currentBaseUrl = _coremicronUrl;
+  static String _currentBaseUrl = _defaultCoremicronUrl;
+
+  // --- Load IP Configuration from SharedPreferences ---
+  static Future<void> loadIpConfiguration() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      // Load saved IPs or use defaults
+      // CORRECTED: private_ip is Coremicron (local), public_ip is External
+      final privateIp = prefs.getString('private_ip') ?? _defaultCoremicronUrl;
+      final publicIp = prefs.getString('public_ip') ?? _defaultExternalUrl;
+      
+      // Add http:// prefix if not present
+      _coremicronUrl = privateIp.startsWith('http') ? privateIp : 'http://$privateIp';
+      _externalUrl = publicIp.startsWith('http') ? publicIp : 'http://$publicIp';
+      
+      debugPrint('📡 Loaded IP Config: Coremicron=$_coremicronUrl, External=$_externalUrl');
+    } catch (e) {
+      debugPrint('⚠️ Failed to load IP config: $e. Using defaults.');
+      _coremicronUrl = _defaultCoremicronUrl;
+      _externalUrl = _defaultExternalUrl;
+    }
+  }
 
   // 🔵 --------------------------------------------------------------
-  // 🔵 WEBSOCKET SECTION (NEW)
+  // 🔵 WEBSOCKET SECTION
   // 🔵 --------------------------------------------------------------
 
-  // Local & external WebSocket base URLs
-  static const String _localWsBase = 'ws://192.168.20.102';
-  static const String _externalWsBase = 'ws://117.241.73.134';
+  // WebSocket base URLs (derived from HTTP URLs)
+  static String get _localWsBase {
+    return _coremicronUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
+  }
+
+  static String get _externalWsBase {
+    return _externalUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
+  }
 
   // Getter: Auto-switch WebSocket base URL
   static String get websocketBase =>
@@ -30,7 +62,7 @@ class ApiConfig {
 
   // Build any WebSocket endpoint
   static String buildWebSocketUrl(String endpoint, {String? token}) {
-    final base = websocketBase; // auto-selected
+    final base = websocketBase;
     final url = "$base$endpoint";
     return token != null ? "$url?token=$token" : url;
   }
@@ -38,10 +70,6 @@ class ApiConfig {
   // Example WebSocket channel for monitoring
   static String get monitoringChannel => "/ws/monitoring/";
 
-  // Usage Example:
-  // WebSocketChannel.connect(
-  //   Uri.parse(ApiConfig.buildWebSocketUrl(ApiConfig.monitoringChannel, token: "XYZ")),
-  // );
   // 🔵 --------------------------------------------------------------
 
   // --- API Paths ---
@@ -94,7 +122,7 @@ class ApiConfig {
     return httpClient;
   }
 
-  // ------ ERROR HANDLER CODE (unchanged) ------
+  // ------ ERROR HANDLER CODE ------
   static void handleError(String errorMessage) async {
     debugPrint('🔍 ApiConfig.handleError called with: $errorMessage');
 
@@ -159,9 +187,12 @@ class ApiConfig {
   }
 
   // -------------------------------------------------------------------
-  // initializeBaseUrl (UNCHANGED)
+  // initializeBaseUrl - MODIFIED to load IPs first
   // -------------------------------------------------------------------
   static Future<void> initializeBaseUrl({bool printLogs = true}) async {
+    // Load IP configuration from SharedPreferences first
+    await loadIpConfiguration();
+    
     try {
       final previousUrl = _currentBaseUrl;
       final results = await Connectivity().checkConnectivity();
@@ -192,7 +223,7 @@ class ApiConfig {
           bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
           if (!locationStatus.isGranted || !serviceEnabled) {
-            _currentBaseUrl = _defaultUrl;
+            _currentBaseUrl = _externalUrl;
             onLocationRequired?.call();
             if (previousUrl != _currentBaseUrl) {
               _notifyApiSwitch('external API (location disabled)', _currentBaseUrl);
@@ -208,20 +239,20 @@ class ApiConfig {
           _checkCoremicronReachability(previousUrl);
         } else {
           _isOnCoremicronWifi = false;
-          _currentBaseUrl = _defaultUrl;
+          _currentBaseUrl = _externalUrl;
           if (previousUrl != _currentBaseUrl) {
             _notifyApiSwitch('external API', _currentBaseUrl);
           }
         }
       } else if (activeConnection == ConnectivityResult.mobile) {
         _isOnCoremicronWifi = false;
-        _currentBaseUrl = _defaultUrl;
+        _currentBaseUrl = _externalUrl;
         if (previousUrl != _currentBaseUrl) {
           _notifyApiSwitch('external API (mobile data)', _currentBaseUrl);
         }
       } else {
         _isOnCoremicronWifi = false;
-        _currentBaseUrl = _defaultUrl;
+        _currentBaseUrl = _externalUrl;
         if (previousUrl != _currentBaseUrl) {
           _notifyApiSwitch('external API (fallback)', _currentBaseUrl);
         }
@@ -229,7 +260,7 @@ class ApiConfig {
     } catch (e) {
       final previousUrl = _currentBaseUrl;
       _isOnCoremicronWifi = false;
-      _currentBaseUrl = _defaultUrl;
+      _currentBaseUrl = _externalUrl;
       if (previousUrl != _currentBaseUrl) {
         _notifyApiSwitch('external API (error fallback)', _currentBaseUrl);
       }
@@ -237,7 +268,7 @@ class ApiConfig {
   }
 
   // -------------------------------------------------------------------
-  // Check API reachability (UNCHANGED)
+  // Check API reachability
   // -------------------------------------------------------------------
   static Future<void> _checkCoremicronReachability(String previousUrl) async {
     try {
@@ -250,12 +281,12 @@ class ApiConfig {
         if (data is Map && data['status'] == 'ok') return;
       }
 
-      _currentBaseUrl = _defaultUrl;
+      _currentBaseUrl = _externalUrl;
       if (previousUrl != _currentBaseUrl) {
         _notifyApiSwitch('external API (local unreachable)', _currentBaseUrl);
       }
     } catch (e) {
-      _currentBaseUrl = _defaultUrl;
+      _currentBaseUrl = _externalUrl;
       if (previousUrl != _currentBaseUrl) {
         _notifyApiSwitch('external API (ping failed)', _currentBaseUrl);
       }
@@ -305,4 +336,8 @@ class ApiConfig {
 
   static String buildUrl(String endpoint) =>
       '$_currentBaseUrl$endpoint';
+
+  // Get current configured IPs (for display purposes)
+  static String get coremicronUrl => _coremicronUrl;
+  static String get externalUrl => _externalUrl;
 }

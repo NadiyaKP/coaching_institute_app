@@ -69,18 +69,19 @@ class _HomeScreenState extends State<HomeScreen> {
   
   // 🆕 Timetable data
   List<dynamic> _timetableDays = [];
-  int _currentTimetableIndex = 1; // Default to today (middle index)
+  int _currentTimetableIndex = 0;
   bool _isLoadingTimetable = false;
   
-  // 🆕 NEW: Timetable cache keys
+  // 🆕 Timetable cache keys
   static const String _keyTimetableData = 'timetable_data';
   static const String _keyTimetableLastFetchDate = 'timetable_last_fetch_date';
   static const String _keyTimetableCache = 'timetable_cache';
+  
+  // 🆕 Flag to track if timetable was fetched this session
+  bool _isTimetableFetchedThisSession = false;
 
   // 🆕 Timetable page controller for subject swiping
   late PageController _timetablePageController;
-
-  // 🆕 REMOVED: All UI timers - using ValueNotifier listeners instead
 
   // 🆕 WillPopScope handling
   DateTime? _currentBackPressTime;
@@ -112,7 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     
     _pageController = PageController(viewportFraction: 0.75);
-    _timetablePageController = PageController(viewportFraction: 0.9); // Initialize timetable page controller
+    _timetablePageController = PageController(viewportFraction: 0.9);
     _startAutoScroll();
     
     // Initialize focus mode
@@ -162,7 +163,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _autoScrollTimer = null;
     
     _pageController.dispose();
-    _timetablePageController.dispose(); // Dispose timetable page controller
+    _timetablePageController.dispose();
     _scrollController.dispose();
     
     super.dispose();
@@ -176,31 +177,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$hours:$minutes:$seconds';
   }
 
-  // 🆕 FIXED: Stop Focus Mode
-  Future<void> _stopFocusMode() async {
-    debugPrint('🛑 Stopping focus mode');
+ Future<void> _stopFocusMode() async {
+  debugPrint('🛑 Stopping focus mode');
+  
+  try {
+    // Send WebSocket event for focus end
+    _sendFocusEndEvent();
     
-    try {
-      // Send WebSocket event for focus end
-      _sendFocusEndEvent();
-      
-      // Stop the timer service
-      await _timerService.stopFocusMode();
-      
-      // Update local state
-      setState(() {
-        _isFocusModeActive = false;
-      });
-      
-      // Navigate back to focus mode entry screen
-      if (mounted) {
-        await Navigator.of(context).pushReplacementNamed('/focus_mode');
-      }
-      
-    } catch (e) {
-      debugPrint('❌ Error stopping focus mode: $e');
+    // Stop the timer service
+    await _timerService.stopFocusMode();
+    
+    // Update local state
+    setState(() {
+      _isFocusModeActive = false;
+    });
+    
+    // Navigate to focus mode entry screen and remove all previous routes
+    if (mounted) {
+      await Navigator.of(context).pushNamedAndRemoveUntil(
+        '/focus_mode',
+        (Route<dynamic> route) => false, // Remove all previous routes
+      );
     }
+    
+  } catch (e) {
+    debugPrint('❌ Error stopping focus mode: $e');
   }
+}
 
   Future<void> stopFocusModeForLogout() async {
     debugPrint('⏱️ Focus mode stopped for logout');
@@ -333,8 +336,34 @@ class _HomeScreenState extends State<HomeScreen> {
     _refreshIndicatorKey.currentState?.show();
   }
 
+  // 🆕 NEW: Check if student type is eligible for timetable
+  bool _isEligibleForTimetable() {
+    return studentType.toUpperCase() == 'ONLINE' || studentType.toUpperCase() == 'OFFLINE';
+  }
+
+  // 🆕 NEW: Find today's index in timetable days
+  int _findTodayIndex(List<dynamic> days) {
+    if (days.isEmpty) return 0;
+    
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    for (int i = 0; i < days.length; i++) {
+      final dayData = days[i];
+      final date = dayData['date'] as String?;
+      if (date == today) {
+        return i;
+      }
+    }
+    // If today not found, return 0
+    return 0;
+  }
+
   // 🆕 NEW: Check if timetable needs refresh
   Future<bool> _shouldFetchTimetable() async {
+    // Don't fetch if already fetched this session unless forced refresh
+    if (_isTimetableFetchedThisSession && !isRefreshing) {
+      return false;
+    }
+    
     final prefs = await SharedPreferences.getInstance();
     final lastFetchDate = prefs.getString(_keyTimetableLastFetchDate);
     final today = DateTime.now().toIso8601String().split('T')[0];
@@ -343,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return lastFetchDate != today;
   }
 
-  // 🆕 NEW: Load cached timetable data
+  // 🆕 MODIFIED: Load cached timetable data
   Future<void> _loadCachedTimetable() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -352,9 +381,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (cachedData != null && cachedData.isNotEmpty) {
         final decodedData = json.decode(cachedData);
         if (decodedData['days'] != null && decodedData['days'] is List) {
+          final List<dynamic> days = decodedData['days'];
+          
           setState(() {
-            _timetableDays = decodedData['days'];
-            _currentTimetableIndex = 1;
+            _timetableDays = days;
+            _currentTimetableIndex = _findTodayIndex(days);
           });
           debugPrint('📅 Loaded cached timetable data (${_timetableDays.length} days)');
         }
@@ -364,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 🆕 NEW: Save timetable data to cache
+  // 🆕 MODIFIED: Save timetable data to cache
   Future<void> _saveTimetableToCache(Map<String, dynamic> data) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -429,7 +460,6 @@ class _HomeScreenState extends State<HomeScreen> {
       }
       
       _loadCachedProfileData().then((_) async {
-        // 🆕 REMOVED: _storeStartTime() call
         await _fetchProfileData();
         
         // 🆕 NEW: Check and fetch subjects data if needed
@@ -476,25 +506,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 🆕 MODIFIED: Load timetable with caching logic
+  // 🆕 MODIFIED: Load timetable with caching logic - only fetch on initial load
   Future<void> _loadTimetableWithCache() async {
-    // First load cached data
+    // First load cached data to show immediately
     await _loadCachedTimetable();
     
     // Check if we need to fetch fresh data
     final shouldFetch = await _shouldFetchTimetable();
     
-    if (shouldFetch) {
+    if (shouldFetch && _isEligibleForTimetable()) {
       debugPrint('📡 Fetching fresh timetable data from API');
       await _fetchTimetableData();
+      _isTimetableFetchedThisSession = true;
     } else {
-      debugPrint('📅 Using cached timetable data');
+      debugPrint('📅 Using cached timetable data or not eligible');
     }
   }
 
-  // 🆕 MODIFIED: Fetch timetable data with caching
+  // 🆕 MODIFIED: Fetch timetable data with caching and safe handling
   Future<void> _fetchTimetableData() async {
-    if (_isLoadingTimetable) return;
+    if (_isLoadingTimetable || !_isEligibleForTimetable()) return;
     
     setState(() {
       _isLoadingTimetable = true;
@@ -523,20 +554,49 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('Timetable API response received');
         
         if (responseData['days'] != null && responseData['days'] is List) {
-          // Save to cache
-          await _saveTimetableToCache(responseData);
+          final List<dynamic> days = responseData['days'];
           
+          // 🆕 FIX: Handle case where days might be empty
+          if (days.isNotEmpty) {
+            // Save to cache
+            await _saveTimetableToCache(responseData);
+            
+            // Find today's index safely
+            int todayIndex = _findTodayIndex(days);
+            
+            // Ensure index is within bounds
+            if (todayIndex >= days.length) {
+              todayIndex = 0;
+            }
+            
+            setState(() {
+              _timetableDays = days;
+              _currentTimetableIndex = todayIndex;
+            });
+            debugPrint('✅ Loaded and cached ${_timetableDays.length} days of timetable, today index: $todayIndex');
+          } else {
+            // Empty timetable response
+            setState(() {
+              _timetableDays = [];
+              _currentTimetableIndex = 0;
+            });
+            debugPrint('📭 Timetable API returned empty days array');
+          }
+        } else {
+          // No days in response
           setState(() {
-            _timetableDays = responseData['days'];
-            _currentTimetableIndex = 1; // Default to today (middle index)
+            _timetableDays = [];
+            _currentTimetableIndex = 0;
           });
-          debugPrint('✅ Loaded and cached ${_timetableDays.length} days of timetable');
+          debugPrint('📭 No timetable data in API response');
         }
       } else {
         debugPrint('Failed to fetch timetable: ${response.statusCode}');
+        // Keep cached data if API fails
       }
     } catch (e) {
       debugPrint('Error fetching timetable: $e');
+      // Keep cached data if error occurs
     } finally {
       setState(() {
         _isLoadingTimetable = false;
@@ -544,17 +604,23 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 🆕 MODIFIED: Get day label with smaller font
-  String _getDayLabel(int index) {
-    if (_timetableDays.isEmpty) return '';
+  // 🆕 MODIFIED: Get day label with date check
+  String _getDayLabel(int index, String dateString) {
+    if (dateString.isEmpty) return '';
     
-    if (index == 0) return 'Yesterday';
-    if (index == 1) return 'Today';
-    if (index == 2) return 'Tomorrow';
-    return 'Day ${index + 1}';
+    final today = DateTime.now().toIso8601String().split('T')[0];
+    final yesterday = DateTime.now().subtract(const Duration(days: 1)).toIso8601String().split('T')[0];
+    final tomorrow = DateTime.now().add(const Duration(days: 1)).toIso8601String().split('T')[0];
+    
+    if (dateString == today) return 'Today';
+    if (dateString == yesterday) return 'Yesterday';
+    if (dateString == tomorrow) return 'Tomorrow';
+    
+    // Return formatted date for other days
+    return _formatDate(dateString);
   }
 
-  // 🆕 MODIFIED: Format date for display with smaller font
+  // 🆕 MODIFIED: Format date for display
   String _formatDate(String dateString) {
     try {
       final date = DateTime.parse(dateString);
@@ -592,9 +658,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // Fetch profile data first
       await _fetchProfileData();
       
-      // 🆕 FIXED: Force fetch fresh timetable data on refresh (always)
-      debugPrint('📡 Forced timetable refresh during manual refresh');
-      await _fetchTimetableData();
+      // 🆕 FIXED: Force fetch fresh timetable data on refresh (only for eligible students)
+      if (_isEligibleForTimetable()) {
+        debugPrint('📡 Forced timetable refresh during manual refresh');
+        await _fetchTimetableData();
+      }
 
       // Force refresh subjects data only during manual refresh
       if (subcourseId.isNotEmpty) {
@@ -1724,8 +1792,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 🆕 MODIFIED: Timetable Section - Compact and Scrollable
-                          if (_timetableDays.isNotEmpty)
+                          // 🆕 MODIFIED: Always show timetable design structure for eligible students
+                          if (_isEligibleForTimetable())
                             Padding(
                               padding: EdgeInsets.fromLTRB(
                                 getResponsiveSize(16),
@@ -1733,7 +1801,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 getResponsiveSize(16),
                                 getResponsiveSize(8),
                               ),
-                              child: _buildCompactTimetableCard(getResponsiveSize),
+                              child: _buildTimetableCard(getResponsiveSize),
                             ),
                           
                           // Quick Access Section
@@ -2107,18 +2175,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-   Widget _buildCompactTimetableCard(double Function(double) getResponsiveSize) {
-    if (_timetableDays.isEmpty || _currentTimetableIndex >= _timetableDays.length) {
-      return Container();
-    }
-
-    final dayData = _timetableDays[_currentTimetableIndex];
-    final entries = dayData['entries'] as List<dynamic>? ?? [];
-    final date = dayData['date'] as String? ?? '';
-    final dayLabel = _getDayLabel(_currentTimetableIndex);
-    
+   Widget _buildTimetableCard(double Function(double) getResponsiveSize) {
+    // Always show the design structure for eligible students
     return Container(
-      height: getResponsiveSize(120), // Reduced from 140 to 120
+      height: getResponsiveSize(120),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(getResponsiveSize(12)),
@@ -2131,29 +2191,37 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       child: Padding(
-        padding: EdgeInsets.all(getResponsiveSize(10)), // Reduced padding
+        padding: EdgeInsets.all(getResponsiveSize(10)),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Header row - compact
+            // Header row
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // Left arrow
                 GestureDetector(
-                  onTap: _currentTimetableIndex > 0
+                  onTap: _timetableDays.isNotEmpty && _currentTimetableIndex > 0
                       ? () {
-                          setState(() {
-                            _currentTimetableIndex--;
-                            _timetablePageController.jumpToPage(0);
-                          });
+                          final newIndex = _currentTimetableIndex - 1;
+                          if (newIndex >= 0 && newIndex < _timetableDays.length) {
+                            setState(() {
+                              _currentTimetableIndex = newIndex;
+                            });
+                            // Reset page controller position safely
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (_timetablePageController.hasClients) {
+                                _timetablePageController.jumpToPage(0);
+                              }
+                            });
+                          }
                         }
                       : null,
                   child: Container(
                     width: getResponsiveSize(24),
                     height: getResponsiveSize(24),
                     decoration: BoxDecoration(
-                      color: _currentTimetableIndex > 0
+                      color: _timetableDays.isNotEmpty && _currentTimetableIndex > 0
                           ? AppColors.primaryBlue.withOpacity(0.1)
                           : Colors.transparent,
                       shape: BoxShape.circle,
@@ -2162,7 +2230,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Icon(
                         Icons.chevron_left,
                         size: getResponsiveSize(16),
-                        color: _currentTimetableIndex > 0
+                        color: _timetableDays.isNotEmpty && _currentTimetableIndex > 0
                             ? AppColors.primaryBlue
                             : Colors.grey[300],
                       ),
@@ -2173,47 +2241,33 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Day and date
                 Expanded(
                   child: Center(
-                    child: RichText(
-                      textAlign: TextAlign.center,
-                      text: TextSpan(
-                        children: [
-                          TextSpan(
-                            text: '$dayLabel • ',
-                            style: TextStyle(
-                              fontSize: getResponsiveSize(13),
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primaryBlue,
-                            ),
-                          ),
-                          TextSpan(
-                            text: _formatDate(date),
-                            style: TextStyle(
-                              fontSize: getResponsiveSize(11),
-                              color: AppColors.textGrey,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    child: _buildDayHeader(getResponsiveSize),
                   ),
                 ),
                 
                 // Right arrow
                 GestureDetector(
-                  onTap: _currentTimetableIndex < _timetableDays.length - 1
+                  onTap: _timetableDays.isNotEmpty && _currentTimetableIndex < _timetableDays.length - 1
                       ? () {
-                          setState(() {
-                            _currentTimetableIndex++;
-                            _timetablePageController.jumpToPage(0);
-                          });
+                          final newIndex = _currentTimetableIndex + 1;
+                          if (newIndex >= 0 && newIndex < _timetableDays.length) {
+                            setState(() {
+                              _currentTimetableIndex = newIndex;
+                            });
+                            // Reset page controller position safely
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (_timetablePageController.hasClients) {
+                                _timetablePageController.jumpToPage(0);
+                              }
+                            });
+                          }
                         }
                       : null,
                   child: Container(
                     width: getResponsiveSize(24),
                     height: getResponsiveSize(24),
                     decoration: BoxDecoration(
-                      color: _currentTimetableIndex < _timetableDays.length - 1
+                      color: _timetableDays.isNotEmpty && _currentTimetableIndex < _timetableDays.length - 1
                           ? AppColors.primaryBlue.withOpacity(0.1)
                           : Colors.transparent,
                       shape: BoxShape.circle,
@@ -2222,7 +2276,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Icon(
                         Icons.chevron_right,
                         size: getResponsiveSize(16),
-                        color: _currentTimetableIndex < _timetableDays.length - 1
+                        color: _timetableDays.isNotEmpty && _currentTimetableIndex < _timetableDays.length - 1
                             ? AppColors.primaryBlue
                             : Colors.grey[300],
                       ),
@@ -2232,161 +2286,231 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             
-            SizedBox(height: getResponsiveSize(4)), // Reduced spacing
+            SizedBox(height: getResponsiveSize(4)),
             
             // Divider
             Container(height: 1, color: Colors.grey[200]),
             
             SizedBox(height: getResponsiveSize(6)),
             
-            // Subject area - Takes remaining space
+            // Content area
             Expanded(
-              child: entries.isNotEmpty
-                  ? Column(
-                      children: [
-                        // Subject content area
-                        Expanded(
-                          child: NotificationListener<ScrollNotification>(
-                            onNotification: (scrollNotification) {
-                              if (scrollNotification is ScrollEndNotification) {
-                                // Update current page when scrolling ends
-                                final currentPage = _timetablePageController.page?.round() ?? 0;
-                                if (mounted) {
-                                  setState(() {});
-                                }
-                              }
-                              return false;
-                            },
-                            child: PageView.builder(
-                              controller: _timetablePageController,
-                              itemCount: entries.length,
-                              onPageChanged: (index) {
-                                // This will be called properly when page changes
-                                if (mounted) {
-                                  setState(() {});
-                                }
-                              },
-                              itemBuilder: (context, subjectIndex) {
-                                final entry = entries[subjectIndex];
-                                // 🆕 MODIFIED: Use section_title if available, otherwise subject_title
-                                final String title = entry['section_title']?.toString().trim().isNotEmpty == true
-                                    ? entry['section_title']
-                                    : entry['subject_title'] ?? '';
-                                final topicTitles = (entry['topic_titles'] as List<dynamic>?)?.join(', ') ?? '';
-                                
-                                return Padding(
-                                  padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
-                                  child: Container(
-                                    padding: EdgeInsets.all(getResponsiveSize(8)),
-                                    decoration: BoxDecoration(
-                                      // 🆕 MODIFIED: Light blue shade for timetable container
-                                      color: Color(0xFFE8F4FD), // Light blue shade
-                                      borderRadius: BorderRadius.circular(getResponsiveSize(8)),
-                                      border: Border.all(
-                                        color: AppColors.primaryBlue.withOpacity(0.1),
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        // Subject title row
-                                        Row(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Container(
-                                              padding: EdgeInsets.all(getResponsiveSize(3)),
-                                              decoration: BoxDecoration(
-                                                color: AppColors.primaryBlue.withOpacity(0.1),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: Icon(
-                                                Icons.book_rounded,
-                                                size: getResponsiveSize(10),
-                                                color: AppColors.primaryBlue,
-                                              ),
-                                            ),
-                                            SizedBox(width: getResponsiveSize(6)),
-                                            Expanded(
-                                              child: Text(
-                                                title,
-                                                style: TextStyle(
-                                                  fontSize: getResponsiveSize(12),
-                                                  fontWeight: FontWeight.bold,
-                                                  color: AppColors.textDark,
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        
-                                        SizedBox(height: getResponsiveSize(4)),
-                                        
-                                        // Topics
-                                        if (topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty)
-                                          Text(
-                                            topicTitles,
-                                            style: TextStyle(
-                                              fontSize: getResponsiveSize(10),
-                                              color: AppColors.textDark,
-                                            ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        
-                        // Dot indicators - only if multiple subjects
-                        if (entries.length > 1)
-                          SizedBox(
-                            height: getResponsiveSize(12),
-                            child: Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: List.generate(entries.length, (index) {
-                                  final currentPage = _timetablePageController.hasClients 
-                                      ? (_timetablePageController.page?.round() ?? 0)
-                                      : 0;
-                                  
-                                  return Container(
-                                    margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
-                                    width: currentPage == index ? getResponsiveSize(8) : getResponsiveSize(4),
-                                    height: getResponsiveSize(4),
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: currentPage == index
-                                          ? AppColors.primaryBlue
-                                          : AppColors.primaryBlue.withOpacity(0.3),
-                                    ),
-                                  );
-                                }),
-                              ),
-                            ),
-                          ),
-                      ],
-                    )
-                  : Center(
-                      child: Text(
-                        'No classes',
-                        style: TextStyle(
-                          fontSize: getResponsiveSize(11),
-                          color: AppColors.textGrey,
-                        ),
-                      ),
-                    ),
+              child: _buildTimetableContent(getResponsiveSize),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDayHeader(double Function(double) getResponsiveSize) {
+    if (_isLoadingTimetable) {
+      return Text(
+        'Loading Timetable...',
+        style: TextStyle(
+          fontSize: getResponsiveSize(13),
+          fontWeight: FontWeight.bold,
+          color: AppColors.primaryBlue,
+        ),
+      );
+    }
+    
+    if (_timetableDays.isEmpty || _currentTimetableIndex < 0 || _currentTimetableIndex >= _timetableDays.length) {
+      return Text(
+        'No Timetable Available',
+        style: TextStyle(
+          fontSize: getResponsiveSize(13),
+          fontWeight: FontWeight.bold,
+          color: AppColors.primaryBlue,
+        ),
+      );
+    }
+    
+    final dayData = _timetableDays[_currentTimetableIndex];
+    final date = dayData['date'] as String? ?? '';
+    final dayLabel = _getDayLabel(_currentTimetableIndex, date);
+    
+    return RichText(
+      textAlign: TextAlign.center,
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: '$dayLabel • ',
+            style: TextStyle(
+              fontSize: getResponsiveSize(13),
+              fontWeight: FontWeight.bold,
+              color: AppColors.primaryBlue,
+            ),
+          ),
+          TextSpan(
+            text: _formatDate(date),
+            style: TextStyle(
+              fontSize: getResponsiveSize(11),
+              color: AppColors.textGrey,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimetableContent(double Function(double) getResponsiveSize) {
+    if (_isLoadingTimetable) {
+      return Center(
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryBlue),
+        ),
+      );
+    }
+    
+    if (_timetableDays.isEmpty || _currentTimetableIndex < 0 || _currentTimetableIndex >= _timetableDays.length) {
+      return Center(
+        child: Text(
+          'No classes scheduled',
+          style: TextStyle(
+            fontSize: getResponsiveSize(11),
+            color: AppColors.textGrey,
+          ),
+        ),
+      );
+    }
+    
+    final dayData = _timetableDays[_currentTimetableIndex];
+    final entries = dayData['entries'] as List<dynamic>? ?? [];
+    
+    if (entries.isEmpty) {
+      return Center(
+        child: Text(
+          'No classes today',
+          style: TextStyle(
+            fontSize: getResponsiveSize(11),
+            color: AppColors.textGrey,
+          ),
+        ),
+      );
+    }
+    
+    return Column(
+      children: [
+        // Subject content area
+        Expanded(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (scrollNotification) {
+              return false;
+            },
+            child: PageView.builder(
+              controller: _timetablePageController,
+              itemCount: entries.length,
+              onPageChanged: (index) {
+                // Handle page change
+              },
+              itemBuilder: (context, subjectIndex) {
+                final entry = entries[subjectIndex];
+                final String title = entry['section_title']?.toString().trim().isNotEmpty == true
+                    ? entry['section_title']
+                    : entry['subject_title'] ?? '';
+                final topicTitles = (entry['topic_titles'] as List<dynamic>?)?.join(', ') ?? '';
+                
+                return Padding(
+                  padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                  child: Container(
+                    padding: EdgeInsets.all(getResponsiveSize(8)),
+                    decoration: BoxDecoration(
+                      color: Color(0xFFE8F4FD),
+                      borderRadius: BorderRadius.circular(getResponsiveSize(8)),
+                      border: Border.all(
+                        color: AppColors.primaryBlue.withOpacity(0.1),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Subject title row
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: EdgeInsets.all(getResponsiveSize(3)),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryBlue.withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.book_rounded,
+                                size: getResponsiveSize(10),
+                                color: AppColors.primaryBlue,
+                              ),
+                            ),
+                            SizedBox(width: getResponsiveSize(6)),
+                            Expanded(
+                              child: Text(
+                                title.isNotEmpty ? title : 'No Title',
+                                style: TextStyle(
+                                  fontSize: getResponsiveSize(12),
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.textDark,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        
+                        SizedBox(height: getResponsiveSize(4)),
+                        
+                        // Topics
+                        if (topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty)
+                          Text(
+                            topicTitles,
+                            style: TextStyle(
+                              fontSize: getResponsiveSize(10),
+                              color: AppColors.textDark,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        
+        // Dot indicators - only if multiple subjects
+        if (entries.length > 1)
+          SizedBox(
+            height: getResponsiveSize(12),
+            child: Center(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(entries.length, (index) {
+                  final currentPage = _timetablePageController.hasClients 
+                      ? (_timetablePageController.page?.round() ?? 0)
+                      : 0;
+                  
+                  return Container(
+                    margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                    width: currentPage == index ? getResponsiveSize(8) : getResponsiveSize(4),
+                    height: getResponsiveSize(4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: currentPage == index
+                          ? AppColors.primaryBlue
+                          : AppColors.primaryBlue.withOpacity(0.3),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+      ],
     );
   }
   // Build Section Header

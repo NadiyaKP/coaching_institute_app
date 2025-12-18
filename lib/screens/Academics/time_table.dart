@@ -25,12 +25,11 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   String _timeTableTitle = '';
   final AuthService _authService = AuthService();
   final ScrollController _scrollController = ScrollController();
-  final TransformationController _transformationController = TransformationController();
   
-  // Zoom variables
-  double _currentScale = 1.0;
-  final double _minScale = 0.5;
-  final double _maxScale = 3.0;
+  // Zoom variables - Changed approach
+  double _scaleFactor = 1.0;
+  final double _minScaleFactor = 0.5;
+  final double _maxScaleFactor = 2.0;
 
   @override
   void initState() {
@@ -41,7 +40,6 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   @override
   void dispose() {
     _scrollController.dispose();
-    _transformationController.dispose();
     super.dispose();
   }
 
@@ -94,88 +92,87 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
     }
   }
 
- Future<void> _fetchTimeTable() async {
-  if (_accessToken == null || _accessToken!.isEmpty) {
-    _showError('Access token not found');
-    return;
-  }
+  Future<void> _fetchTimeTable() async {
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      _showError('Access token not found');
+      return;
+    }
 
-  setState(() {
-    _isLoading = true;
-    _errorMessage = '';
-  });
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
 
-  final client = _createHttpClientWithCustomCert();
+    final client = _createHttpClientWithCustomCert();
 
-  try {
-    final apiUrl = '${ApiConfig.currentBaseUrl}/api/attendance/time_table/list/';
-    
-    final response = await globalHttpClient.get(
-      Uri.parse(apiUrl),
-      headers: _getAuthHeaders(),
-    ).timeout(ApiConfig.requestTimeout);
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body);
+    try {
+      final apiUrl = '${ApiConfig.currentBaseUrl}/api/attendance/time_table/list/';
       
-      final String? title = data['title'];
-      final List<dynamic>? daysJson = data['days'];
-      
-      if (daysJson != null) {
+      final response = await globalHttpClient.get(
+        Uri.parse(apiUrl),
+        headers: _getAuthHeaders(),
+      ).timeout(ApiConfig.requestTimeout);
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        
+        final String? title = data['title'];
+        final List<dynamic>? daysJson = data['days'];
+        
+        if (daysJson != null) {
+          setState(() {
+            _timeTableTitle = title ?? 'Time Table';
+            _timeTableDays = daysJson
+                .map((json) => TimeTableDay.fromJson(json))
+                .toList();
+            _isLoading = false;
+          });
+        } else {
+          throw Exception('Invalid response format');
+        }
+      } else if (response.statusCode == 401) {
+        _handleTokenExpiration();
+      } else if (response.statusCode == 404) {
         setState(() {
-          _timeTableTitle = title ?? 'Time Table';
-          _timeTableDays = daysJson
-              .map((json) => TimeTableDay.fromJson(json))
-              .toList();
+          _timeTableDays = [];
+          _errorMessage = 'Time Table not set';
           _isLoading = false;
         });
       } else {
-        throw Exception('Invalid response format');
+        throw Exception('Server error: ${response.statusCode}');
       }
-    } else if (response.statusCode == 401) {
-      _handleTokenExpiration();
-    } else if (response.statusCode == 404) {
-      // Handle 404 - Time Table not set
+    } on HandshakeException catch (e) {
+      debugPrint('SSL Handshake error: $e');
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('SSL certificate issue - this is normal in development'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } on SocketException catch (e) {
+      debugPrint('Network error: $e');
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No network connection'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fetching time table: $e');
       setState(() {
-        _timeTableDays = [];
-        _errorMessage = 'Time Table not set';
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
         _isLoading = false;
       });
-    } else {
-      throw Exception('Server error: ${response.statusCode}');
+    } finally {
+      client.close();
     }
-  } on HandshakeException catch (e) {
-    debugPrint('SSL Handshake error: $e');
-    setState(() => _isLoading = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('SSL certificate issue - this is normal in development'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    }
-  } on SocketException catch (e) {
-    debugPrint('Network error: $e');
-    setState(() => _isLoading = false);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No network connection'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  } catch (e) {
-    debugPrint('Error fetching time table: $e');
-    setState(() {
-      _errorMessage = e.toString().replaceAll('Exception: ', '');
-      _isLoading = false;
-    });
-  } finally {
-    client.close();
   }
-}
 
   void _showError(String message) {
     setState(() => _isLoading = false);
@@ -206,25 +203,22 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
     }
   }
 
-  // Zoom controls
+  // Modified zoom controls - Now affects cell sizes
   void _zoomIn() {
     setState(() {
-      _currentScale = (_currentScale * 1.2).clamp(_minScale, _maxScale);
-      _transformationController.value = Matrix4.identity()..scale(_currentScale);
+      _scaleFactor = (_scaleFactor * 1.2).clamp(_minScaleFactor, _maxScaleFactor);
     });
   }
 
   void _zoomOut() {
     setState(() {
-      _currentScale = (_currentScale / 1.2).clamp(_minScale, _maxScale);
-      _transformationController.value = Matrix4.identity()..scale(_currentScale);
+      _scaleFactor = (_scaleFactor / 1.2).clamp(_minScaleFactor, _maxScaleFactor);
     });
   }
 
   void _resetZoom() {
     setState(() {
-      _currentScale = 1.0;
-      _transformationController.value = Matrix4.identity();
+      _scaleFactor = 1.0;
     });
   }
 
@@ -233,7 +227,6 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
-          // Header skeleton
           Container(
             height: 50,
             decoration: BoxDecoration(
@@ -242,7 +235,6 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          // Rows skeleton
           ...List.generate(8, (index) => Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Container(
@@ -266,12 +258,18 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
     bool isFirstInGroup = false,
     bool isLastInGroup = false,
   }) {
+    // Apply scale factor to width and padding
+    final scaledWidth = width * _scaleFactor;
+    final scaledPadding = 12.0 * _scaleFactor;
+    final scaledFontSize = (isHeader ? 13.0 : 12.0) * _scaleFactor;
+    final scaledMinHeight = (isHeader ? 50.0 : 45.0) * _scaleFactor;
+    
     return Container(
-      width: width,
+      width: scaledWidth,
       constraints: BoxConstraints(
-        minHeight: isHeader ? 50 : 45, // Ensure minimum height for consistency
+        minHeight: scaledMinHeight,
       ),
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(scaledPadding),
       decoration: BoxDecoration(
         color: isHeader ? AppColors.primaryYellow : Colors.transparent,
         border: Border(
@@ -304,7 +302,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       child: Text(
         text,
         style: TextStyle(
-          fontSize: isHeader ? 13 : 12,
+          fontSize: scaledFontSize,
           fontWeight: isHeader || isBold ? FontWeight.bold : FontWeight.normal,
           color: isHeader 
               ? Colors.white 
@@ -319,7 +317,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   }
 
   Widget _buildDataTable() {
-    // Column widths
+    // Base column widths
     const double dateWidth = 110.0;
     const double subjectWidth = 180.0;
     const double chapterWidth = 150.0;
@@ -340,44 +338,38 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: InteractiveViewer(
-          transformationController: _transformationController,
-          minScale: _minScale,
-          maxScale: _maxScale,
-          boundaryMargin: const EdgeInsets.all(double.infinity),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            controller: _scrollController,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Table Header
-                Row(
-                  children: [
-                    _buildTableCell('Date', dateWidth, isHeader: true),
-                    _buildTableCell('Subject', subjectWidth, isHeader: true),
-                    _buildTableCell('Chapter', chapterWidth, isHeader: true),
-                    _buildTableCell('Topic', topicWidth, isHeader: true),
-                    _buildTableCell('Remark', remarkWidth, isHeader: true),
-                  ],
-                ),
-                
-                // Table Body
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: Column(
-                      children: _buildTableRows(
-                        dateWidth, 
-                        subjectWidth, 
-                        chapterWidth, 
-                        topicWidth, 
-                        remarkWidth
-                      ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          controller: _scrollController,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Table Header
+              Row(
+                children: [
+                  _buildTableCell('Date', dateWidth, isHeader: true),
+                  _buildTableCell('Subject', subjectWidth, isHeader: true),
+                  _buildTableCell('Chapter', chapterWidth, isHeader: true),
+                  _buildTableCell('Topic', topicWidth, isHeader: true),
+                  _buildTableCell('Remark', remarkWidth, isHeader: true),
+                ],
+              ),
+              
+              // Table Body
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: _buildTableRows(
+                      dateWidth, 
+                      subjectWidth, 
+                      chapterWidth, 
+                      topicWidth, 
+                      remarkWidth
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -403,7 +395,6 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
         final isFirstInGroup = entryIndex == 0;
         final isLastInGroup = entryIndex == entriesCount - 1;
         
-        // Get display values - Filter out null, empty strings, and "null" text
         final displaySubject = entry.displaySubject;
         
         final displayChapter = entry.chapterTitles.isNotEmpty 
@@ -424,7 +415,6 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
             ? entry.remark! 
             : '';
 
-        // Create IntrinsicHeight to ensure all cells in a row have the same height
         rows.add(
           IntrinsicHeight(
             child: Container(
@@ -718,7 +708,6 @@ class TimeTableEntry {
     this.remark,
   });
 
-  // Get display subject (section if available, otherwise subject)
   String get displaySubject {
     if (sectionTitle != null && sectionTitle!.isNotEmpty) {
       return sectionTitle!;

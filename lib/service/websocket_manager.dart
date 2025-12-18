@@ -18,6 +18,11 @@ class WebSocketManager {
   static int _reconnectAttempt = 0;
   static const int _maxReconnectAttempts = 5;
   static const Duration _initialReconnectDelay = Duration(seconds: 2);
+  
+  // 🆕 NEW: Add timestamp tracking for accurate pause/resume
+  static DateTime? _lastDisconnectTime;
+  static DateTime? _lastConnectTime;
+  static Duration? _pauseDuration;
 
   static final StreamController<dynamic> _messageController =
       StreamController.broadcast();
@@ -40,6 +45,9 @@ class WebSocketManager {
   // 🆕 Add reconnected stream getter
   static Stream<void> get reconnectedStream => _reconnectedController.stream;
 
+  // 🆕 NEW: Get last disconnect time for timer service
+  static DateTime? get lastDisconnectTime => _lastDisconnectTime;
+
   static void registerDisconnectionCallback(Function() callback) {
     _onDisconnectionCallback = callback;
   }
@@ -59,24 +67,24 @@ class WebSocketManager {
     _onFocusStatusRequestCallback = null;
   }
 
- static void sendFocusStatus(bool isFocusing) {
-  if (_channel == null) {
-    print("⚠️ Cannot send focus status - channel null");
-    return;
-  }
+  static void sendFocusStatus(bool isFocusing) {
+    if (_channel == null) {
+      print("⚠️ Cannot send focus status - channel null");
+      return;
+    }
 
-  try {
-    final focusData = jsonEncode({
-      "event": "focus_status",
-      "is_focusing": isFocusing ? 1 : 0,
-      "ts": DateTime.now().toUtc().millisecondsSinceEpoch // Use UTC
-    });
-    _channel!.sink.add(focusData);
-    print("📤 Focus status sent: is_focusing=${isFocusing ? 1 : 0}");
-  } catch (e) {
-    print("❌ Failed to send focus status: $e");
+    try {
+      final focusData = jsonEncode({
+        "event": "focus_status",
+        "is_focusing": isFocusing ? 1 : 0,
+        "ts": DateTime.now().toUtc().millisecondsSinceEpoch
+      });
+      _channel!.sink.add(focusData);
+      print("📤 Focus status sent: is_focusing=${isFocusing ? 1 : 0}");
+    } catch (e) {
+      print("❌ Failed to send focus status: $e");
+    }
   }
-}
 
   // 🆕 NEW: Send heartbeat with focus status
   static void _sendHeartbeatWithFocusStatus() {
@@ -85,9 +93,6 @@ class WebSocketManager {
       if (_onFocusStatusRequestCallback != null) {
         _onFocusStatusRequestCallback!();
       }
-      
-      // The actual heartbeat with focus status will be sent by TimerService
-      // This ensures the focus status is up-to-date
     } catch (e) {
       print("❌ Failed to send heartbeat with focus status: $e");
       if (_shouldReconnect && !_isForceDisconnected && !_isConnecting) {
@@ -134,6 +139,10 @@ class WebSocketManager {
     
     _isConnecting = true;
     print("🔄🔄🔄 NEW CONNECTION ATTEMPT ${_reconnectAttempt + 1} - manual flag: $_isManualReconnect 🔄🔄🔄");
+    
+    // 🆕 NEW: Store connect time
+    _lastConnectTime = DateTime.now();
+    print("⏱️ Connection attempt started at: $_lastConnectTime");
     
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -233,6 +242,10 @@ class WebSocketManager {
           print("🔌🔌🔌 WEB SOCKET CLOSED - Code: $closeCode, Reason: $closeReason 🔌🔌🔌");
           
           timeoutTimer.cancel();
+          
+          // 🆕 Store disconnect time for accurate pause duration
+          _lastDisconnectTime = DateTime.now();
+          print("⏱️ WebSocket disconnect time recorded: $_lastDisconnectTime");
           
           if (!completer.isCompleted) {
             completer.complete(false);
@@ -391,28 +404,28 @@ class WebSocketManager {
     }
   }
 
- static void sendCombinedHeartbeat(bool isFocusing) {
-  if (_channel == null) {
-    print("⚠️ Cannot send combined heartbeat - channel null");
-    return;
-  }
+  static void sendCombinedHeartbeat(bool isFocusing) {
+    if (_channel == null) {
+      print("⚠️ Cannot send combined heartbeat - channel null");
+      return;
+    }
 
-  try {
-    final heartbeatData = jsonEncode({
-      "event": "heartbeat",
-      "ts": DateTime.now().toUtc().millisecondsSinceEpoch, // Use UTC
-      "is_focusing": isFocusing ? 1 : 0
-    });
-    _channel!.sink.add(heartbeatData);
-    print("📤 WebSocket Sent: ${heartbeatData.length > 100 ? '${heartbeatData.substring(0, 100)}...' : heartbeatData}");
-    print("💓 Heartbeat sent (is_focusing: ${isFocusing ? 1 : 0})");
-  } catch (e) {
-    print("❌ Failed to send combined heartbeat: $e");
-    if (_shouldReconnect && !_isForceDisconnected && !_isConnecting) {
-      _scheduleReconnection();
+    try {
+      final heartbeatData = jsonEncode({
+        "event": "heartbeat",
+        "ts": DateTime.now().toUtc().millisecondsSinceEpoch,
+        "is_focusing": isFocusing ? 1 : 0
+      });
+      _channel!.sink.add(heartbeatData);
+      print("📤 WebSocket Sent: ${heartbeatData.length > 100 ? '${heartbeatData.substring(0, 100)}...' : heartbeatData}");
+      print("💓 Heartbeat sent (is_focusing: ${isFocusing ? 1 : 0})");
+    } catch (e) {
+      print("❌ Failed to send combined heartbeat: $e");
+      if (_shouldReconnect && !_isForceDisconnected && !_isConnecting) {
+        _scheduleReconnection();
+      }
     }
   }
-}
   
   static Future<void> resetConnectionState() async {
     print('🔄🔄🔄 RESETTING CONNECTION STATE 🔄🔄🔄');
@@ -429,6 +442,9 @@ class WebSocketManager {
     _isManualReconnect = false;
     _shouldReconnect = true;
     _reconnectAttempt = 0;
+    _lastDisconnectTime = null;
+    _lastConnectTime = null;
+    _pauseDuration = null;
     
     print("✅ Flags reset");
     
@@ -448,6 +464,7 @@ class WebSocketManager {
     _reconnectAttempt = 0;
     _isConnecting = false;
     _isManualReconnect = false;
+    _lastDisconnectTime = DateTime.now();
     
     await _safeDisconnect();
     
@@ -465,6 +482,7 @@ class WebSocketManager {
     _reconnectAttempt = 0;
     _isConnecting = false;
     _isManualReconnect = false;
+    _lastDisconnectTime = DateTime.now();
     
     await _safeDisconnect();
     
@@ -550,6 +568,8 @@ class WebSocketManager {
   Is Manual Reconnect: $_isManualReconnect
   Should Reconnect: $_shouldReconnect
   Reconnect Attempt: $_reconnectAttempt
+  Last Disconnect Time: $_lastDisconnectTime
+  Last Connect Time: $_lastConnectTime
   Connection Status: $connectionStatus
 📊📊📊 END STATE 📊📊📊
 """);

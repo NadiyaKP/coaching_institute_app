@@ -18,6 +18,7 @@ import '../../service/focus_mode_overlay_service.dart';
 import '../../screens/focus_mode/focus_overlay_manager.dart';
 import '../../service/timer_service.dart';
 import 'package:workmanager/workmanager.dart';
+import '../settings/ip_config.dart';
 
 // ============= PROVIDER CLASS =============
 class SettingsProvider extends ChangeNotifier {
@@ -121,18 +122,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
       value: _settingsProvider,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text(
-            'Settings',
-            style: TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 18,
+            title: const Text(
+              'Settings',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 18,
+              ),
             ),
+            backgroundColor: AppColors.primaryYellow,
+            iconTheme: const IconThemeData(color: Colors.white),
+            elevation: 2,
+            actions: [
+              IconButton(
+                icon: const Icon(
+                  Icons.settings,
+                  color: Colors.white,
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const IpConfigPage(),
+                    ),
+                  );
+                },
+                tooltip: 'IP Configuration',
+              ),
+            ],
           ),
-          backgroundColor: AppColors.primaryYellow,
-          iconTheme: const IconThemeData(color: Colors.white),
-          elevation: 2,
-        ),
         body: SafeArea(
           child: SingleChildScrollView(
             child: Padding(

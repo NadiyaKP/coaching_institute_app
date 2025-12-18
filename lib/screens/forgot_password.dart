@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:coaching_institute_app/service/api_config.dart';
 import 'package:coaching_institute_app/common/theme_color.dart';
 import 'dart:io';
+import '../screens/settings/ip_config.dart';
 
 // ============= RESPONSIVE UTILITY CLASS =============
 class ResponsiveUtils {
@@ -354,155 +355,177 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
     }
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final isLandscape = ResponsiveUtils.isLandscape(context);
-    final isTabletDevice = ResponsiveUtils.isTablet(context);
-    final headerHeight = ResponsiveUtils.getHeaderHeight(context);
-    
-    final iconSize = ResponsiveUtils.getIconSize(context, 45);
-    final titleFontSize = ResponsiveUtils.getFontSize(context, 24);
-    final subtitleFontSize = ResponsiveUtils.getFontSize(context, 14);
+ Widget _buildHeader(BuildContext context) {
+  final isLandscape = ResponsiveUtils.isLandscape(context);
+  final isTabletDevice = ResponsiveUtils.isTablet(context);
+  final headerHeight = ResponsiveUtils.getHeaderHeight(context);
+  
+  final iconSize = ResponsiveUtils.getIconSize(context, 45);
+  final titleFontSize = ResponsiveUtils.getFontSize(context, 24);
+  final subtitleFontSize = ResponsiveUtils.getFontSize(context, 14);
 
-    return Container(
-      width: double.infinity,
-      height: headerHeight,
-      decoration: BoxDecoration(
-        gradient: AppGradients.background,
-        borderRadius: isLandscape 
-            ? const BorderRadius.only(
-                topRight: Radius.circular(35),
-                bottomRight: Radius.circular(35),
-              )
-            : const BorderRadius.only(
-                bottomLeft: Radius.circular(35),
-                bottomRight: Radius.circular(35),
-              ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.shadowYellow,
-            spreadRadius: 0,
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          // Decorative circles
-          Positioned(
-            top: -30,
-            right: -20,
-            child: Container(
-              width: 80,
-              height: 80,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.grey300.withOpacity(0.1),
-              ),
+  return Container(
+    width: double.infinity,
+    height: headerHeight,
+    decoration: BoxDecoration(
+      gradient: AppGradients.background,
+      borderRadius: isLandscape 
+          ? const BorderRadius.only(
+              topRight: Radius.circular(35),
+              bottomRight: Radius.circular(35),
+            )
+          : const BorderRadius.only(
+              bottomLeft: Radius.circular(35),
+              bottomRight: Radius.circular(35),
+            ),
+      boxShadow: [
+        BoxShadow(
+          color: AppColors.shadowYellow,
+          spreadRadius: 0,
+          blurRadius: 20,
+          offset: const Offset(0, 8),
+        ),
+      ],
+    ),
+    child: Stack(
+      children: [
+        // Decorative circles
+        Positioned(
+          top: -30,
+          right: -20,
+          child: Container(
+            width: 80,
+            height: 80,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.grey300.withOpacity(0.1),
             ),
           ),
-          Positioned(
-            top: 10,
-            left: -25,
-            child: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.grey400.withOpacity(0.08),
-              ),
+        ),
+        Positioned(
+          top: 10,
+          left: -25,
+          child: Container(
+            width: 50,
+            height: 50,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.grey400.withOpacity(0.08),
             ),
           ),
-          Positioned(
-            bottom: 30,
-            right: 40,
-            child: Container(
-              width: 35,
-              height: 35,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppColors.white.withOpacity(0.06),
-              ),
+        ),
+        Positioned(
+          bottom: 30,
+          right: 40,
+          child: Container(
+            width: 35,
+            height: 35,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.white.withOpacity(0.06),
             ),
           ),
+        ),
 
-          // Back button
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            left: 16,
-            child: IconButton(
-              icon: Icon(
-                Icons.arrow_back_ios_new,
-                color: AppColors.primaryBlue,
-                size: ResponsiveUtils.getFontSize(context, 20),
-              ),
-              onPressed: () => Navigator.pop(context),
+        // Back button
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 10,
+          left: 16,
+          child: IconButton(
+            icon: Icon(
+              Icons.arrow_back_ios_new,
+              color: AppColors.primaryBlue,
+              size: ResponsiveUtils.getFontSize(context, 20),
             ),
+            onPressed: () => Navigator.pop(context),
           ),
+        ),
 
-          Center(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.symmetric(
-                vertical: isLandscape ? 16 : 20,
-                horizontal: 20,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: EdgeInsets.all(isLandscape ? 10 : 16),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: AppGradients.primaryYellow,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.primaryYellow.withOpacity(0.4),
-                          spreadRadius: 5,
-                          blurRadius: 15,
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.lock_reset,
-                      color: AppColors.white,
-                      size: iconSize * (isLandscape ? 0.8 : 1),
-                    ),
-                  ),
-                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 12)),
-                  Text(
-                    "Forgot Password?",
-                    style: TextStyle(
-                      fontSize: titleFontSize,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.primaryBlue,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 6)),
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: isLandscape ? 10 : 40,
-                    ),
-                    child: Text(
-                      "Don't worry! Enter your email to reset",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: subtitleFontSize * 0.95,
-                        fontWeight: FontWeight.w400,
-                        color: AppColors.primaryBlue,
-                        height: 1.3,
+        // Settings button (NEW)
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 10,
+          right: 16,
+          child: IconButton(
+            icon: Icon(
+              Icons.settings,
+              color: AppColors.primaryBlue,
+              size: ResponsiveUtils.getFontSize(context, 20),
+            ),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const IpConfigPage(),
+                ),
+              );
+            },
+            tooltip: 'IP Configuration',
+          ),
+        ),
+
+        Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              vertical: isLandscape ? 16 : 20,
+              horizontal: 20,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(isLandscape ? 10 : 16),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: AppGradients.primaryYellow,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primaryYellow.withOpacity(0.4),
+                        spreadRadius: 5,
+                        blurRadius: 15,
                       ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.lock_reset,
+                    color: AppColors.white,
+                    size: iconSize * (isLandscape ? 0.8 : 1),
+                  ),
+                ),
+                SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 12)),
+                Text(
+                  "Forgot Password?",
+                  style: TextStyle(
+                    fontSize: titleFontSize,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primaryBlue,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                SizedBox(height: ResponsiveUtils.getVerticalSpacing(context, 6)),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isLandscape ? 10 : 40,
+                  ),
+                  child: Text(
+                    "Don't worry! Enter your email to reset",
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: subtitleFontSize * 0.95,
+                      fontWeight: FontWeight.w400,
+                      color: AppColors.primaryBlue,
+                      height: 1.3,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildEmailCard(BuildContext context) {
     final maxWidth = ResponsiveUtils.getMaxContainerWidth(context);

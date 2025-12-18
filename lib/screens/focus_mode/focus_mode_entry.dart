@@ -1,9 +1,19 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
+import 'dart:convert';
 import '../../service/timer_service.dart';
 import '../../service/websocket_manager.dart';
+import '../../service/auth_service.dart';
+import '../../service/api_config.dart';
+import '../../service/focus_mode_overlay_service.dart';
+import '../../screens/focus_mode/focus_overlay_manager.dart';
+import 'package:workmanager/workmanager.dart';
 
 class FocusModeEntryScreen extends StatefulWidget {
   const FocusModeEntryScreen({super.key});
@@ -15,18 +25,20 @@ class FocusModeEntryScreen extends StatefulWidget {
 class _FocusModeEntryScreenState extends State<FocusModeEntryScreen> 
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final TimerService _timerService = TimerService();
+  final AuthService _authService = AuthService();
   late Future<Duration> _initializationFuture;
   Duration _focusTimeToday = Duration.zero;
   bool _hasOverlayPermission = false;
   bool _isStartingFocusMode = false;
   bool _isRestoredFromDisconnect = false;
   bool _wasDisconnectedByWebSocket = false;
-  bool _isReconnecting = false; // 🆕 Track reconnection state
+  bool _isReconnecting = false;
+  bool _isLoggingOut = false;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   
   StreamSubscription<bool>? _websocketConnectionSubscription;
-  Timer? _reconnectionCheckTimer; // 🆕 Timer to check reconnection status
+  Timer? _reconnectionCheckTimer;
 
   @override
   void initState() {
@@ -39,145 +51,129 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       vsync: this,
     )..repeat(reverse: true);
     
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.03).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     
-    // Set up WebSocket disconnection callback
     _timerService.setWebSocketDisconnectCallback(() {
       debugPrint('🔄 WebSocket disconnection callback triggered in entry screen');
       _handleWebSocketDisconnectionNavigation();
     });
     
-    // Listen to WebSocket connection state
     _startWebSocketMonitoring();
   }
 
-
-void _handleReconnectionNavigation() {
-  if (mounted) {
-    debugPrint('🔄 Navigating back to focus mode entry due to WebSocket reconnection');
-    
-    // Show a notification to user
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.wifi, size: 18, color: Colors.white),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Connection restored! Returning to focus mode.',
-                style: TextStyle(fontSize: 13),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-    
-    // Refresh the screen data
-    setState(() {
-      _initializationFuture = _initializeData();
-    });
-  }
-}
-
-// Modify the WebSocket connection listener in initState:
-void _startWebSocketMonitoring() {
-  _websocketConnectionSubscription?.cancel();
-  _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {
-    debugPrint('📡 WebSocket state changed in entry screen: $isConnected');
-    
+  void _handleReconnectionNavigation() {
     if (mounted) {
-      setState(() {}); // Update UI when connection state changes
-    }
-    
-    if (!isConnected && !WebSocketManager.isConnected) {
-      debugPrint('🔌 WebSocket disconnected detected in entry screen');
-      
-      // If focus mode was active, show notification
-      final prefs = await SharedPreferences.getInstance();
-      final wasFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
-      if (wasFocusActive && mounted) {
-        _showWebSocketDisconnectedNotification();
-      }
-    } else if (isConnected && mounted) {
-      // Connection restored
-      debugPrint('✅ WebSocket reconnected in entry screen');
-      
-      // 🆕 Check if we're coming from reconnection navigation
-      if (ModalRoute.of(context)?.settings.name == '/focus_mode') {
-        debugPrint('✅ Already on focus mode page, showing reconnection message');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 18),
-                SizedBox(width: 8),
-                Text('Connected successfully!', style: TextStyle(fontSize: 13)),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-      
-      if (_isReconnecting) {
-        setState(() {
-          _isReconnecting = false;
-        });
-        
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 18),
-                SizedBox(width: 8),
-                Text('Connected successfully!', style: TextStyle(fontSize: 13)),
-              ],
-            ),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-    }
-  });
-}
-  // Handle navigation back when WebSocket disconnects
-  void _handleWebSocketDisconnectionNavigation() {
-    if (mounted) {
-      debugPrint('🔄 Navigating back to entry screen due to WebSocket disconnection');
-      
-      // Show notification
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
             children: [
-              Icon(Icons.wifi_off, size: 18, color: Colors.white),
-              SizedBox(width: 8),
+              Icon(Icons.wifi, size: 16, color: Colors.white),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Connection restored! Returning to focus mode.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+      
+      setState(() {
+        _initializationFuture = _initializeData();
+      });
+    }
+  }
+
+  void _startWebSocketMonitoring() {
+    _websocketConnectionSubscription?.cancel();
+    _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {
+      debugPrint('📡 WebSocket state changed in entry screen: $isConnected');
+      
+      if (mounted) {
+        setState(() {});
+      }
+      
+      if (!isConnected && !WebSocketManager.isConnected) {
+        debugPrint('🔌 WebSocket disconnected detected in entry screen');
+        
+        final prefs = await SharedPreferences.getInstance();
+        final wasFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+        if (wasFocusActive && mounted) {
+          _showWebSocketDisconnectedNotification();
+        }
+      } else if (isConnected && mounted) {
+        debugPrint('✅ WebSocket reconnected in entry screen');
+        
+        if (ModalRoute.of(context)?.settings.name == '/focus_mode') {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white, size: 16),
+                  SizedBox(width: 6),
+                  Text('Connected successfully!', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        
+        if (_isReconnecting) {
+          setState(() {
+            _isReconnecting = false;
+          });
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white, size: 16),
+                  SizedBox(width: 6),
+                  Text('Connected successfully!', style: TextStyle(fontSize: 12)),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    });
+  }
+
+  void _handleWebSocketDisconnectionNavigation() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.wifi_off, size: 16, color: Colors.white),
+              SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'Focus mode stopped due to connection loss',
-                  style: TextStyle(fontSize: 13),
+                  style: TextStyle(fontSize: 12),
                 ),
               ),
             ],
           ),
           backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       );
       
-      // Refresh the screen
       setState(() {
         _wasDisconnectedByWebSocket = true;
         _initializationFuture = _initializeData();
@@ -185,27 +181,26 @@ void _startWebSocketMonitoring() {
     }
   }
 
-  // Show notification when returning from disconnected state
   void _showWebSocketDisconnectedNotification() {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Row(
             children: [
-              Icon(Icons.wifi_off, size: 18, color: Colors.white),
-              SizedBox(width: 8),
+              Icon(Icons.wifi_off, size: 16, color: Colors.white),
+              SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'Focus mode was stopped due to connection loss',
-                  style: TextStyle(fontSize: 13),
+                  style: TextStyle(fontSize: 12),
                 ),
               ),
             ],
           ),
           backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 4),
+          duration: const Duration(seconds: 3),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           action: SnackBarAction(
             label: 'Dismiss',
             textColor: Colors.white,
@@ -235,7 +230,6 @@ void _startWebSocketMonitoring() {
       
       debugPrint('📅 Today: $today');
       
-      // Check if focus was stopped by WebSocket
       _wasDisconnectedByWebSocket = await _timerService.wasStoppedByWebSocket();
       if (_wasDisconnectedByWebSocket) {
         debugPrint('🔌 Focus was previously stopped by WebSocket disconnection');
@@ -359,145 +353,95 @@ void _startWebSocketMonitoring() {
     _wasDisconnectedByWebSocket = false;
     debugPrint('✅ Timer reset to 00:00:00 for new day');
   }
-Future<void> _attemptReconnection() async {
-  if (_isReconnecting) {
-    debugPrint('⏳ Already attempting to reconnect');
-    return;
-  }
-  
-  debugPrint('🔄🔄🔄 _attemptReconnection STARTED 🔄🔄🔄');
-  
-  setState(() {
-    _isReconnecting = true;
-  });
 
-  try {
-    // Show loading
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 10),
-              Text('Reconnecting WebSocket...'),
-            ],
-          ),
-          duration: Duration(seconds: 20),
-        ),
-      );
+  Future<void> _attemptReconnection() async {
+    if (_isReconnecting) {
+      debugPrint('⏳ Already attempting to reconnect');
+      return;
     }
     
-    // 🔥 TEST 1: Check current state
-    debugPrint('=== CURRENT STATE ===');
-    WebSocketManager.logConnectionState();
-    
-    // 🔥 TEST 2: Reset connection state
-    debugPrint('=== RESETTING CONNECTION STATE ===');
-    await WebSocketManager.resetConnectionState();
-    await Future.delayed(const Duration(milliseconds: 500));
-    
-    // 🔥 TEST 3: Check state after reset
-    debugPrint('=== STATE AFTER RESET ===');
-    WebSocketManager.logConnectionState();
-    
-    // 🔥 TEST 4: Force reconnect
-    debugPrint('🔥 Calling WebSocketManager.forceReconnect()...');
-    await WebSocketManager.forceReconnect();
-    
-    // 🔥 TEST 5: Wait and check multiple times
-    debugPrint('=== WAITING FOR CONNECTION ===');
-    bool connected = false;
-    
-    for (int i = 0; i < 8; i++) {
-      await Future.delayed(const Duration(milliseconds: 1000));
-      connected = WebSocketManager.isConnected;
-      debugPrint('🔍 Connection check ${i + 1}/8: $connected');
-      
-      if (connected) {
-        debugPrint('✅ CONNECTED on attempt ${i + 1}');
-        break;
-      }
-      
-      // Every 2 checks, log detailed state
-      if (i % 2 == 0) {
-        WebSocketManager.logConnectionState();
-      }
-    }
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      
-      if (connected) {
-        debugPrint('✅✅✅ RECONNECTION SUCCESSFUL ✅✅✅');
+    setState(() {
+      _isReconnecting = true;
+    });
+
+    try {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Reconnected successfully!'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 3),
+            content: Row(
+              children: [
+                SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: 8),
+                Text('Reconnecting...', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+            duration: Duration(seconds: 15),
           ),
         );
+      }
+      
+      await WebSocketManager.resetConnectionState();
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      await WebSocketManager.forceReconnect();
+      
+      bool connected = false;
+      
+      for (int i = 0; i < 6; i++) {
+        await Future.delayed(const Duration(milliseconds: 800));
+        connected = WebSocketManager.isConnected;
+        debugPrint('🔍 Connection check ${i + 1}/6: $connected');
         
-        // Refresh data
-        setState(() {
-          _isReconnecting = false;
-          _initializationFuture = _initializeData();
-        });
-      } else {
-        debugPrint('❌❌❌ RECONNECTION FAILED ❌❌❌');
-        WebSocketManager.logConnectionState();
+        if (connected) {
+          debugPrint('✅ CONNECTED on attempt ${i + 1}');
+          break;
+        }
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Failed to reconnect after multiple attempts'),
-            action: SnackBarAction(
-              label: 'DEBUG',
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('Reconnection Debug'),
-                    content: const Text('Connection failed. Check console logs for details.'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _attemptReconnection();
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                );
-              },
+        if (connected) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Reconnected!', style: TextStyle(fontSize: 12)),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
             ),
-            duration: const Duration(seconds: 5),
+          );
+          
+          setState(() {
+            _isReconnecting = false;
+            _initializationFuture = _initializeData();
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to reconnect', style: TextStyle(fontSize: 12)),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          setState(() => _isReconnecting = false);
+        }
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌❌❌ RECONNECTION ERROR ❌❌❌');
+      debugPrint('Error: $e');
+      debugPrint('Stack: $stackTrace');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connection error', style: TextStyle(fontSize: 12)),
+            duration: Duration(seconds: 3),
           ),
         );
         setState(() => _isReconnecting = false);
       }
     }
-  } catch (e, stackTrace) {
-    debugPrint('❌❌❌ RECONNECTION ERROR ❌❌❌');
-    debugPrint('Error: $e');
-    debugPrint('Stack: $stackTrace');
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          duration: const Duration(seconds: 5),
-        ),
-      );
-      setState(() => _isReconnecting = false);
-    }
   }
-}
 
   void _startFocusMode() async {
     if (_isStartingFocusMode) return;
@@ -582,8 +526,9 @@ Future<void> _attemptReconnection() async {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to start focus mode: $e'),
+            content: Text('Error: ${e.toString().length > 40 ? e.toString().substring(0, 40) + '...' : e.toString()}', style: const TextStyle(fontSize: 12)),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
           ),
         );
       }
@@ -593,66 +538,66 @@ Future<void> _attemptReconnection() async {
       });
     }
   }
-Future<void> _showWebSocketErrorPopup() async {
-  await showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.wifi_off, color: Colors.red, size: 22),
-            SizedBox(width: 8),
-            Text('Connection Error', style: TextStyle(fontSize: 16)),
-          ],
-        ),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Unable to start Focus Mode. The app is not connected to the server.',
-              style: TextStyle(fontSize: 13),
-            ),
-            SizedBox(height: 10),
-            Text(
-              'Please check your internet connection and try again.',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: Colors.red,
+
+  Future<void> _showWebSocketErrorPopup() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.wifi_off, color: Colors.red, size: 20),
+              SizedBox(width: 6),
+              Text('Connection Error', style: TextStyle(fontSize: 15)),
+            ],
+          ),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Unable to start Focus Mode. The app is not connected to the server.',
+                style: TextStyle(fontSize: 12),
               ),
+              SizedBox(height: 8),
+              Text(
+                'Check your internet connection and try again.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop();
+                await _attemptReconnection();
+                
+                if (WebSocketManager.isConnected) {
+                  await Future.delayed(const Duration(milliseconds: 300));
+                  await _actuallyStartFocusMode();
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF43E97B),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('RETRY', style: TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 13)),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              await _attemptReconnection(); // This now uses forceReconnect internally
-              
-              // After reconnection attempt, check if successful and retry
-              if (WebSocketManager.isConnected) {
-                await Future.delayed(const Duration(milliseconds: 500));
-                await _actuallyStartFocusMode();
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF43E97B),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('RETRY', style: TextStyle(color: Colors.white, fontSize: 13)),
-          ),
-        ],
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   Future<bool?> _showPermissionPopup() async {
     return await showDialog<bool>(
@@ -660,12 +605,12 @@ Future<void> _showWebSocketErrorPopup() async {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           title: const Row(
             children: [
-              Icon(Icons.lock, color: Colors.orange, size: 22),
-              SizedBox(width: 8),
-              Text('Permission Required', style: TextStyle(fontSize: 16)),
+              Icon(Icons.lock, color: Colors.orange, size: 20),
+              SizedBox(width: 6),
+              Text('Permission Required', style: TextStyle(fontSize: 15)),
             ],
           ),
           content: Column(
@@ -673,19 +618,19 @@ Future<void> _showWebSocketErrorPopup() async {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'To enable Focus Mode with distraction blocking, you need to grant "Display over other apps" permission.',
-                style: TextStyle(fontSize: 13),
+                'Grant "Display over other apps" permission for distraction blocking.',
+                style: TextStyle(fontSize: 12),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               _buildPermissionStep('1. Click "OK" below'),
               _buildPermissionStep('2. Find "Display over other apps" in settings'),
               _buildPermissionStep('3. Enable it for this app'),
               _buildPermissionStep('4. Return to this app'),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               const Text(
-                'Without this permission, Focus Mode will not block other apps.',
+                'Without this, Focus Mode will not block apps.',
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 10,
                   fontStyle: FontStyle.italic,
                   color: Colors.grey,
                 ),
@@ -695,15 +640,15 @@ Future<void> _showWebSocketErrorPopup() async {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF43E97B),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 13)),
+              child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ],
         );
@@ -717,12 +662,12 @@ Future<void> _showWebSocketErrorPopup() async {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           title: const Row(
             children: [
-              Icon(Icons.warning, color: Colors.orange, size: 22),
-              SizedBox(width: 8),
-              Text('Permission Not Granted', style: TextStyle(fontSize: 16)),
+              Icon(Icons.warning, color: Colors.orange, size: 20),
+              SizedBox(width: 6),
+              Text('Permission Not Granted', style: TextStyle(fontSize: 15)),
             ],
           ),
           content: const Column(
@@ -730,14 +675,14 @@ Future<void> _showWebSocketErrorPopup() async {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Focus Mode requires "Display over other apps" permission to block distractions.',
-                style: TextStyle(fontSize: 13),
+                'Focus Mode requires "Display over other apps" permission.',
+                style: TextStyle(fontSize: 12),
               ),
-              SizedBox(height: 10),
+              SizedBox(height: 8),
               Text(
-                'Please enable it in Settings to use Focus Mode.',
+                'Please enable it in Settings.',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.bold,
                   color: Colors.red,
                 ),
@@ -752,7 +697,7 @@ Future<void> _showWebSocketErrorPopup() async {
                   _isStartingFocusMode = false;
                 });
               },
-              child: const Text('STAY HERE', style: TextStyle(color: Colors.grey, fontSize: 13)),
+              child: const Text('STAY HERE', style: TextStyle(color: Colors.grey, fontSize: 12)),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -770,9 +715,9 @@ Future<void> _showWebSocketErrorPopup() async {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF43E97B),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.white, fontSize: 13)),
+              child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ],
         );
@@ -782,14 +727,14 @@ Future<void> _showWebSocketErrorPopup() async {
 
   Widget _buildPermissionStep(String text) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.arrow_right, size: 14, color: Colors.grey),
-          const SizedBox(width: 4),
+          const Icon(Icons.arrow_right, size: 12, color: Colors.grey),
+          const SizedBox(width: 3),
           Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 12)),
+            child: Text(text, style: const TextStyle(fontSize: 11)),
           ),
         ],
       ),
@@ -807,9 +752,9 @@ Future<void> _showWebSocketErrorPopup() async {
       
       _sendFocusStartEvent();
       
-      Navigator.pushReplacementNamed(
-        context, 
+      await Navigator.of(context).pushNamedAndRemoveUntil(
         '/home',
+        (Route<dynamic> route) => false,
         arguments: {'isFocusMode': true}
       );
       
@@ -817,8 +762,9 @@ Future<void> _showWebSocketErrorPopup() async {
       debugPrint('❌ Error in actuallyStartFocusMode: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to start focus mode: $e'),
+          content: Text('Error: ${e.toString().length > 40 ? e.toString().substring(0, 40) + '...' : e.toString()}', style: const TextStyle(fontSize: 12)),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 3),
         ),
       );
       setState(() {
@@ -852,502 +798,965 @@ Future<void> _showWebSocketErrorPopup() async {
     }
   }
 
+  // ============== LOGOUT FUNCTIONALITY ==============
+  
+  void _showLogoutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.logout_rounded, color: Colors.red, size: 20),
+              SizedBox(width: 6),
+              Text('Confirm Logout', style: TextStyle(fontSize: 15)),
+            ],
+          ),
+          content: const Text(
+            'Are you sure you want to logout? This will stop any active focus mode timer.',
+            style: TextStyle(fontSize: 12),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _performLogout();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('Logout', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _performLogout() async {
+    String? accessToken;
+    
+    try {
+      setState(() {
+        _isLoggingOut = true;
+      });
+      
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            content: Row(
+              children: [
+                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: 12),
+                Text('Logging out...', style: TextStyle(fontSize: 12)),
+              ],
+            ),
+          );
+        },
+      );
+
+      debugPrint('🔴 STEP 1: Shutting down TimerService...');
+      try {
+        final timerService = TimerService();
+        await timerService.shutdownForLogout();
+        debugPrint('✅ TimerService shutdown complete');
+      } catch (e) {
+        debugPrint('❌ Error shutting down TimerService: $e');
+      }
+      
+      await Future.delayed(const Duration(seconds: 1));
+      
+      debugPrint('🔴 STEP 2: Cancelling background tasks...');
+      try {
+        await Workmanager().cancelAll();
+        debugPrint('✅ Background tasks cancelled');
+      } catch (e) {
+        debugPrint('❌ Error cancelling background tasks: $e');
+      }
+      
+      debugPrint('🔴 STEP 3: Hiding all overlays...');
+      await _hideAllOverlaysWithRetries();
+      
+      debugPrint('🔴 STEP 4: Disconnecting WebSocket...');
+      try {
+        _sendFocusEndEvent();
+        await Future.delayed(const Duration(milliseconds: 300));
+        
+        final disconnectFuture = WebSocketManager.forceDisconnect();
+        final timeoutFuture = Future.delayed(const Duration(seconds: 2));
+        await Future.any([disconnectFuture, timeoutFuture]);
+        
+        debugPrint('✅ WebSocket disconnected');
+        await Future.delayed(const Duration(milliseconds: 300));
+      } catch (e) {
+        debugPrint('⚠️ Error during WebSocket disconnect: $e');
+      }
+      
+      debugPrint('🔴 STEP 5: Sending attendance...');
+      accessToken = await _authService.getAccessToken();
+      String endTime = DateTime.now().toIso8601String();
+      await _sendAttendanceData(accessToken, endTime);
+      
+      debugPrint('🔴 STEP 6: Calling logout API...');
+      final client = _createHttpClientWithCustomCert();
+      
+      try {
+        final response = await client.post(
+          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
+          headers: {
+            ...ApiConfig.commonHeaders,
+            'Authorization': 'Bearer $accessToken',
+          },
+        ).timeout(const Duration(seconds: 8));
+
+        debugPrint('Logout response status: ${response.statusCode}');
+      } finally {
+        client.close();
+      }
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      debugPrint('🔴 STEP 7: Final cleanup...');
+      await _clearOverlayFlags();
+      await _clearLogoutData();
+      
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _hideAllOverlaysWithRetries();
+      
+    } catch (e) {
+      debugPrint('❌ Logout error: $e');
+      
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      
+      try {
+        await Workmanager().cancelAll();
+        await WebSocketManager.forceDisconnect();
+        await _hideAllOverlaysWithRetries();
+        await _clearOverlayFlags();
+      } catch (_) {}
+      
+      await _clearLogoutData();
+      
+    } finally {
+      setState(() {
+        _isLoggingOut = false;
+      });
+      
+      try {
+        await Workmanager().cancelAll();
+        await WebSocketManager.forceDisconnect();
+        await _hideAllOverlaysWithRetries();
+        await _clearOverlayFlags();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _hideAllOverlaysWithRetries() async {
+    debugPrint('🎯 Hiding all overlays with retries...');
+    
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        debugPrint('🔄 Overlay hide attempt $attempt/3');
+        
+        try {
+          final focusModeService = FocusModeOverlayService();
+          await focusModeService.hideOverlay();
+          debugPrint('✅ FocusModeOverlayService: Hidden');
+        } catch (e) {
+          debugPrint('⚠️ FocusModeOverlayService error: $e');
+        }
+        
+        try {
+          final overlayManager = FocusOverlayManager();
+          await overlayManager.initialize();
+          await overlayManager.hideOverlay();
+          debugPrint('✅ FocusOverlayManager: Hidden');
+        } catch (e) {
+          debugPrint('⚠️ FocusOverlayManager error: $e');
+        }
+        
+        try {
+          const platform = MethodChannel('focus_mode_overlay_channel');
+          await platform.invokeMethod('hideOverlay');
+          await Future.delayed(const Duration(milliseconds: 100));
+          
+          try {
+            await platform.invokeMethod('forceHideOverlay');
+          } catch (_) {}
+          
+          debugPrint('✅ Direct method channel: Hidden');
+        } catch (e) {
+          debugPrint('⚠️ Direct method channel error: $e');
+        }
+        
+        if (attempt < 3) {
+          await Future.delayed(Duration(milliseconds: 300 * attempt));
+        }
+        
+      } catch (e) {
+        debugPrint('⚠️ Attempt $attempt error: $e');
+      }
+    }
+    
+    debugPrint('✅ All overlay hide attempts completed');
+  }
+
+  void _sendFocusEndEvent() {
+    try {
+      WebSocketManager.send({"event": "focus_end"});
+      debugPrint('📤 WebSocket event sent: {"event": "focus_end"}');
+    } catch (e) {
+      debugPrint('❌ Error sending focus_end event: $e');
+      
+      try {
+        WebSocketManager.connect();
+        debugPrint('🔄 Attempting to reconnect WebSocket...');
+        
+        Future.delayed(const Duration(milliseconds: 300), () {
+          try {
+            WebSocketManager.send({"event": "focus_end"});
+            debugPrint('📤 Retry: WebSocket event sent: {"event": "focus_end"}');
+          } catch (retryError) {
+            debugPrint('❌ Retry failed: $retryError');
+          }
+        });
+      } catch (connectError) {
+        debugPrint('❌ WebSocket reconnection failed: $connectError');
+      }
+    }
+  }
+
+  Future<void> _clearOverlayFlags() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      await prefs.setBool('is_focus_mode', false);
+      await prefs.remove('focus_mode_start_time');
+      await prefs.remove('focus_time_today');
+      await prefs.remove('focus_elapsed_time');
+      await prefs.remove('overlay_visible');
+      await prefs.remove('overlay_permission_granted');
+      
+      debugPrint('✅ Overlay flags cleared');
+    } catch (e) {
+      debugPrint('❌ Error clearing overlay flags: $e');
+    }
+  }
+
+  Future<void> _sendAttendanceData(String? accessToken, String endTime) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final studentType = prefs.getString('profile_student_type') ?? '';
+      final bool isOnlineStudent = studentType.toUpperCase() == 'ONLINE';
+      
+      if (!isOnlineStudent) {
+        debugPrint('🎯 Skipping attendance data for non-online student');
+        return;
+      }
+      
+      String? startTime = prefs.getString('start_time');
+
+      if (startTime != null && accessToken != null && accessToken.isNotEmpty) {
+        String cleanStart = startTime.split('.')[0].replaceFirst('T', ' ');
+        String cleanEnd = endTime.split('.')[0].replaceFirst('T', ' ');
+
+        final body = {
+          "records": [
+            {"time_stamp": cleanStart, "is_checkin": 1},
+            {"time_stamp": cleanEnd, "is_checkin": 0}
+          ]
+        };
+
+        try {
+          final response = await http.post(
+            Uri.parse(ApiConfig.buildUrl('/api/performance/add_onlineattendance/')),
+            headers: {
+              ...ApiConfig.commonHeaders,
+              'Authorization': 'Bearer $accessToken',
+            },
+            body: jsonEncode(body),
+          ).timeout(const Duration(seconds: 8));
+
+          if (response.statusCode == 200 || response.statusCode == 201) {
+            debugPrint('✅ Attendance sent successfully');
+          } else {
+            debugPrint('⚠️ Error sending attendance: ${response.statusCode}');
+          }
+        } catch (e) {
+          debugPrint('❌ Exception while sending attendance: $e');
+        }
+      } else {
+        debugPrint('⚠️ Missing attendance data');
+      }
+    } catch (e) {
+      debugPrint('❌ Error in _sendAttendanceData: $e');
+    }
+  }
+
+  Future<void> _clearLogoutData() async {
+    try {
+      WebSocketManager.logConnectionState();
+      
+      await _authService.logout();
+      await _clearCachedProfileData();
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('start_time');
+      await prefs.remove('end_time');
+      await prefs.remove('last_active_time');
+      
+      await prefs.remove('is_focus_mode');
+      await prefs.remove('focus_mode_start_time');
+      await prefs.remove('focus_time_today');
+      
+      debugPrint('🗑️ SharedPreferences data cleared');
+      
+      WebSocketManager.logConnectionState();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Logged out successfully!', style: TextStyle(fontSize: 12)),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ Error in _clearLogoutData: $e');
+      
+      if (mounted) {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          '/signup',
+          (Route<dynamic> route) => false,
+        );
+      }
+    }
+  }
+
+  Future<void> _clearCachedProfileData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final profileKeys = [
+        'profile_name',
+        'profile_email',
+        'profile_phone',
+        'profile_course',
+        'profile_subcourse',
+        'profile_student_type',
+        'profile_completed',
+        'profile_cache_time',
+        'fcm_token',
+        'device_token_registered',
+        'subjects_data',
+        'cached_subcourse_id',
+        'first_login_subjects_fetched',
+        'unread_notifications',
+        'device_registered_for_session',
+      ];
+      
+      for (String key in profileKeys) {
+        await prefs.remove(key);
+      }
+      
+      debugPrint('✅ Cached profile data cleared');
+    } catch (e) {
+      debugPrint('❌ Error clearing cached profile data: $e');
+    }
+  }
+
+  http.Client _createHttpClientWithCustomCert() {
+    final client = ApiConfig.createHttpClient();
+    return IOClient(client);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      body: FutureBuilder<Duration>(
-        future: _initializationFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF43E97B)),
-              ),
-            );
-          }
-          
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Failed to Initialize',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      snapshot.error.toString(),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 24),
-                    ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _initializationFuture = _initializeData();
-                        });
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF43E97B),
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                      child: const Text('Retry', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white)),
-                    ),
-                    
-                  ],
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenHeight < 700;
 
-                ),
-              ),
-            );
-          }
-          
-          final Duration focusTime = snapshot.data ?? Duration.zero;
-          
-          return SafeArea(
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-              child: Column(
+    return WillPopScope(
+      onWillPop: () async {
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              title: const Row(
                 children: [
-                  const SizedBox(height: 20),
-                  
-                  // WebSocket Disconnection Banner
-                  if (_wasDisconnectedByWebSocket) ...[
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                  Icon(Icons.exit_to_app, color: Colors.orange, size: 20),
+                  SizedBox(width: 6),
+                  Text('Exit App', style: TextStyle(fontSize: 15)),
+                ],
+              ),
+              content: const Text(
+                'Are you sure you want to exit the application?',
+                style: TextStyle(fontSize: 12),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.red,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('EXIT', style: TextStyle(color: Colors.white, fontSize: 12)),
+                ),
+              ],
+            );
+          },
+        );
+        
+        if (shouldExit == true) {
+          if (Platform.isAndroid) {
+            SystemNavigator.pop();
+          } else if (Platform.isIOS) {
+            exit(0);
+          }
+        }
+        
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF5F7FA),
+        body: FutureBuilder<Duration>(
+          future: _initializationFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF43E97B)),
+                  ),
+                ),
+              );
+            }
+            
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.error_outline, size: 36, color: Colors.red),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.wifi_off, size: 20, color: Colors.orange[700]),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Connection Lost',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.orange[700],
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Previous focus session was stopped due to server disconnection',
-                                  style: TextStyle(fontSize: 11, color: Colors.grey[700]),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Failed to Initialize',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        snapshot.error.toString().length > 60 
+                            ? '${snapshot.error.toString().substring(0, 60)}...' 
+                            : snapshot.error.toString(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() {
+                            _initializationFuture = _initializeData();
+                          });
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF43E97B),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Retry', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+            
+            final Duration focusTime = snapshot.data ?? Duration.zero;
+            
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  children: [
+                    // Header with Logout Button
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: _isLoggingOut 
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.logout_rounded, size: 20),
+                          onPressed: _isLoggingOut ? null : _showLogoutDialog,
+                          padding: const EdgeInsets.all(8),
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Logout',
+                          color: Colors.grey[700],
+                        ),
+                        const Spacer(),
+                        ScaleTransition(
+                          scale: _pulseAnimation,
+                          child: Container(
+                            width: isSmallScreen ? 70 : 80,
+                            height: isSmallScreen ? 70 : 80,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+                              ),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF43E97B).withOpacity(0.2),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
+                            child: Icon(Icons.psychology_rounded, size: isSmallScreen ? 35 : 40, color: Colors.white),
                           ),
-
-
-                          IconButton(
-                            icon: Icon(Icons.close, size: 16, color: Colors.grey[600]),
-                            onPressed: () {
-                              setState(() {
-                                _wasDisconnectedByWebSocket = false;
-                              });
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  
-                  // Hero Section with Icon and Title
-                  ScaleTransition(
-                    scale: _pulseAnimation,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
                         ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF43E97B).withOpacity(0.3),
-                            blurRadius: 20,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(Icons.psychology_rounded, size: 50, color: Colors.white),
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  const Text(
-                    'Focus Mode',
-                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.black87, letterSpacing: -0.5),
-                  ),
-                  
-                  const SizedBox(height: 6),
-                  
-                  Text(
-                    _hasOverlayPermission ? 'Ready to boost productivity' : 'Grant permission to start',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600], fontWeight: FontWeight.w500),
-                  ),
-                  
-                  const SizedBox(height: 24),
-                  
-                  // Main Stats Card
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 15,
-                          offset: const Offset(0, 4),
-                        ),
+                        const Spacer(),
+                        const SizedBox(width: 40), // Balance the logout button space
                       ],
                     ),
-                    child: Column(
-                      children: [
-                        // Timer Display
-                        Container(
-                          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                const Color(0xFF43E97B).withOpacity(0.08),
-                                const Color(0xFF38F9D7).withOpacity(0.08),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(14),
+                    
+                     SizedBox(height: isSmallScreen ? 8 : 12),
+                    
+                    const Text(
+                      'Focus Mode',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                    ),
+                    
+                    const SizedBox(height: 4),
+                    
+                    Text(
+                      _hasOverlayPermission ? 'Ready to boost productivity' : 'Grant permission to start',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500),
+                    ),
+                    
+                    SizedBox(height: isSmallScreen ? 12 : 16),
+                    
+                    // Stats Card (Compact)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
                           ),
-                          child: Column(
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF43E97B).withOpacity(0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(Icons.timer_rounded, color: Color(0xFF43E97B), size: 18),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    'Today\'s Focus Time',
-                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87),
-                                  ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          // Timer Display
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  const Color(0xFF43E97B).withOpacity(0.08),
+                                  const Color(0xFF38F9D7).withOpacity(0.08),
                                 ],
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _formatDuration(focusTime),
-                                style: const TextStyle(
-                                  fontSize: 36,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF43E97B),
-                                  fontFamily: 'monospace',
-                                  letterSpacing: 1.5,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF43E97B).withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Icon(Icons.timer_rounded, color: Color(0xFF43E97B), size: 16),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    const Text(
+                                      'Today\'s Focus Time',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              if (_isRestoredFromDisconnect) ...[
-                                const SizedBox(height: 10),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
+                                const SizedBox(height: 8),
+                                Text(
+                                  _formatDuration(focusTime),
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF43E97B),
+                                    fontFamily: 'monospace',
+                                    letterSpacing: 1.2,
                                   ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
+                                ),
+                                if (_isRestoredFromDisconnect) ...[
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.restore, size: 10, color: Colors.green),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Restored from last session',
+                                          style: TextStyle(fontSize: 10, color: Colors.green[700], fontWeight: FontWeight.w600),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 12),
+                          
+                          // Permission Status
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
+                                  color: _hasOverlayPermission ? Colors.green : Colors.orange,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Icon(Icons.restore, size: 12, color: Colors.green),
-                                      const SizedBox(width: 5),
                                       Text(
-                                        'Restored from last session',
-                                        style: TextStyle(fontSize: 11, color: Colors.green[700], fontWeight: FontWeight.w600),
+                                        _hasOverlayPermission ? 'Full Protection Enabled' : 'Permission Required',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        _hasOverlayPermission ? 'Distraction blocking is active' : 'Enable overlay for best results',
+                                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
                                       ),
                                     ],
                                   ),
                                 ),
                               ],
-                            ],
-                          ),
-                        ),
-                        
-                        const SizedBox(height: 16),
-                        
-                        // Permission Status
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
-                              width: 1,
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
-                                color: _hasOverlayPermission ? Colors.green : Colors.orange,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _hasOverlayPermission ? 'Full Protection Enabled' : 'Permission Required',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _hasOverlayPermission ? 'Distraction blocking is active' : 'Enable overlay for best results',
-                                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        
-                        // WebSocket Connection Status
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: WebSocketManager.isConnected 
-                                ? Colors.green.withOpacity(0.08) 
-                                : Colors.orange.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
+                          
+                          // WebSocket Connection Status
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
                               color: WebSocketManager.isConnected 
-                                  ? Colors.green.withOpacity(0.2) 
-                                  : Colors.orange.withOpacity(0.2),
-                              width: 1,
+                                  ? Colors.green.withOpacity(0.08) 
+                                  : Colors.orange.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: WebSocketManager.isConnected 
+                                    ? Colors.green.withOpacity(0.2) 
+                                    : Colors.orange.withOpacity(0.2),
+                                width: 1,
+                              ),
                             ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                WebSocketManager.isConnected ? Icons.wifi : Icons.wifi_off,
-                                color: WebSocketManager.isConnected ? Colors.green : Colors.orange,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      WebSocketManager.isConnected ? 'Server Connected' : 'Server Disconnected',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: WebSocketManager.isConnected ? Colors.green[700] : Colors.orange[700],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      WebSocketManager.isConnected 
-                                          ? 'Ready for focus sessions' 
-                                          : 'Focus mode requires server connection',
-                                      style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              if (!WebSocketManager.isConnected) ...[
-                                const SizedBox(width: 8),
-                                GestureDetector(
-                                  onTap: _isReconnecting ? null : _attemptReconnection, // 🔥 Use new method
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: _isReconnecting ? Colors.grey : const Color(0xFF43E97B),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: _isReconnecting
-                                        ? const SizedBox(
-                                            width: 14,
-                                            height: 14,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                            ),
-                                          )
-                                        : const Text(
-                                            'Reconnect',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 20),
-                  
-                  // Features Grid
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.04),
-                          blurRadius: 15,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'What You Get',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87),
-                        ),
-                        const SizedBox(height: 14),
-                        _buildFeatureItem(
-                          icon: Icons.block_rounded,
-                          title: 'App Blocking',
-                          description: 'Block distracting apps',
-                          color: const Color(0xFF43E97B),
-                        ),
-                        const SizedBox(height: 10),
-                        _buildFeatureItem(
-                          icon: Icons.analytics_rounded,
-                          title: 'Time Tracking',
-                          description: 'Monitor focus sessions',
-                          color: const Color(0xFF38F9D7),
-                        ),
-                        const SizedBox(height: 10),
-                        _buildFeatureItem(
-                          icon: Icons.trending_up_rounded,
-                          title: 'Productivity Boost',
-                          description: 'Stay focused, achieve more',
-                          color: const Color(0xFFF4B400),
-                        ),
-                      ],
-                    ),
-                  ),
-                  
-                  const SizedBox(height: 24),
-
-                  // Start Button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: (!_isStartingFocusMode && !_isReconnecting && WebSocketManager.isConnected) ? _startFocusMode : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: WebSocketManager.isConnected 
-                            ? const Color(0xFF43E97B) 
-                            : Colors.grey[400],
-                        disabledBackgroundColor: Colors.grey[300],
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        elevation: (_isStartingFocusMode || _isReconnecting) ? 0 : 6,
-                        shadowColor: WebSocketManager.isConnected 
-                            ? const Color(0xFF43E97B).withOpacity(0.4) 
-                            : Colors.grey,
-                      ),
-                      child: (_isStartingFocusMode || _isReconnecting)
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                            child: Row(
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(WebSocketManager.isConnected ? 0.2 : 0.1),
-                                    borderRadius: BorderRadius.circular(7),
-                                  ),
-                                  child: Icon(
-                                    WebSocketManager.isConnected ? Icons.play_arrow_rounded : Icons.wifi_off,
-                                    color: Colors.white,
-                                    size: 20,
+                                Icon(
+                                  WebSocketManager.isConnected ? Icons.wifi : Icons.wifi_off,
+                                  color: WebSocketManager.isConnected ? Colors.green : Colors.orange,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        WebSocketManager.isConnected ? 'Server Connected' : 'Server Disconnected',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: WebSocketManager.isConnected ? Colors.green[700] : Colors.orange[700],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        WebSocketManager.isConnected 
+                                            ? 'Ready for focus sessions' 
+                                            : 'Focus mode requires connection',
+                                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                const SizedBox(width: 10),
-                                Text(
-                                  WebSocketManager.isConnected 
-                                      ? 'Start Focus Session' 
-                                      : 'Connection Required',
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                    letterSpacing: 0.3,
+                                if (!WebSocketManager.isConnected) ...[
+                                  const SizedBox(width: 6),
+                                  GestureDetector(
+                                    onTap: _isReconnecting ? null : _attemptReconnection,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: _isReconnecting ? Colors.grey : const Color(0xFF43E97B),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: _isReconnecting
+                                          ? const SizedBox(
+                                              width: 12,
+                                              height: 12,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.5,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                              ),
+                                            )
+                                          : const Text(
+                                              'Reconnect',
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                    ),
                                   ),
-                                ),
+                                ],
                               ],
                             ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  
-                  const SizedBox(height: 16),
-                ],
+                    
+                    SizedBox(height: isSmallScreen ? 12 : 16),
+                    
+                    // Features Grid (Compact)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.04),
+                            blurRadius: 10,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'What You Get',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(height: 10),
+                          _buildFeatureItem(
+                            icon: Icons.block_rounded,
+                            title: 'App Blocking',
+                            description: 'Block distracting apps',
+                            color: const Color(0xFF43E97B),
+                            isSmallScreen: isSmallScreen,
+                          ),
+                          const SizedBox(height: 8),
+                          _buildFeatureItem(
+                            icon: Icons.analytics_rounded,
+                            title: 'Time Tracking',
+                            description: 'Monitor focus sessions',
+                            color: const Color(0xFF38F9D7),
+                            isSmallScreen: isSmallScreen,
+                          ),
+                          const SizedBox(height: 8),
+                          _buildFeatureItem(
+                            icon: Icons.trending_up_rounded,
+                            title: 'Productivity Boost',
+                            description: 'Stay focused, achieve more',
+                            color: const Color(0xFFF4B400),
+                            isSmallScreen: isSmallScreen,
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    const Spacer(),
+                    
+                    // Start Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: (!_isStartingFocusMode && !_isReconnecting && WebSocketManager.isConnected) ? _startFocusMode : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: WebSocketManager.isConnected 
+                              ? const Color(0xFF43E97B) 
+                              : Colors.grey[400],
+                          disabledBackgroundColor: Colors.grey[300],
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: (_isStartingFocusMode || _isReconnecting) ? 0 : 4,
+                          shadowColor: WebSocketManager.isConnected 
+                              ? const Color(0xFF43E97B).withOpacity(0.3) 
+                              : Colors.grey,
+                        ),
+                        child: (_isStartingFocusMode || _isReconnecting)
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(WebSocketManager.isConnected ? 0.2 : 0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Icon(
+                                      WebSocketManager.isConnected ? Icons.play_arrow_rounded : Icons.wifi_off,
+                                      color: Colors.white,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    WebSocketManager.isConnected 
+                                        ? 'Start Focus Session' 
+                                        : 'Connection Required',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 8),
+                    
+                    // Warning banner when disconnected
+                    if (_wasDisconnectedByWebSocket)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.orange.withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.wifi_off, size: 16, color: Colors.orange[700]),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Previous session stopped',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.orange[700],
+                                    ),
+                                  ),
+                                  Text(
+                                    'Server connection was lost',
+                                    style: TextStyle(fontSize: 10, color: Colors.grey[700]),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.close, size: 14, color: Colors.grey[600]),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              onPressed: () {
+                                setState(() {
+                                  _wasDisconnectedByWebSocket = false;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -1357,30 +1766,30 @@ Future<void> _showWebSocketErrorPopup() async {
     required String title,
     required String description,
     required Color color,
+    required bool isSmallScreen,
   }) {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
             color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(8),
           ),
-          child: Icon(icon, color: color, size: 20),
+          child: Icon(icon, color: color, size: 18),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 title,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.black87),
               ),
-              const SizedBox(height: 1),
               Text(
                 description,
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                style: TextStyle(fontSize: 10, color: Colors.grey[600]),
               ),
             ],
           ),
