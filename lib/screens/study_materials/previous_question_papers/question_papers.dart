@@ -97,20 +97,20 @@ class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver 
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    
-    // Send stored data when app goes to background (minimized or device locked)
-    // Only for online students
-    if (_studentType.toLowerCase() == 'online') {
-      if (state == AppLifecycleState.paused || 
-          state == AppLifecycleState.inactive ||
-          state == AppLifecycleState.hidden) {
-        _sendStoredReadingDataToAPI();
-      }
+ @override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  super.didChangeAppLifecycleState(state);
+  
+  // Send stored data when app goes to background (minimized or device locked)
+  // Enable for both 'online' and 'offline' students, but not 'public'
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _sendStoredReadingDataToAPI();
     }
   }
+}
 
   Future<void> initialize() async {
     WidgetsBinding.instance.addObserver(this);
@@ -489,18 +489,19 @@ class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver 
     }
   }
 
-  // Enhanced exit screen method that sends data without waiting
-  void _exitScreen() {
-    if (_studentType.toLowerCase() == 'online') {
-      // Send reading data to backend without waiting for response
-      _sendStoredReadingDataToAPI().catchError((e) {
-        debugPrint('Error sending reading data on exit: $e');
-        // Don't show error to user, just log it
-      });
-    }
-    
-    // Navigation will be handled by the widget
+ // Enhanced exit screen method that sends data without waiting
+void _exitScreen() {
+  // Enable for both 'online' and 'offline' students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    // Send reading data to backend without waiting for response
+    _sendStoredReadingDataToAPI().catchError((e) {
+      debugPrint('Error sending reading data on exit: $e');
+      // Don't show error to user, just log it
+    });
   }
+  
+  // Navigation will be handled by the widget
+}
 
   // Method to check if there is stored reading data
   Future<bool> hasStoredReadingData() async {
@@ -512,110 +513,110 @@ class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver 
     }
   }
 
-  // FIXED: Enhanced with debouncing to prevent multiple API calls
-  Future<void> _sendStoredReadingDataToAPI() async {
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('Student type is $_studentType - skipping reading data collection');
+Future<void> _sendStoredReadingDataToAPI() async {
+  // Check for both 'online' and 'offline' student types, exclude 'public'
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
+    debugPrint('Student type is $_studentType - skipping reading data collection');
+    return;
+  }
+
+  // Check if we're already sending data
+  if (_isSendingData) {
+    debugPrint('📱 API call already in progress, skipping duplicate call');
+    return;
+  }
+
+  // Check debounce time
+  final now = DateTime.now();
+  if (_lastApiCallTime != null && 
+      now.difference(_lastApiCallTime!) < _apiCallDebounceTime) {
+    debugPrint('📱 API call debounced, too soon since last call');
+    return;
+  }
+
+  try {
+    final allRecords = _pdfRecordsBox.values.toList();
+    
+    if (allRecords.isEmpty) {
+      debugPrint('No stored question paper reading data found to send');
       return;
     }
 
-    // Check if we're already sending data
-    if (_isSendingData) {
-      debugPrint('📱 API call already in progress, skipping duplicate call');
-      return;
-    }
+    debugPrint('=== SENDING ALL STORED QUESTION PAPER READING DATA TO API ===');
+    debugPrint('Total records to send: ${allRecords.length}');
 
-    // Check debounce time
-    final now = DateTime.now();
-    if (_lastApiCallTime != null && 
-        now.difference(_lastApiCallTime!) < _apiCallDebounceTime) {
-      debugPrint('📱 API call debounced, too soon since last call');
-      return;
-    }
+    List<Map<String, dynamic>> allQuestionPapersData = [];
 
-    try {
-      final allRecords = _pdfRecordsBox.values.toList();
-      
-      if (allRecords.isEmpty) {
-        debugPrint('No stored question paper reading data found to send');
-        return;
-      }
-
-      debugPrint('=== SENDING ALL STORED QUESTION PAPER READING DATA TO API ===');
-      debugPrint('Total records to send: ${allRecords.length}');
-
-      List<Map<String, dynamic>> allQuestionPapersData = [];
-
-      for (final record in allRecords) {
-        // Prepare the question paper data (without readedtime_seconds)
-        final questionPaperData = {
-          'encrypted_questionpaper_id': record.encryptedNoteId,
-          'readedtime': record.readedtime,
-          'readed_date': record.readedDate,
-        };
-        allQuestionPapersData.add(questionPaperData);
-        
-        debugPrint('Prepared record for encrypted_questionpaper_id: ${record.encryptedNoteId}');
-      }
-
-      if (allQuestionPapersData.isEmpty) {
-        debugPrint('No valid question paper records to send');
-        return;
-      }
-
-      // Prepare request body with all question paper records
-      final requestBody = {
-        'questionpapers': allQuestionPapersData,
+    for (final record in allRecords) {
+      // Prepare the question paper data (without readedtime_seconds)
+      final questionPaperData = {
+        'encrypted_questionpaper_id': record.encryptedNoteId,
+        'readedtime': record.readedtime,
+        'readed_date': record.readedDate,
       };
+      allQuestionPapersData.add(questionPaperData);
+      
+      debugPrint('Prepared record for encrypted_questionpaper_id: ${record.encryptedNoteId}');
+    }
 
-      debugPrint('REQUEST:');
-      debugPrint('Endpoint: /api/performance/add_readed_questionpaper/');
-      debugPrint('Method: POST');
-      debugPrint('Authorization: Bearer $_accessToken');
-      debugPrint('Request Body:');
-      debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
+    if (allQuestionPapersData.isEmpty) {
+      debugPrint('No valid question paper records to send');
+      return;
+    }
 
-      // Set flags to prevent duplicate calls
-      _isSendingData = true;
-      _lastApiCallTime = now;
+    // Prepare request body with all question paper records
+    final requestBody = {
+      'questionpapers': allQuestionPapersData,
+    };
+
+    debugPrint('REQUEST:');
+    debugPrint('Endpoint: /api/performance/add_readed_questionpaper/');
+    debugPrint('Method: POST');
+    debugPrint('Authorization: Bearer $_accessToken');
+    debugPrint('Request Body:');
+    debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
+
+    // Set flags to prevent duplicate calls
+    _isSendingData = true;
+    _lastApiCallTime = now;
+    notifyListeners();
+
+    // Fire and forget - don't wait for response
+    globalHttpClient.post(
+      Uri.parse('${ApiConfig.baseUrl}/api/performance/add_readed_questionpaper/'),
+      headers: {
+        'Authorization': 'Bearer $_accessToken',
+        'Content-Type': 'application/json',
+        ...ApiConfig.commonHeaders,
+      },
+      body: jsonEncode(requestBody),
+    ).timeout(const Duration(seconds: 10)).then((response) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('✓ All question paper data sent successfully to API');
+        _clearStoredReadingData().catchError((e) {
+          debugPrint('Error clearing stored data: $e');
+        });
+      } else {
+        debugPrint('✗ Failed to send question paper data. Status: ${response.statusCode}');
+      }
+      
+      // Reset sending flag after completion
+      _isSendingData = false;
       notifyListeners();
-
-      // Fire and forget - don't wait for response
-      globalHttpClient.post(
-        Uri.parse('${ApiConfig.baseUrl}/api/performance/add_readed_questionpaper/'),
-        headers: {
-          'Authorization': 'Bearer $_accessToken',
-          'Content-Type': 'application/json',
-          ...ApiConfig.commonHeaders,
-        },
-        body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 10)).then((response) {
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          debugPrint('✓ All question paper data sent successfully to API');
-          _clearStoredReadingData().catchError((e) {
-            debugPrint('Error clearing stored data: $e');
-          });
-        } else {
-          debugPrint('✗ Failed to send question paper data. Status: ${response.statusCode}');
-        }
-        
-        // Reset sending flag after completion
-        _isSendingData = false;
-        notifyListeners();
-      }).catchError((e) {
-        debugPrint('✗ Error sending stored question paper records to API: $e');
-        // Reset sending flag on error
-        _isSendingData = false;
-        notifyListeners();
-      });
-
-    } catch (e) {
-      debugPrint('✗ Error preparing to send stored question paper records: $e');
+    }).catchError((e) {
+      debugPrint('✗ Error sending stored question paper records to API: $e');
       // Reset sending flag on error
       _isSendingData = false;
       notifyListeners();
-    }
+    });
+
+  } catch (e) {
+    debugPrint('✗ Error preparing to send stored question paper records: $e');
+    // Reset sending flag on error
+    _isSendingData = false;
+    notifyListeners();
   }
+}
 
   // Method to clear all stored reading data
   Future<void> _clearStoredReadingData() async {
@@ -627,39 +628,18 @@ class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver 
     }
   }
 
-  // Handle device back button press
-  Future<bool> handleDeviceBackButton(BuildContext context) async {
-    debugPrint('=== DEVICE BACK BUTTON PRESSED ===');
-    debugPrint('Current page: $_currentPage');
-    debugPrint('Stack length: ${_navigationStack.length}');
-    
-    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
-      debugPrint('At root subjects - exiting screen and navigating to home');
-      
-      // Send reading data to backend without waiting for response
-      if (_studentType.toLowerCase() == 'online') {
-        _sendStoredReadingDataToAPI().catchError((e) {
-          debugPrint('Error sending reading data on exit: $e');
-        });
-      }
-      
-      // Navigate back to home page
-      if (context.mounted) {
-        Navigator.of(context).pop();
-      }
-      return false; // Don't allow default back behavior
-    } else {
-      navigateBack();
-      return false; // Don't allow default back behavior
-    }
-  }
-
-  // Method to handle back button from subjects page to home
-  void navigateBackToHome(BuildContext context) {
-    debugPrint('=== NAVIGATING BACK TO HOME FROM SUBJECTS ===');
+ // Handle device back button press
+Future<bool> handleDeviceBackButton(BuildContext context) async {
+  debugPrint('=== DEVICE BACK BUTTON PRESSED ===');
+  debugPrint('Current page: $_currentPage');
+  debugPrint('Stack length: ${_navigationStack.length}');
+  
+  if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
+    debugPrint('At root subjects - exiting screen and navigating to home');
     
     // Send reading data to backend without waiting for response
-    if (_studentType.toLowerCase() == 'online') {
+    // Enable for both 'online' and 'offline' students
+    if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
       _sendStoredReadingDataToAPI().catchError((e) {
         debugPrint('Error sending reading data on exit: $e');
       });
@@ -669,7 +649,30 @@ class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver 
     if (context.mounted) {
       Navigator.of(context).pop();
     }
+    return false; // Don't allow default back behavior
+  } else {
+    navigateBack();
+    return false; // Don't allow default back behavior
   }
+}
+ 
+ // Method to handle back button from subjects page to home
+void navigateBackToHome(BuildContext context) {
+  debugPrint('=== NAVIGATING BACK TO HOME FROM SUBJECTS ===');
+  
+  // Send reading data to backend without waiting for response
+  // Enable for both 'online' and 'offline' students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    _sendStoredReadingDataToAPI().catchError((e) {
+      debugPrint('Error sending reading data on exit: $e');
+    });
+  }
+  
+  // Navigate back to home page
+  if (context.mounted) {
+    Navigator.of(context).pop();
+  }
+}
 
   String getAppBarTitle() {
     if (_navigationStack.isNotEmpty) {
@@ -1521,22 +1524,22 @@ class _QuestionPapersScreenState extends State<QuestionPapersScreen> {
           return;
         }
         
-        debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
-        debugPrint('Reading data collection enabled for student type: ${provider.studentType}');
-        debugPrint('=== END QUESTION PAPER CARD CLICK ===\n');
-        
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => QuestionsPDFViewScreen(
-              pdfUrl: fileUrl,
-              title: title,
-              accessToken: provider.accessToken!,
-              questionPaperId: paperId,
-              enableReadingData: provider.studentType.toLowerCase() == 'online',
-            ),
+      debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
+      debugPrint('Reading data collection enabled for student type: ${provider.studentType}');
+      debugPrint('=== END QUESTION PAPER CARD CLICK ===\n');
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => QuestionsPDFViewScreen(
+            pdfUrl: fileUrl,
+            title: title,
+            accessToken: provider.accessToken!,
+            questionPaperId: paperId,
+            enableReadingData: provider.studentType.toLowerCase() == 'online' || provider.studentType.toLowerCase() == 'offline', // Modified this line
           ),
-        );
+        ),
+      );
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),

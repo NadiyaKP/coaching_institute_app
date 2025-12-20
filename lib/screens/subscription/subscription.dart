@@ -356,36 +356,38 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     }
   }
 
-  // Navigate to View Profile
-  void _navigateToViewProfile() async {
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ViewProfileScreen(
-          onProfileUpdated: (Map<String, String> updatedData) {
-            // Refresh profile data when returning from view profile
-            _loadProfileData();
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Profile updated successfully!'),
-                backgroundColor: Color(0xFFF4B400),
-              ),
-            );
-          },
-        ),
+ // Navigate to View Profile
+void _navigateToViewProfile() async {
+  // DON'T close the drawer here - let it stay open
+  final result = await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (context) => ViewProfileScreen(
+        onProfileUpdated: (Map<String, String> updatedData) {
+          // Refresh profile data when returning from view profile
+          _loadProfileData();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile updated successfully!'),
+              backgroundColor: Color(0xFFF4B400),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
-  // Navigate to Settings
-  void _navigateToSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SettingsScreen(),
-      ),
-    );
-  }
+ // Navigate to Settings
+void _navigateToSettings() {
+  // DON'T close the drawer here - let it stay open
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => const SettingsScreen(),
+    ),
+  );
+}
 
   void _handleSubscribe(SubscriptionPlan plan) async {
     if (courseId == null || courseId!.isEmpty) {
@@ -1003,25 +1005,25 @@ Widget _buildPlanDetailRow(String label, String value) {
       key: _scaffoldKey,
       backgroundColor: AppColors.backgroundLight,
       endDrawer: CommonProfileDrawer(
-        name: _userName,
-        email: _userEmail,
-        course: _courseName,
-        subcourse: _subcourseName,
-        studentType: _studentType,
-        profileCompleted: _profileCompleted,
-        onViewProfile: () {
-          Navigator.of(context).pop(); 
-          _navigateToViewProfile();
-        },
-        onSettings: () {
-          Navigator.of(context).pop(); 
-          _navigateToSettings();
-        },
- 
-        onClose: () {
-          Navigator.of(context).pop();
-        },
-      ),
+      name: _userName,
+      email: _userEmail,
+      course: _courseName,
+      subcourse: _subcourseName,
+      studentType: _studentType,
+      profileCompleted: _profileCompleted,
+      onViewProfile: () {
+        // Remove the Navigator.of(context).pop() line
+        _navigateToViewProfile();
+      },
+      onSettings: () {
+        // Remove the Navigator.of(context).pop() line
+        _navigateToSettings();
+      },
+      onClose: () {
+        Navigator.of(context).pop();
+      },
+    ),
+
       body: PopScope(
         canPop: false,
         onPopInvoked: (bool didPop) async {

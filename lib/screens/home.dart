@@ -67,6 +67,11 @@ class _HomeScreenState extends State<HomeScreen> {
   final TimerService _timerService = TimerService(); 
   bool _isFocusModeActive = false;
   
+  // 🆕 NEW: WebSocket connection status
+  bool _isWebSocketConnected = true;
+  StreamSubscription<bool>? _websocketConnectionSubscription;
+  StreamSubscription<dynamic>? _websocketMessageSubscription;
+  
   // 🆕 Timetable data
   List<dynamic> _timetableDays = [];
   int _currentTimetableIndex = 0;
@@ -85,6 +90,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // 🆕 WillPopScope handling
   DateTime? _currentBackPressTime;
+
+  // 🆕 NEW: Date tracking for timer
+  String _currentDisplayDate = '';
+  Timer? _dateCheckTimer;
+
+  // 🆕 NEW: Reconnection dialog state
+  bool _isReconnectingDialogOpen = false;
+  bool _isWebSocketReconnecting = false;
 
   // SharedPreferences keys
   static const String _keyName = 'profile_name';
@@ -119,24 +132,329 @@ class _HomeScreenState extends State<HomeScreen> {
     // Initialize focus mode
     _initializeFocusMode();
     
+    // 🆕 NEW: Start WebSocket monitoring
+    _initializeWebSocketMonitoring();
+    
+    // 🆕 NEW: Start date checking
+    _startDateChecking();
+    
     WidgetsBinding.instance.addObserver(_AppLifecycleObserver(
       onResumed: () async {
         debugPrint('📱 App resumed - syncing focus mode state');
         await _syncFocusModeState();
+        
+        // 🆕 NEW: Check for date change on app resume
+        await _checkForDateChangeOnResume();
       },
     ));
   }
   
+  // 🆕 NEW: Initialize WebSocket monitoring
+  Future<void> _initializeWebSocketMonitoring() async {
+    try {
+      // Listen to WebSocket connection state changes
+      _websocketConnectionSubscription?.cancel();
+      _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {  
+        debugPrint('🔌 WebSocket connection state changed: $isConnected');
+        
+        if (mounted) {
+          setState(() {
+            _isWebSocketConnected = isConnected;
+            _isWebSocketReconnecting = false;
+          });
+        }
+        
+        // If WebSocket reconnects and timer was paused, show reconnect popup
+        if (isConnected && _isFocusModeActive) {
+          try {
+            // Check if timer was stopped by WebSocket
+            final wasStopped = await _timerService.wasStoppedByWebSocket();
+            if (wasStopped) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _showReconnectSuccessDialog();
+              });
+            }
+          } catch (e) {
+            debugPrint('❌ Error checking if timer was stopped by WebSocket: $e');
+          }
+        }
+        
+        // 🆕 NEW: Close reconnection dialog if it's open and we're connected
+        if (isConnected && _isReconnectingDialogOpen && mounted) {
+          _closeReconnectionDialog();
+          _showReconnectSuccessDialog();
+        }
+      });
+      
+      // Also listen to reconnection events
+      _websocketMessageSubscription?.cancel();
+      _websocketMessageSubscription = WebSocketManager.stream.listen((message) {
+        // Handle any specific messages if needed
+      });
+      
+      // Initialize current connection status
+      _isWebSocketConnected = WebSocketManager.isConnected;
+      
+      // Set callback for WebSocket disconnection in TimerService
+      _timerService.setWebSocketDisconnectCallback(() {
+        if (mounted) {
+          setState(() {
+            // UI will update automatically due to connection state stream
+          });
+        }
+      });
+      
+    } catch (e) {
+      debugPrint('❌ Error initializing WebSocket monitoring: $e');
+    }
+  }
+
+  // 🆕 NEW: Close reconnection dialog
+  void _closeReconnectionDialog() {
+    if (_isReconnectingDialogOpen && mounted) {
+      Navigator.of(context, rootNavigator: true).pop();
+      _isReconnectingDialogOpen = false;
+    }
+  }
+
+  // 🆕 NEW: Clear WebSocket disconnect flag after successful reconnection
+  Future<void> _clearWebSocketDisconnectFlag() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(TimerService.wasWebsocketDisconnectedKey);
+      debugPrint('✅ Cleared WebSocket disconnect flag');
+    } catch (e) {
+      debugPrint('❌ Error clearing WebSocket disconnect flag: $e');
+    }
+  }
+
+  // 🆕 NEW: Show reconnect success dialog
+  void _showReconnectSuccessDialog() {
+    // Clear the WebSocket disconnect flag
+    _clearWebSocketDisconnectFlag();
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Success icon
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF43E97B).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.check_circle,
+                    color: Color(0xFF43E97B),
+                    size: 48,
+                  ),
+                ),
+                
+                const SizedBox(height: 16),
+                
+                // Title
+                const Text(
+                  'Reconnection Successful!',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                
+                const SizedBox(height: 8),
+                
+                // Message
+                const Text(
+                  'Your focus timer has been resumed successfully.',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Timer display
+                _buildTimerDisplay(),
+                
+                const SizedBox(height: 20),
+                
+                // Close button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      // Show the active focus mode dialog
+                      _showFocusModeDialog();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF43E97B),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'CONTINUE',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+  
+  // 🆕 NEW: Start date checking timer
+  void _startDateChecking() {
+    _stopDateChecking();
+    
+    // Initialize current date
+    _currentDisplayDate = DateTime.now().toIso8601String().split('T')[0];
+    
+    // Check for date changes every 30 seconds
+    _dateCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      await _checkForDateChange();
+    });
+    
+    debugPrint('📅 Date checking timer started');
+  }
+  
+  // 🆕 NEW: Stop date checking timer
+  void _stopDateChecking() {
+    _dateCheckTimer?.cancel();
+    _dateCheckTimer = null;
+  }
+  
+  // 🆕 NEW: Check for date change
+  Future<void> _checkForDateChange() async {
+    try {
+      final now = DateTime.now();
+      final today = now.toIso8601String().split('T')[0];
+      
+      if (_currentDisplayDate != today) {
+        debugPrint('📅 Date changed detected in HomeScreen!');
+        debugPrint('   - Was: $_currentDisplayDate');
+        debugPrint('   - Now: $today');
+        
+        // Update the displayed date
+        _currentDisplayDate = today;
+        
+        // Check if focus mode is active
+        if (_isFocusModeActive) {
+          debugPrint('🔴 Focus mode active on date change - updating timer display');
+          
+          // Force the timer service to check for date change
+          await _timerService.initialize();
+          
+          // Update the UI to show reset timer
+          if (mounted) {
+            setState(() {
+              // The timer service should already have reset the time to 00:00:00
+              // Force a refresh of the timer display
+            });
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error checking for date change: $e');
+    }
+  }
+  
+  // 🆕 NEW: Check for date change on app resume
+  Future<void> _checkForDateChangeOnResume() async {
+    try {
+      final now = DateTime.now();
+      final today = now.toIso8601String().split('T')[0];
+      
+      if (_currentDisplayDate != today) {
+        debugPrint('📅 Date changed while app was in background');
+        _currentDisplayDate = today;
+        
+        if (_isFocusModeActive) {
+          await _timerService.initialize(); // This will trigger date check in timer service
+        }
+        
+        // Force UI update
+        if (mounted) {
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error checking date change on resume: $e');
+    }
+  }
+  
+  // 🆕 NEW: Force refresh timer display
+  Future<void> _forceRefreshTimerDisplay() async {
+    if (!mounted) return;
+    
+    // Check current date
+    final now = DateTime.now();
+    final today = now.toIso8601String().split('T')[0];
+    
+    // Update display date
+    if (_currentDisplayDate != today) {
+      _currentDisplayDate = today;
+      
+      // If focus mode is active, timer should be reset
+      if (_isFocusModeActive) {
+        // Re-initialize timer service to trigger date check
+        await _timerService.initialize();
+        
+        // Force UI update
+        if (mounted) {
+          setState(() {});
+        }
+      }
+    }
+  }
 
   Future<void> _initializeFocusMode() async {
     // Initialize timer service
     await _timerService.initialize();
+    
+    // Set current date
+    _currentDisplayDate = DateTime.now().toIso8601String().split('T')[0];
     
     // Check focus mode status
     final prefs = await SharedPreferences.getInstance();
     final isFocusActiveInPrefs = prefs.getBool(TimerService.isFocusModeKey) ?? false;
     final today = DateTime.now().toIso8601String().split('T')[0];
     final lastDate = prefs.getString(TimerService.lastDateKey);
+    
+    // If date changed and timer was active, it should have been reset by TimerService
+    // We just need to sync our display
+    if (lastDate != today && isFocusActiveInPrefs) {
+      debugPrint('📅 Date changed - timer should have been reset');
+      // Timer service should have already handled this
+    }
     
     // Check and restore focus time if same day
     if (lastDate == today) {
@@ -161,6 +479,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _autoScrollTimer?.cancel();
     _autoScrollTimer = null;
+    _stopDateChecking(); // 🆕 NEW: Stop date checking
+    
+    // Cancel WebSocket subscriptions
+    _websocketConnectionSubscription?.cancel();
+    _websocketMessageSubscription?.cancel();
     
     _pageController.dispose();
     _timetablePageController.dispose();
@@ -177,45 +500,32 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$hours:$minutes:$seconds';
   }
 
- Future<void> _stopFocusMode() async {
-  debugPrint('🛑 Stopping focus mode');
-  
-  try {
-    // Send WebSocket event for focus end
-    _sendFocusEndEvent();
+  Future<void> _stopFocusMode() async {
+    debugPrint('🛑 Stopping focus mode');
     
-    // Stop the timer service
-    await _timerService.stopFocusMode();
-    
-    // Update local state
-    setState(() {
-      _isFocusModeActive = false;
-    });
-    
-    // Navigate to focus mode entry screen and remove all previous routes
-    if (mounted) {
-      await Navigator.of(context).pushNamedAndRemoveUntil(
-        '/focus_mode',
-        (Route<dynamic> route) => false, // Remove all previous routes
-      );
+    try {
+      // Send WebSocket event for focus end
+      _sendFocusEndEvent();
+      
+      // Stop the timer service
+      await _timerService.stopFocusMode();
+      
+      // Update local state
+      setState(() {
+        _isFocusModeActive = false;
+      });
+      
+      // Navigate to focus mode entry screen and remove all previous routes
+      if (mounted) {
+        await Navigator.of(context).pushNamedAndRemoveUntil(
+          '/focus_mode',
+          (Route<dynamic> route) => false, // Remove all previous routes
+        );
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error stopping focus mode: $e');
     }
-    
-  } catch (e) {
-    debugPrint('❌ Error stopping focus mode: $e');
-  }
-}
-
-  Future<void> stopFocusModeForLogout() async {
-    debugPrint('⏱️ Focus mode stopped for logout');
-    
-    // Send WebSocket event for focus end
-    _sendFocusEndEvent();
-    
-    // Stop the timer service
-    await _timerService.stopFocusMode();
-    
-    // Update local state
-    _isFocusModeActive = false;
   }
 
   // Method to send focus_end event via WebSocket
@@ -310,6 +620,9 @@ class _HomeScreenState extends State<HomeScreen> {
           _isFocusModeActive = isFocusActiveInPrefs;
         });
       }
+      
+      // 🆕 NEW: Also check for date changes
+      await _forceRefreshTimerDisplay();
     } catch (e) {
       debugPrint('❌ Error syncing focus mode state: $e');
     }
@@ -1448,216 +1761,577 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
- void _showFocusModeDialog() {
-  showDialog(
-    context: context,
-    barrierDismissible: true,
-    builder: (BuildContext context) {
-      return Dialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Container(
-          padding: const EdgeInsets.all(20),
+  // 🆕 NEW: Timer display widget
+  Widget _buildTimerDisplay() {
+    return ValueListenableBuilder<Duration>(
+      valueListenable: _timerService.focusTimeToday,
+      builder: (context, focusTime, _) {
+        // 🆕 NEW: Verify the timer should be reset if date changed
+        if (_isFocusModeActive) {
+          final prefs = SharedPreferences.getInstance();
+          prefs.then((prefs) async {
+            final lastDate = prefs.getString(TimerService.lastDateKey);
+            final today = DateTime.now().toIso8601String().split('T')[0];
+            
+            if (lastDate != today && focusTime.inSeconds > 0) {
+              debugPrint('⚠️ Timer display mismatch - date changed but timer not reset');
+              // Force a refresh
+              await _timerService.initialize();
+            }
+          });
+        }
+        
+        return Container(
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: Colors.white,
+            color: AppColors.primaryYellow.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primaryYellow.withOpacity(0.2),
+              width: 1,
+            ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header with icon and title
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primaryYellow.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
+          child: Text(
+            _formatTimerDuration(focusTime),
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF43E97B),
+              fontFamily: 'monospace',
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // 🆕 MODIFIED: Show focus mode dialog based on connection status
+  void _showFocusModeDialog() {
+    if (_isWebSocketConnected) {
+      _showActiveFocusModeDialog();
+    } else {
+      _showInactiveFocusModeDialog();
+    }
+  }
+
+  void _showActiveFocusModeDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header with icon and title
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF43E97B).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.timer,
+                        color: Color(0xFF43E97B),
+                        size: 28,
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.timer,
-                      color: AppColors.primaryYellow,
-                      size: 28,
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Focus Mode Active',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Timer is running',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Timer display using the new widget
+                Center(
+                  child: _buildTimerDisplay(),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Informational text about raise hand
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF43E97B).withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF43E97B).withOpacity(0.1),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Focus Mode Active',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textDark,
-                          ),
-                        ),
-                        SizedBox(height: 2),
-                        Text(
-                          'Timer is running',
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        color: Color(0xFF43E97B),
+                        size: 18,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'If you have any doubts during focus session, click "Raise Hand"',
                           style: TextStyle(
                             fontSize: 12,
-                            color: AppColors.textGrey,
+                            color: Colors.black,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // Timer display
-              Center(
-                child: ValueListenableBuilder<Duration>(
-                  valueListenable: _timerService.focusTimeToday,
-                  builder: (context, focusTime, _) {
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryYellow.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: AppColors.primaryYellow.withOpacity(0.2),
-                          width: 1,
-                        ),
                       ),
-                      child: Text(
-                        _formatTimerDuration(focusTime),
-                        style: const TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF43E97B),
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // Informational text about raise hand
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF43E97B).withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF43E97B).withOpacity(0.1),
+                    ],
                   ),
                 ),
-                child: const Row(
+                
+                const SizedBox(height: 20),
+                
+                // Action buttons - FIXED: Both buttons same size
+                Row(
                   children: [
-                    Icon(
-                      Icons.info_outline,
-                      color: Color(0xFF43E97B),
-                      size: 18,
-                    ),
-                    SizedBox(width: 8),
+                    // Raise Hand Button
                     Expanded(
-                      child: Text(
-                        'If you have any doubts during focus session, click "Raise Hand"',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AppColors.textDark,
-                          fontWeight: FontWeight.w500,
+                      child: SizedBox(
+                        height: 48, // Fixed height for both buttons
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _raiseHandForDoubt();
+                          },
+                          icon: const Text('✋', style: TextStyle(fontSize: 18)),
+                          label: const Text(
+                            'Raise Hand',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: const Color(0xFF43E97B),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            side: const BorderSide(
+                              color: Color(0xFF43E97B),
+                              width: 2,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(width: 12),
+                    
+                    // Stop Button
+                    Expanded(
+                      child: SizedBox(
+                        height: 48, // Fixed height for both buttons
+                        child: ElevatedButton.icon(
+                          onPressed: _stopFocusMode,
+                          icon: const Icon(Icons.stop, size: 20),
+                          label: const Text(
+                            'Stop',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.errorRed,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ],
                 ),
-              ),
-              
-              const SizedBox(height: 20),
-              
-              // Action buttons - FIXED: Both buttons same size
-              Row(
-                children: [
-                  // Raise Hand Button
-                  Expanded(
-                    child: SizedBox(
-                      height: 48, // Fixed height for both buttons
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _raiseHandForDoubt();
-                        },
-                        icon: const Text('✋', style: TextStyle(fontSize: 18)),
-                        label: const Text(
-                          'Raise Hand',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: const Color(0xFF43E97B),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          side: const BorderSide(
-                            color: Color(0xFF43E97B),
-                            width: 2,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
+                
+                const SizedBox(height: 12),
+                
+                // Close button
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600,
                       ),
-                    ),
-                  ),
-                  
-                  const SizedBox(width: 12),
-                  
-                  // Stop Button
-                  Expanded(
-                    child: SizedBox(
-                      height: 48, // Fixed height for both buttons
-                      child: ElevatedButton.icon(
-                        onPressed: _stopFocusMode,
-                        icon: const Icon(Icons.stop, size: 20),
-                        label: const Text(
-                          'Stop',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.errorRed,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              
-              const SizedBox(height: 12),
-              
-              // Close button
-              Center(
-                child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text(
-                    'Close',
-                    style: TextStyle(
-                      color: AppColors.textGrey,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
+
+  void _showInactiveFocusModeDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header with icon and title
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorRed.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.timer_off_rounded,
+                        color: AppColors.errorRed,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Focus Mode Inactive',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.errorRed,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Connection lost - timer paused',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Timer display using the new widget
+                Center(
+                  child: _buildTimerDisplay(),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Informational text about reconnection
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.errorRed.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: AppColors.errorRed.withOpacity(0.1),
+                    ),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.wifi_off_rounded,
+                        color: AppColors.errorRed,
+                        size: 18,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Your focus timer was paused due to connection loss. Reconnect to resume.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.black,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+                
+                // Reconnect and Stop buttons
+                Row(
+                  children: [
+                    // Reconnect Button
+                    Expanded(
+                      flex: 3, // Takes 3/5 of available space
+                      child: SizedBox(
+                        height: 48, // Fixed height for both buttons
+                        child: ElevatedButton.icon(
+                          onPressed: _isWebSocketReconnecting ? null : () async {
+                            Navigator.of(context).pop();
+                            await _reconnectWebSocket();
+                          },
+                          icon: Icon(
+                            _isWebSocketReconnecting ? Icons.refresh : Icons.wifi_rounded,
+                            size: 20,
+                          ),
+                          label: Text(
+                            _isWebSocketReconnecting ? 'Reconnecting...' : 'Reconnect',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _isWebSocketReconnecting 
+                                ? Colors.grey 
+                                : AppColors.primaryBlue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    const SizedBox(width: 12),
+                    // Stop Button
+                    Expanded(
+                      flex: 2, // Takes 2/5 of available space
+                      child: SizedBox(
+                        height: 48, // Fixed height for both buttons
+                        child: ElevatedButton.icon(
+                          onPressed: _stopFocusMode,
+                          icon: const Icon(Icons.stop, size: 20),
+                          label: const Text(
+                            'Stop',
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.errorRed,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+                
+                // Close button
+                Center(
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // 🆕 NEW: Reconnect WebSocket - IMPROVED VERSION
+  Future<void> _reconnectWebSocket() async {
+    try {
+      // Set reconnecting state
+      if (mounted) {
+        setState(() {
+          _isWebSocketReconnecting = true;
+        });
+      }
+
+      // Show loading dialog
+      _showReconnectionLoadingDialog();
+
+      // Force reconnect - using the same logic as focus_mode_entry.dart
+      await WebSocketManager.resetConnectionState();
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      await WebSocketManager.forceReconnect();
+      
+      bool connected = false;
+      
+      // Wait for connection with timeout
+      for (int i = 0; i < 6; i++) {
+        await Future.delayed(const Duration(milliseconds: 800));
+        connected = WebSocketManager.isConnected;
+        debugPrint('🔍 Connection check ${i + 1}/6: $connected');
+        
+        if (connected) {
+          debugPrint('✅ CONNECTED on attempt ${i + 1}');
+          break;
+        }
+      }
+      
+      // Close loading dialog
+      _closeReconnectionDialog();
+      
+      if (connected) {
+        // Show success dialog
+        _showReconnectSuccessDialog();
+      } else {
+        // Show error message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to reconnect. Please try again.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+      
+    } catch (e, stackTrace) {
+      debugPrint('❌❌❌ RECONNECTION ERROR ❌❌❌');
+      debugPrint('Error: $e');
+      debugPrint('Stack: $stackTrace');
+      
+      // Close loading dialog
+      _closeReconnectionDialog();
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Reconnection failed: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isWebSocketReconnecting = false;
+        });
+      }
+    }
+  }
+
+  // 🆕 NEW: Show reconnection loading dialog
+  void _showReconnectionLoadingDialog() {
+    if (_isReconnectingDialogOpen) return;
+    
+    _isReconnectingDialogOpen = true;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF43E97B)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Reconnecting...',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[800],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Please wait while we reconnect to the server',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      _isReconnectingDialogOpen = false;
+    });
+  }
 
   // Send Raise Hand Event via WebSocket
   void _raiseHandForDoubt() {
@@ -1792,18 +2466,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 🆕 MODIFIED: Always show timetable design structure for eligible students
+                        
                           if (_isEligibleForTimetable())
                             Padding(
                               padding: EdgeInsets.fromLTRB(
                                 getResponsiveSize(16),
                                 getResponsiveSize(16),
                                 getResponsiveSize(16),
-                                getResponsiveSize(8),
+                                getResponsiveSize(10), 
                               ),
                               child: _buildTimetableCard(getResponsiveSize),
                             ),
-                          
                           // Quick Access Section
                           Padding(
                             padding: EdgeInsets.fromLTRB(
@@ -2086,7 +2759,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                               style: TextStyle(
                                                 fontSize: getResponsiveSize(15),
                                                 fontWeight: FontWeight.bold,
-                                              color: AppColors.warningOrange,
+                                                color: AppColors.warningOrange,
                                               ),
                                             ),
                                             SizedBox(height: getResponsiveSize(4)),
@@ -2121,31 +2794,52 @@ class _HomeScreenState extends State<HomeScreen> {
         floatingActionButton: _isFocusModeActive
             ? FloatingActionButton.extended(
                 onPressed: _showFocusModeDialog,
-                backgroundColor: Color(0xFF43E97B), 
+                // 🆕 NEW: Change color based on WebSocket connection
+                backgroundColor: _isWebSocketConnected 
+                    ? const Color(0xFF43E97B)  // Green when connected
+                    : AppColors.errorRed,      // Red when disconnected
                 foregroundColor: Colors.white,
                 elevation: 4,
                 icon: ValueListenableBuilder<Duration>(
                   valueListenable: _timerService.focusTimeToday,
                   builder: (context, focusTime, _) {
+                    // 🆕 NEW: Check if timer should be reset
+                    if (_isFocusModeActive) {
+                      final now = DateTime.now();
+                      final today = now.toIso8601String().split('T')[0];
+                      
+                      if (_currentDisplayDate != today) {
+                        // Date changed, timer should be 00:00:00
+                        _currentDisplayDate = today;
+                      }
+                    }
+                    
                     return Stack(
                       children: [
-                        const Icon(Icons.timer, size: 24),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.all(2),
-                            decoration: const BoxDecoration(
-                              color: Colors.red,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.stop,
-                              size: 10,
-                              color: Colors.white,
+                        // 🆕 NEW: Change icon based on connection
+                        Icon(
+                          _isWebSocketConnected 
+                              ? Icons.timer 
+                              : Icons.timer_off_rounded,
+                          size: 24,
+                        ),
+                        if (!_isWebSocketConnected)
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.wifi_off,
+                                size: 10,
+                                color: AppColors.errorRed,
+                              ),
                             ),
                           ),
-                        ),
                       ],
                     );
                   },
@@ -2153,6 +2847,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: ValueListenableBuilder<Duration>(
                   valueListenable: _timerService.focusTimeToday,
                   builder: (context, focusTime, _) {
+                    // 🆕 NEW: Display "00:00:00" if date changed and timer should be reset
+                    final now = DateTime.now();
+                    final today = now.toIso8601String().split('T')[0];
+                    
+                    if (_currentDisplayDate != today && _isFocusModeActive) {
+                      // Date changed - timer should show 00:00:00
+                      return Text(
+                        '00:00:00',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      );
+                    }
+                    
                     return Text(
                       _formatTimerDuration(focusTime),
                       style: const TextStyle(
@@ -2175,10 +2884,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-   Widget _buildTimetableCard(double Function(double) getResponsiveSize) {
-    // Always show the design structure for eligible students
-    return Container(
-      height: getResponsiveSize(120),
+Widget _buildTimetableCard(double Function(double) getResponsiveSize) {
+  final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+  final screenWidth = MediaQuery.of(context).size.width;
+  
+  // Calculate responsive width for landscape mode
+  final cardWidth = isLandscape ? screenWidth * 0.6 : double.infinity; // 60% width in landscape
+  
+  return Center(
+    child: Container(
+      width: cardWidth,
+      height: getResponsiveSize(130),
+      constraints: BoxConstraints(
+        minHeight: getResponsiveSize(130),
+        maxHeight: getResponsiveSize(140),
+      ),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(getResponsiveSize(12)),
@@ -2208,7 +2928,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             setState(() {
                               _currentTimetableIndex = newIndex;
                             });
-                            // Reset page controller position safely
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (_timetablePageController.hasClients) {
                                 _timetablePageController.jumpToPage(0);
@@ -2254,7 +2973,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             setState(() {
                               _currentTimetableIndex = newIndex;
                             });
-                            // Reset page controller position safely
                             WidgetsBinding.instance.addPostFrameCallback((_) {
                               if (_timetablePageController.hasClients) {
                                 _timetablePageController.jumpToPage(0);
@@ -2286,22 +3004,28 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             
-            SizedBox(height: getResponsiveSize(4)),
+            SizedBox(height: getResponsiveSize(6)),
             
             // Divider
             Container(height: 1, color: Colors.grey[200]),
             
-            SizedBox(height: getResponsiveSize(6)),
+            SizedBox(height: getResponsiveSize(8)),
             
             // Content area
             Expanded(
-              child: _buildTimetableContent(getResponsiveSize),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: getResponsiveSize(80),
+                ),
+                child: _buildTimetableContent(getResponsiveSize),
+              ),
             ),
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildDayHeader(double Function(double) getResponsiveSize) {
     if (_isLoadingTimetable) {
@@ -2392,14 +3116,13 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     
-    return Column(
-      children: [
-        // Subject content area
-        Expanded(
-          child: NotificationListener<ScrollNotification>(
-            onNotification: (scrollNotification) {
-              return false;
-            },
+    return SizedBox(
+      height: getResponsiveSize(70),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Subject content area - FIXED: Make this scrollable
+          Expanded(
             child: PageView.builder(
               controller: _timetablePageController,
               itemCount: entries.length,
@@ -2416,103 +3139,117 @@ class _HomeScreenState extends State<HomeScreen> {
                 return Padding(
                   padding: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
                   child: Container(
-                    padding: EdgeInsets.all(getResponsiveSize(8)),
+                    constraints: BoxConstraints(
+                      maxHeight: getResponsiveSize(60),
+                    ),
+                    padding: EdgeInsets.all(getResponsiveSize(6)),
                     decoration: BoxDecoration(
                       color: Color(0xFFE8F4FD),
-                      borderRadius: BorderRadius.circular(getResponsiveSize(8)),
+                      borderRadius: BorderRadius.circular(getResponsiveSize(6)),
                       border: Border.all(
                         color: AppColors.primaryBlue.withOpacity(0.1),
                         width: 1,
                       ),
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Subject title row
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              padding: EdgeInsets.all(getResponsiveSize(3)),
-                              decoration: BoxDecoration(
-                                color: AppColors.primaryBlue.withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.book_rounded,
-                                size: getResponsiveSize(10),
-                                color: AppColors.primaryBlue,
-                              ),
-                            ),
-                            SizedBox(width: getResponsiveSize(6)),
-                            Expanded(
-                              child: Text(
-                                title.isNotEmpty ? title : 'No Title',
-                                style: TextStyle(
-                                  fontSize: getResponsiveSize(12),
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textDark,
+                    child: SingleChildScrollView( // ADDED: Make content scrollable
+                      physics: const ClampingScrollPhysics(), // Smooth scrolling
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Subject title row
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                padding: EdgeInsets.all(getResponsiveSize(3)),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryBlue.withOpacity(0.1),
+                                  shape: BoxShape.circle,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                child: Icon(
+                                  Icons.book_rounded,
+                                  size: getResponsiveSize(10),
+                                  color: AppColors.primaryBlue,
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        
-                        SizedBox(height: getResponsiveSize(4)),
-                        
-                        // Topics
-                        if (topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty)
-                          Text(
-                            topicTitles,
-                            style: TextStyle(
-                              fontSize: getResponsiveSize(10),
-                              color: AppColors.textDark,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                              SizedBox(width: getResponsiveSize(6)),
+                              Expanded(
+                                child: Text(
+                                  title.isNotEmpty ? title : 'No Title',
+                                  style: TextStyle(
+                                    fontSize: getResponsiveSize(12),
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.textDark,
+                                  ),
+                                  maxLines: 2, // Allow 2 lines for longer titles
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
                           ),
-                      ],
+                          
+                          SizedBox(height: getResponsiveSize(4)),
+                          
+                          // Topics - FIXED: Remove Flexible and use normal Text with more lines
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: getResponsiveSize(2),
+                            ),
+                            child: Text(
+                              topicTitles.isNotEmpty && topicTitles.trim().isNotEmpty 
+                                  ? topicTitles 
+                                  : 'No topics scheduled',
+                              style: TextStyle(
+                                fontSize: getResponsiveSize(10),
+                                color: AppColors.textDark,
+                              ),
+                              maxLines: 3, // Increased to 3 lines
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );
               },
             ),
           ),
-        ),
-        
-        // Dot indicators - only if multiple subjects
-        if (entries.length > 1)
-          SizedBox(
-            height: getResponsiveSize(12),
-            child: Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(entries.length, (index) {
-                  final currentPage = _timetablePageController.hasClients 
-                      ? (_timetablePageController.page?.round() ?? 0)
-                      : 0;
-                  
-                  return Container(
-                    margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
-                    width: currentPage == index ? getResponsiveSize(8) : getResponsiveSize(4),
-                    height: getResponsiveSize(4),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: currentPage == index
-                          ? AppColors.primaryBlue
-                          : AppColors.primaryBlue.withOpacity(0.3),
-                    ),
-                  );
-                }),
+          
+          // Dot indicators - only if multiple subjects
+          if (entries.length > 1)
+            Container(
+              height: getResponsiveSize(12),
+              margin: EdgeInsets.only(top: getResponsiveSize(2)),
+              child: Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(entries.length, (index) {
+                    final currentPage = _timetablePageController.hasClients 
+                        ? (_timetablePageController.page?.round() ?? 0)
+                        : 0;
+                    
+                    return Container(
+                      margin: EdgeInsets.symmetric(horizontal: getResponsiveSize(2)),
+                      width: currentPage == index ? getResponsiveSize(6) : getResponsiveSize(4),
+                      height: getResponsiveSize(4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: currentPage == index
+                            ? AppColors.primaryBlue
+                            : AppColors.primaryBlue.withOpacity(0.3),
+                      ),
+                    );
+                  }),
+                ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
+
   // Build Section Header
   Widget _buildSectionHeader(String title, double Function(double) getResponsiveSize) {
     return Column(
@@ -2566,7 +3303,8 @@ class _HomeScreenState extends State<HomeScreen> {
               getResponsiveSize(20),
               isLandscape ? getResponsiveSize(40) : getResponsiveSize(60),
               getResponsiveSize(20),
-              getResponsiveSize(32),
+              // 🆕 INCREASED BOTTOM PADDING: from getResponsiveSize(32) to getResponsiveSize(40) for better spacing
+              isLandscape ? getResponsiveSize(40) : getResponsiveSize(40), // Increased for both orientations
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

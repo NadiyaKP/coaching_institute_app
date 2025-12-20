@@ -129,23 +129,23 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     _initializeData();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    debugPrint('🎬 VideoScreen Lifecycle State Changed: $state');
-    
-    // Send stored data when app goes to background (minimized or device locked)
-    // Only for online students
-    if (_studentType.toLowerCase() == 'online') {
-      if (state == AppLifecycleState.paused || 
-          state == AppLifecycleState.inactive ||
-          state == AppLifecycleState.hidden) {
-        debugPrint('🎬 App going to background - sending video events to API');
-        _sendStoredVideoEventsToAPI();
-      }
-    } else {
-      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+ @override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  debugPrint('🎬 VideoScreen Lifecycle State Changed: $state');
+  
+  // Send stored data when app goes to background (minimized or device locked)
+  // Enable for both 'online' and 'offline' students, but not 'public'
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      debugPrint('🎬 App going to background - sending video events to API');
+      _sendStoredVideoEventsToAPI();
     }
+  } else {
+    debugPrint('🎬 Student type is $_studentType - skipping video events collection');
   }
+}
 
   @override
   void dispose() {
@@ -1013,23 +1013,23 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   }
 
   // Enhanced exit screen method that sends data without waiting
-  void _exitScreen() {
-    if (_studentType.toLowerCase() == 'online') {
-      // Send watching data to backend without waiting for response
-      _sendStoredVideoEventsToAPI().catchError((e) {
-        debugPrint('Error sending watching data on exit: $e');
-        // Don't show error to user, just log it
-      });
-    }
-    
-    // Send mark read API when returning from videos section
-    _sendMarkReadApi();
-    
-    if (mounted) {
-      Navigator.pop(context);
-    }
+void _exitScreen() {
+  // Enable for both 'online' and 'offline' students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    // Send watching data to backend without waiting for response
+    _sendStoredVideoEventsToAPI().catchError((e) {
+      debugPrint('Error sending watching data on exit: $e');
+      // Don't show error to user, just log it
+    });
   }
-
+  
+  // Send mark read API when returning from videos section
+  _sendMarkReadApi();
+  
+  if (mounted) {
+    Navigator.pop(context);
+  }
+}
   // Method to check if there is stored video events data
   Future<bool> _hasStoredVideoEvents() async {
     try {
@@ -1047,183 +1047,182 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   }
 
   // FIXED: Enhanced with debouncing and duplicate call prevention
-  Future<void> _sendStoredVideoEventsToAPI() async {
-    // Only send data for online students
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
-      return;
-    }
-
-    // Check if we're already sending data
-    if (_isSendingVideoEvents) {
-      debugPrint('🎬 Video events API call already in progress, skipping duplicate call');
-      return;
-    }
-
-    // Check debounce time
-    final now = DateTime.now();
-    if (_lastVideoEventsCallTime != null && 
-        now.difference(_lastVideoEventsCallTime!) < _videoEventsDebounceTime) {
-      debugPrint('🎬 Video events API call debounced, too soon since last call');
-      return;
-    }
-
-    try {
-      debugPrint('\n🎬 ===== ATTEMPTING TO SEND STORED VIDEO EVENTS TO API =====');
-      
-      final allKeys = _videoEventsBox.keys.toList();
-      
-      if (allKeys.isEmpty) {
-        debugPrint('🎬 No stored video events found to send');
-        return;
-      }
-
-      debugPrint('🎬 Total video entries to send: ${allKeys.length}');
-
-      // Check if we have access token
-      if (_accessToken == null || _accessToken!.isEmpty) {
-        debugPrint('🎬 ❌ No access token available, cannot send video events');
-        return;
-      }
-
-      // Set flags to prevent duplicate calls
-      setState(() {
-        _isSendingVideoEvents = true;
-        _lastVideoEventsCallTime = now;
-      });
-
-      bool anyDataSent = false;
-      final List<String> successfullySentVideoIds = [];
-
-      for (final videoId in allKeys) {
-        // Skip if this video is already being processed
-        if (_currentlyProcessingVideoIds.contains(videoId)) {
-          debugPrint('🎬 ⚠️ Skipping video $videoId - already being processed');
-          continue;
-        }
-
-        final videoData = _videoEventsBox.get(videoId);
-        
-        if (videoData != null && videoData is Map) {
-          final events = videoData['events'] as List?;
-          final videoTitle = videoData['video_title'] as String? ?? 'Unknown Video';
-          
-          if (events != null && events.isNotEmpty) {
-            debugPrint('\n🎬 Processing video: $videoTitle');
-            debugPrint('🎬 Video ID: $videoId');
-            debugPrint('🎬 Events count: ${events.length}');
-            
-            // Add to currently processing set
-            _currentlyProcessingVideoIds.add(videoId);
-            
-            // Filter events to ensure only one 'ended' event
-            List<dynamic> filteredEvents = _filterEvents(events);
-            debugPrint('🎬 Filtered events count: ${filteredEvents.length}');
-            
-            // Flatten the events array if it contains nested sessions
-            List<dynamic> flattenedEvents = _flattenEvents(filteredEvents);
-            debugPrint('🎬 Flattened events count: ${flattenedEvents.length}');
-            
-            // Prepare request body according to API specification
-            final requestBody = {
-              "video_id": videoId,
-              "events": flattenedEvents,
-            };
-
-            debugPrint('🎬 Request Body:');
-            debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
-
-            // API endpoint
-            final apiUrl = '${ApiConfig.baseUrl}/api/performance/video_events/';
-
-            debugPrint('🎬 API URL: $apiUrl');
-
-            try {
-              // Send POST request
-              final response = await globalHttpClient.post(
-                Uri.parse(apiUrl),
-                headers: _getAuthHeaders(),
-                body: jsonEncode(requestBody),
-              ).timeout(const Duration(seconds: 30));
-
-              debugPrint('🎬 Response Status Code: ${response.statusCode}');
-              debugPrint('🎬 Response Body: ${response.body}');
-
-              if (response.statusCode == 200 || response.statusCode == 201) {
-                try {
-                  final responseJson = jsonDecode(response.body);
-                  if (responseJson['success'] == true) {
-                    debugPrint('🎬 ✅ Video events sent successfully for video: $videoTitle');
-                    
-                    // Mark this video for removal after successful API call
-                    successfullySentVideoIds.add(videoId);
-                    anyDataSent = true;
-                    
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Video progress synced for $videoTitle'),
-                          backgroundColor: AppColors.successGreen,
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    }
-                  } else {
-                    debugPrint('🎬 ❌ API returned success: false for video: $videoTitle');
-                  }
-                } catch (e) {
-                  debugPrint('🎬 ❌ Error parsing response JSON: $e');
-                }
-              } else if (response.statusCode == 401) {
-                debugPrint('🎬 ❌ Unauthorized - token may be expired');
-                _handleTokenExpiration();
-                break; // Stop trying to send more requests
-              } else {
-                debugPrint('🎬 ❌ Failed to send video events. Status: ${response.statusCode}');
-              }
-            } catch (e) {
-              debugPrint('🎬 ❌ Error sending video events for $videoId: $e');
-            } finally {
-              // Remove from currently processing set
-              _currentlyProcessingVideoIds.remove(videoId);
-            }
-          } else {
-            debugPrint('🎬 ⚠️ No events found for video: $videoTitle');
-            // Remove empty video entry
-            successfullySentVideoIds.add(videoId);
-          }
-        }
-      }
-
-      // Remove successfully sent videos from Hive
-      for (final videoId in successfullySentVideoIds) {
-        await _videoEventsBox.delete(videoId);
-        debugPrint('🎬 ✅ Removed video $videoId from local storage');
-      }
-
-      if (anyDataSent) {
-        debugPrint('🎬 ✅ Successfully sent some video events to API');
-      } else {
-        debugPrint('🎬 ⚠️ No video events were successfully sent to API');
-      }
-
-      debugPrint('🎬 ===== FINISHED SENDING VIDEO EVENTS =====\n');
-      
-      // Print remaining data in Hive
-      _printStoredVideoEvents();
-
-    } catch (e) {
-      debugPrint('🎬 ❌ Error in _sendStoredVideoEventsToAPI: $e');
-    } finally {
-      // Reset sending flag
-      if (mounted) {
-        setState(() {
-          _isSendingVideoEvents = false;
-        });
-      }
-    }
+Future<void> _sendStoredVideoEventsToAPI() async {
+  // Check for both 'online' and 'offline' student types, exclude 'public'
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
+    debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+    return;
   }
 
+  // Check if we're already sending data
+  if (_isSendingVideoEvents) {
+    debugPrint('🎬 Video events API call already in progress, skipping duplicate call');
+    return;
+  }
+
+  // Check debounce time
+  final now = DateTime.now();
+  if (_lastVideoEventsCallTime != null && 
+      now.difference(_lastVideoEventsCallTime!) < _videoEventsDebounceTime) {
+    debugPrint('🎬 Video events API call debounced, too soon since last call');
+    return;
+  }
+
+  try {
+    debugPrint('\n🎬 ===== ATTEMPTING TO SEND STORED VIDEO EVENTS TO API =====');
+    
+    final allKeys = _videoEventsBox.keys.toList();
+    
+    if (allKeys.isEmpty) {
+      debugPrint('🎬 No stored video events found to send');
+      return;
+    }
+
+    debugPrint('🎬 Total video entries to send: ${allKeys.length}');
+
+    // Check if we have access token
+    if (_accessToken == null || _accessToken!.isEmpty) {
+      debugPrint('🎬 ❌ No access token available, cannot send video events');
+      return;
+    }
+
+    // Set flags to prevent duplicate calls
+    setState(() {
+      _isSendingVideoEvents = true;
+      _lastVideoEventsCallTime = now;
+    });
+
+    bool anyDataSent = false;
+    final List<String> successfullySentVideoIds = [];
+
+    for (final videoId in allKeys) {
+      // Skip if this video is already being processed
+      if (_currentlyProcessingVideoIds.contains(videoId)) {
+        debugPrint('🎬 ⚠️ Skipping video $videoId - already being processed');
+        continue;
+      }
+
+      final videoData = _videoEventsBox.get(videoId);
+      
+      if (videoData != null && videoData is Map) {
+        final events = videoData['events'] as List?;
+        final videoTitle = videoData['video_title'] as String? ?? 'Unknown Video';
+        
+        if (events != null && events.isNotEmpty) {
+          debugPrint('\n🎬 Processing video: $videoTitle');
+          debugPrint('🎬 Video ID: $videoId');
+          debugPrint('🎬 Events count: ${events.length}');
+          
+          // Add to currently processing set
+          _currentlyProcessingVideoIds.add(videoId);
+          
+          // Filter events to ensure only one 'ended' event
+          List<dynamic> filteredEvents = _filterEvents(events);
+          debugPrint('🎬 Filtered events count: ${filteredEvents.length}');
+          
+          // Flatten the events array if it contains nested sessions
+          List<dynamic> flattenedEvents = _flattenEvents(filteredEvents);
+          debugPrint('🎬 Flattened events count: ${flattenedEvents.length}');
+          
+          // Prepare request body according to API specification
+          final requestBody = {
+            "video_id": videoId,
+            "events": flattenedEvents,
+          };
+
+          debugPrint('🎬 Request Body:');
+          debugPrint(const JsonEncoder.withIndent('  ').convert(requestBody));
+
+          // API endpoint
+          final apiUrl = '${ApiConfig.baseUrl}/api/performance/video_events/';
+
+          debugPrint('🎬 API URL: $apiUrl');
+
+          try {
+            // Send POST request
+            final response = await globalHttpClient.post(
+              Uri.parse(apiUrl),
+              headers: _getAuthHeaders(),
+              body: jsonEncode(requestBody),
+            ).timeout(const Duration(seconds: 30));
+
+            debugPrint('🎬 Response Status Code: ${response.statusCode}');
+            debugPrint('🎬 Response Body: ${response.body}');
+
+            if (response.statusCode == 200 || response.statusCode == 201) {
+              try {
+                final responseJson = jsonDecode(response.body);
+                if (responseJson['success'] == true) {
+                  debugPrint('🎬 ✅ Video events sent successfully for video: $videoTitle');
+                  
+                  // Mark this video for removal after successful API call
+                  successfullySentVideoIds.add(videoId);
+                  anyDataSent = true;
+                  
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Video progress synced for $videoTitle'),
+                        backgroundColor: AppColors.successGreen,
+                        duration: const Duration(seconds: 2),
+                      ),
+                    );
+                  }
+                } else {
+                  debugPrint('🎬 ❌ API returned success: false for video: $videoTitle');
+                }
+              } catch (e) {
+                debugPrint('🎬 ❌ Error parsing response JSON: $e');
+              }
+            } else if (response.statusCode == 401) {
+              debugPrint('🎬 ❌ Unauthorized - token may be expired');
+              _handleTokenExpiration();
+              break; // Stop trying to send more requests
+            } else {
+              debugPrint('🎬 ❌ Failed to send video events. Status: ${response.statusCode}');
+            }
+          } catch (e) {
+            debugPrint('🎬 ❌ Error sending video events for $videoId: $e');
+          } finally {
+            // Remove from currently processing set
+            _currentlyProcessingVideoIds.remove(videoId);
+          }
+        } else {
+          debugPrint('🎬 ⚠️ No events found for video: $videoTitle');
+          // Remove empty video entry
+          successfullySentVideoIds.add(videoId);
+        }
+      }
+    }
+
+    // Remove successfully sent videos from Hive
+    for (final videoId in successfullySentVideoIds) {
+      await _videoEventsBox.delete(videoId);
+      debugPrint('🎬 ✅ Removed video $videoId from local storage');
+    }
+
+    if (anyDataSent) {
+      debugPrint('🎬 ✅ Successfully sent some video events to API');
+    } else {
+      debugPrint('🎬 ⚠️ No video events were successfully sent to API');
+    }
+
+    debugPrint('🎬 ===== FINISHED SENDING VIDEO EVENTS =====\n');
+    
+    // Print remaining data in Hive
+    _printStoredVideoEvents();
+
+  } catch (e) {
+    debugPrint('🎬 ❌ Error in _sendStoredVideoEventsToAPI: $e');
+  } finally {
+    // Reset sending flag
+    if (mounted) {
+      setState(() {
+        _isSendingVideoEvents = false;
+      });
+    }
+  }
+}
   // Print stored video events for debugging
   void _printStoredVideoEvents() {
     final allKeys = _videoEventsBox.keys.toList();
@@ -1312,63 +1311,63 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
     return flattened;
   }
 
-  // Method: Send stored events for other videos when starting a new video
-  Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) async {
-    // Only send data for online students
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
-      return;
-    }
-
-    try {
-      debugPrint('\n🎬 ===== CHECKING FOR OTHER VIDEO EVENTS BEFORE STARTING NEW VIDEO =====');
-      debugPrint('🎬 New video ID: $newVideoId');
-      
-      final allKeys = _videoEventsBox.keys.toList();
-      final otherVideoKeys = allKeys.where((key) => key != newVideoId).toList();
-      
-      if (otherVideoKeys.isNotEmpty) {
-        debugPrint('🎬 Found stored events for ${otherVideoKeys.length} other videos - sending to API first');
-        await _sendStoredVideoEventsToAPI();
-        debugPrint('🎬 Finished sending other video events, now starting new video');
-      } else {
-        debugPrint('🎬 No stored events for other videos found');
-      }
-      
-      debugPrint('🎬 ===== FINISHED CHECKING OTHER VIDEO EVENTS =====\n');
-    } catch (e) {
-      debugPrint('🎬 ❌ Error in _sendOtherVideoEventsBeforeStartingNewVideo: $e');
-    }
+ // Method: Send stored events for other videos when starting a new video
+Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) async {
+  // Check for both 'online' and 'offline' student types, exclude 'public'
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
+    debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+    return;
   }
 
-  Future<bool> _handleDeviceBackButton() async {
-    debugPrint('🎬 Back button pressed - current page: $_currentPage');
+  try {
+    debugPrint('\n🎬 ===== CHECKING FOR OTHER VIDEO EVENTS BEFORE STARTING NEW VIDEO =====');
+    debugPrint('🎬 New video ID: $newVideoId');
     
-    if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
-      // On subjects page - check for stored data and send if exists
-      // Only for online students
-      if (_studentType.toLowerCase() == 'online') {
-        debugPrint('🎬 On subjects page - checking for stored video events');
-        final hasData = await _hasStoredVideoEvents();
-        if (hasData) {
-          debugPrint('🎬 Found stored video events - sending to API');
-          // Send data in background without waiting for response
-          _sendStoredVideoEventsToAPI();
-        } else {
-          debugPrint('🎬 No stored video events found');
-        }
-      } else {
-        debugPrint('🎬 Student type is $_studentType - skipping video events collection');
-      }
-      // Exit the screen
-      _exitScreen();
-      return false; // Don't allow default back behavior
+    final allKeys = _videoEventsBox.keys.toList();
+    final otherVideoKeys = allKeys.where((key) => key != newVideoId).toList();
+    
+    if (otherVideoKeys.isNotEmpty) {
+      debugPrint('🎬 Found stored events for ${otherVideoKeys.length} other videos - sending to API first');
+      await _sendStoredVideoEventsToAPI();
+      debugPrint('🎬 Finished sending other video events, now starting new video');
     } else {
-      // For other pages, do normal navigation
-      _navigateBack();
-      return false; // Don't allow default back behavior
+      debugPrint('🎬 No stored events for other videos found');
     }
+    
+    debugPrint('🎬 ===== FINISHED CHECKING OTHER VIDEO EVENTS =====\n');
+  } catch (e) {
+    debugPrint('🎬 ❌ Error in _sendOtherVideoEventsBeforeStartingNewVideo: $e');
   }
+}
+
+ Future<bool> _handleDeviceBackButton() async {
+  debugPrint('🎬 Back button pressed - current page: $_currentPage');
+  
+  if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
+    // On subjects page - check for stored data and send if exists
+    // Enable for both 'online' and 'offline' students
+    if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+      debugPrint('🎬 On subjects page - checking for stored video events');
+      final hasData = await _hasStoredVideoEvents();
+      if (hasData) {
+        debugPrint('🎬 Found stored video events - sending to API');
+        // Send data in background without waiting for response
+        _sendStoredVideoEventsToAPI();
+      } else {
+        debugPrint('🎬 No stored video events found');
+      }
+    } else {
+      debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+    }
+    // Exit the screen
+    _exitScreen();
+    return false; // Don't allow default back behavior
+  } else {
+    // For other pages, do normal navigation
+    _navigateBack();
+    return false; // Don't allow default back behavior
+  }
+}
 
   String _getAppBarTitle() {
     if (_navigationStack.isNotEmpty) {
@@ -2506,28 +2505,25 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
           return;
         }
         
-        // Remove notification for this video and add to mark read list
-        _removeNotificationForVideo(videoId);
-        
-        // Send stored events for other videos before starting new video
-        // Only for online students
-        if (_studentType.toLowerCase() == 'online') {
-          _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
-        } else {
-          debugPrint('🎬 Student type is $_studentType - skipping video events collection');
-        }
-        
-        // Navigate to video stream page
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => VideoStreamScreen(
-              videoId: videoId,
-              videoTitle: title,
-              videoDuration: '', 
+          _removeNotificationForVideo(videoId);
+
+          if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+            _sendOtherVideoEventsBeforeStartingNewVideo(videoId);
+          } else {
+            debugPrint('🎬 Student type is $_studentType - skipping video events collection');
+          }
+
+          // Navigate to video stream page
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => VideoStreamScreen(
+                videoId: videoId,
+                videoTitle: title,
+                videoDuration: '', 
+              ),
             ),
-          ),
-        );
+          );
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),

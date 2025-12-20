@@ -432,35 +432,37 @@ class _MockTestScreenState extends State<MockTestScreen> {
   }
 
   // Navigate to View Profile
-  void _navigateToViewProfile() async {
-    final result = await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => ViewProfileScreen(
-          onProfileUpdated: (Map<String, String> updatedData) {
-            // Refresh profile data when returning from view profile
-            _loadProfileData();
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Profile updated successfully!'),
-                backgroundColor: Color(0xFFF4B400),
-              ),
-            );
-          },
-        ),
+void _navigateToViewProfile() async {
+  // DON'T close the drawer here - let it stay open
+  final result = await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (context) => ViewProfileScreen(
+        onProfileUpdated: (Map<String, String> updatedData) {
+          // Refresh profile data when returning from view profile
+          _loadProfileData();
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Profile updated successfully!'),
+              backgroundColor: Color(0xFFF4B400),
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   // Navigate to Settings
-  void _navigateToSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SettingsScreen(),
-      ),
-    );
-  }
+void _navigateToSettings() {
+  // DON'T close the drawer here - let it stay open
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => const SettingsScreen(),
+    ),
+  );
+}
 
   // Navigate to Mock Test View or Descriptive Practice
   void _navigateToMockTest(String chapterId, String chapterName) async {
@@ -811,25 +813,25 @@ class _MockTestScreenState extends State<MockTestScreen> {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.backgroundLight,
-      endDrawer: CommonProfileDrawer(
-        name: _userName,
-        email: _userEmail,
-        course: _courseName,
-        subcourse: _subcourseName,
-        studentType: _studentType,
-        profileCompleted: _profileCompleted,
-        onViewProfile: () {
-          Navigator.of(context).pop();
-          _navigateToViewProfile();
-        },
-        onSettings: () {
-          Navigator.of(context).pop();
-          _navigateToSettings();
-        },
-        onClose: () {
-          Navigator.of(context).pop();
-        },
-      ),
+     endDrawer: CommonProfileDrawer(
+      name: _userName,
+      email: _userEmail,
+      course: _courseName,
+      subcourse: _subcourseName,
+      studentType: _studentType,
+      profileCompleted: _profileCompleted,
+      onViewProfile: () {
+        // Remove the Navigator.of(context).pop() line
+        _navigateToViewProfile();
+      },
+      onSettings: () {
+        // Remove the Navigator.of(context).pop() line
+        _navigateToSettings();
+      },
+      onClose: () {
+        Navigator.of(context).pop();
+      },
+    ),
       body: PopScope(
         canPop: false,
         onPopInvoked: (bool didPop) async {

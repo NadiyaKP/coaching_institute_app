@@ -39,6 +39,11 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   
   StreamSubscription<bool>? _websocketConnectionSubscription;
   Timer? _reconnectionCheckTimer;
+  
+  // Track connection states to prevent duplicate messages
+  bool _hasShownDisconnectionMessage = false;
+  bool _hasShownReconnectionMessage = false;
+  bool _lastKnownConnectionState = true;
 
   @override
   void initState() {
@@ -65,27 +70,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
 
   void _handleReconnectionNavigation() {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.wifi, size: 16, color: Colors.white),
-              SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Connection restored! Returning to focus mode.',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-      );
-      
       setState(() {
         _initializationFuture = _initializeData();
       });
@@ -101,77 +85,42 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
         setState(() {});
       }
       
-      if (!isConnected && !WebSocketManager.isConnected) {
+      // Handle disconnection - show message only once
+      if (!isConnected && !WebSocketManager.isConnected && !_hasShownDisconnectionMessage) {
         debugPrint('🔌 WebSocket disconnected detected in entry screen');
+        _hasShownDisconnectionMessage = true;
+        _hasShownReconnectionMessage = false;
         
         final prefs = await SharedPreferences.getInstance();
         final wasFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
         if (wasFocusActive && mounted) {
           _showWebSocketDisconnectedNotification();
         }
-      } else if (isConnected && mounted) {
+      } 
+      // Handle reconnection - show message only once
+      else if (isConnected && mounted && !_hasShownReconnectionMessage) {
         debugPrint('✅ WebSocket reconnected in entry screen');
-        
-        if (ModalRoute.of(context)?.settings.name == '/focus_mode') {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 16),
-                  SizedBox(width: 6),
-                  Text('Connected successfully!', style: TextStyle(fontSize: 12)),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
+        _hasShownReconnectionMessage = true;
+        _hasShownDisconnectionMessage = false;
         
         if (_isReconnecting) {
           setState(() {
             _isReconnecting = false;
           });
-          
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Row(
-                children: [
-                  Icon(Icons.check_circle, color: Colors.white, size: 16),
-                  SizedBox(width: 6),
-                  Text('Connected successfully!', style: TextStyle(fontSize: 12)),
-                ],
-              ),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
         }
       }
+      
+      // Update last known state
+      _lastKnownConnectionState = isConnected;
     });
   }
 
   void _handleWebSocketDisconnectionNavigation() {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.wifi_off, size: 16, color: Colors.white),
-              SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Focus mode stopped due to connection loss',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 2),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
+      _showSmallSnackbar(
+        message: 'Focus mode stopped due to connection loss',
+        backgroundColor: Colors.orange,
+        icon: Icons.wifi_off,
       );
       
       setState(() {
@@ -183,31 +132,54 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
 
   void _showWebSocketDisconnectedNotification() {
     if (mounted) {
+      _showSmallSnackbar(
+        message: 'Focus mode was stopped due to connection loss',
+        backgroundColor: Colors.orange,
+        icon: Icons.wifi_off,
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'Dismiss',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+      );
+    }
+  }
+
+  // Helper method to show small snackbars
+  void _showSmallSnackbar({
+    required String message,
+    required Color backgroundColor,
+    IconData? icon,
+    Duration duration = const Duration(seconds: 2),
+    SnackBarAction? action,
+  }) {
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Row(
+          content: Row(
             children: [
-              Icon(Icons.wifi_off, size: 16, color: Colors.white),
-              SizedBox(width: 6),
+              if (icon != null) ...[
+                Icon(icon, size: 14, color: Colors.white),
+                const SizedBox(width: 6),
+              ],
               Expanded(
                 child: Text(
-                  'Focus mode was stopped due to connection loss',
-                  style: TextStyle(fontSize: 12),
+                  message,
+                  style: const TextStyle(fontSize: 11), // Reduced font size
                 ),
               ),
             ],
           ),
-          backgroundColor: Colors.orange,
-          duration: const Duration(seconds: 3),
+          backgroundColor: backgroundColor,
+          duration: duration,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          action: SnackBarAction(
-            label: 'Dismiss',
-            textColor: Colors.white,
-            onPressed: () {
-              ScaffoldMessenger.of(context).hideCurrentSnackBar();
-            },
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          action: action,
         ),
       );
     }
@@ -365,20 +337,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     });
 
     try {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)),
-                SizedBox(width: 8),
-                Text('Reconnecting...', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-            duration: Duration(seconds: 15),
-          ),
-        );
-      }
+      // Removed: _showSmallSnackbar for 'Reconnecting...'
       
       await WebSocketManager.resetConnectionState();
       await Future.delayed(const Duration(milliseconds: 300));
@@ -399,31 +358,14 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       }
       
       if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        // Removed: ScaffoldMessenger.of(context).hideCurrentSnackBar();
         
-        if (connected) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Reconnected!', style: TextStyle(fontSize: 12)),
-              backgroundColor: Colors.green,
-              duration: Duration(seconds: 2),
-            ),
-          );
-          
-          setState(() {
-            _isReconnecting = false;
-            _initializationFuture = _initializeData();
-          });
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to reconnect', style: TextStyle(fontSize: 12)),
-              backgroundColor: Colors.red,
-              duration: Duration(seconds: 3),
-            ),
-          );
-          setState(() => _isReconnecting = false);
-        }
+        // Removed: _showSmallSnackbar for 'Reconnected!'
+        
+        setState(() {
+          _isReconnecting = false;
+          _initializationFuture = _initializeData();
+        });
       }
     } catch (e, stackTrace) {
       debugPrint('❌❌❌ RECONNECTION ERROR ❌❌❌');
@@ -431,13 +373,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       debugPrint('Stack: $stackTrace');
       
       if (mounted) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Connection error', style: TextStyle(fontSize: 12)),
-            duration: Duration(seconds: 3),
-          ),
-        );
+        // Removed: ScaffoldMessenger.of(context).hideCurrentSnackBar();
         setState(() => _isReconnecting = false);
       }
     }
@@ -524,12 +460,10 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       } else if (e.toString().contains('WebSocket connection required')) {
         await _showWebSocketErrorPopup();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString().length > 40 ? e.toString().substring(0, 40) + '...' : e.toString()}', style: const TextStyle(fontSize: 12)),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
+        _showSmallSnackbar(
+          message: 'Error starting focus mode',
+          backgroundColor: Colors.red,
+          icon: Icons.error,
         );
       }
       
@@ -760,12 +694,10 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       
     } catch (e) {
       debugPrint('❌ Error in actuallyStartFocusMode: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString().length > 40 ? e.toString().substring(0, 40) + '...' : e.toString()}', style: const TextStyle(fontSize: 12)),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
+      _showSmallSnackbar(
+        message: 'Error starting focus mode',
+        backgroundColor: Colors.red,
+        icon: Icons.error,
       );
       setState(() {
         _isStartingFocusMode = false;
@@ -1127,12 +1059,10 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       WebSocketManager.logConnectionState();
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logged out successfully!', style: TextStyle(fontSize: 12)),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
+        _showSmallSnackbar(
+          message: 'Logged out successfully!',
+          backgroundColor: Colors.green,
+          icon: Icons.check_circle,
         );
         
         Navigator.of(context).pushNamedAndRemoveUntil(
@@ -1189,577 +1119,541 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     return IOClient(client);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenHeight < 700;
+ @override
+Widget build(BuildContext context) {
+  final screenHeight = MediaQuery.of(context).size.height;
+  final screenWidth = MediaQuery.of(context).size.width;
+  final isSmallScreen = screenHeight < 700;
 
-    return WillPopScope(
-      onWillPop: () async {
-        final shouldExit = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              title: const Row(
-                children: [
-                  Icon(Icons.exit_to_app, color: Colors.orange, size: 20),
-                  SizedBox(width: 6),
-                  Text('Exit App', style: TextStyle(fontSize: 15)),
-                ],
-              ),
-              content: const Text(
-                'Are you sure you want to exit the application?',
-                style: TextStyle(fontSize: 12),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  child: const Text('EXIT', style: TextStyle(color: Colors.white, fontSize: 12)),
-                ),
+  return WillPopScope(
+    onWillPop: () async {
+      final shouldExit = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            title: const Row(
+              children: [
+                Icon(Icons.exit_to_app, color: Colors.orange, size: 20),
+                SizedBox(width: 6),
+                Text('Exit App', style: TextStyle(fontSize: 15)),
               ],
-            );
-          },
-        );
-        
-        if (shouldExit == true) {
-          if (Platform.isAndroid) {
-            SystemNavigator.pop();
-          } else if (Platform.isIOS) {
-            exit(0);
-          }
+            ),
+            content: const Text(
+              'Are you sure you want to exit the application?',
+              style: TextStyle(fontSize: 12),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Text('EXIT', style: TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+            ],
+          );
+        },
+      );
+      
+      if (shouldExit == true) {
+        if (Platform.isAndroid) {
+          SystemNavigator.pop();
+        } else if (Platform.isIOS) {
+          exit(0);
         }
-        
-        return false;
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF5F7FA),
-        body: FutureBuilder<Duration>(
-          future: _initializationFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: SizedBox(
-                  width: 24,
-                  height: 24,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF43E97B)),
-                  ),
+      }
+      
+      return false;
+    },
+    child: Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: FutureBuilder<Duration>(
+        future: _initializationFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF43E97B)),
                 ),
-              );
-            }
-            
-            if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.error_outline, size: 36, color: Colors.red),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Failed to Initialize',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        snapshot.error.toString().length > 60 
-                            ? '${snapshot.error.toString().substring(0, 60)}...' 
-                            : snapshot.error.toString(),
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _initializationFuture = _initializeData();
-                          });
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF43E97B),
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        child: const Text('Retry', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-            
-            final Duration focusTime = snapshot.data ?? Duration.zero;
-            
-            return SafeArea(
+              ),
+            );
+          }
+          
+          if (snapshot.hasError) {
+            return Center(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.all(16.0),
                 child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // Header with Logout Button
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        IconButton(
-                          icon: _isLoggingOut 
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.logout_rounded, size: 20),
-                          onPressed: _isLoggingOut ? null : _showLogoutDialog,
-                          padding: const EdgeInsets.all(8),
-                          constraints: const BoxConstraints(),
-                          tooltip: 'Logout',
-                          color: Colors.grey[700],
-                        ),
-                        const Spacer(),
-                        ScaleTransition(
-                          scale: _pulseAnimation,
-                          child: Container(
-                            width: isSmallScreen ? 70 : 80,
-                            height: isSmallScreen ? 70 : 80,
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
-                              ),
-                              shape: BoxShape.circle,
-                              boxShadow: [
-                                BoxShadow(
-                                  color: const Color(0xFF43E97B).withOpacity(0.2),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 4),
-                                ),
-                              ],
-                            ),
-                            child: Icon(Icons.psychology_rounded, size: isSmallScreen ? 35 : 40, color: Colors.white),
-                          ),
-                        ),
-                        const Spacer(),
-                        const SizedBox(width: 40), // Balance the logout button space
-                      ],
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.error_outline, size: 36, color: Colors.red),
                     ),
-                    
-                     SizedBox(height: isSmallScreen ? 8 : 12),
-                    
+                    const SizedBox(height: 12),
                     const Text(
-                      'Focus Mode',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                      'Failed to Initialize',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
                     ),
-                    
-                    const SizedBox(height: 4),
-                    
+                    const SizedBox(height: 6),
                     Text(
-                      _hasOverlayPermission ? 'Ready to boost productivity' : 'Grant permission to start',
+                      snapshot.error.toString().length > 60 
+                          ? '${snapshot.error.toString().substring(0, 60)}...' 
+                          : snapshot.error.toString(),
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500),
+                      style: const TextStyle(fontSize: 11, color: Colors.grey),
                     ),
-                    
-                    SizedBox(height: isSmallScreen ? 12 : 16),
-                    
-                    // Stats Card (Compact)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _initializationFuture = _initializeData();
+                        });
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF43E97B),
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: Column(
-                        children: [
-                          // Timer Display
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  const Color(0xFF43E97B).withOpacity(0.08),
-                                  const Color(0xFF38F9D7).withOpacity(0.08),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Column(
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      padding: const EdgeInsets.all(5),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFF43E97B).withOpacity(0.15),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: const Icon(Icons.timer_rounded, color: Color(0xFF43E97B), size: 16),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      'Today\'s Focus Time',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _formatDuration(focusTime),
-                                  style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF43E97B),
-                                    fontFamily: 'monospace',
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                                if (_isRestoredFromDisconnect) ...[
-                                  const SizedBox(height: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.green.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.restore, size: 10, color: Colors.green),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'Restored from last session',
-                                          style: TextStyle(fontSize: 10, color: Colors.green[700], fontWeight: FontWeight.w600),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          
-                          const SizedBox(height: 12),
-                          
-                          // Permission Status
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
-                                  color: _hasOverlayPermission ? Colors.green : Colors.orange,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _hasOverlayPermission ? 'Full Protection Enabled' : 'Permission Required',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 1),
-                                      Text(
-                                        _hasOverlayPermission ? 'Distraction blocking is active' : 'Enable overlay for best results',
-                                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          
-                          // WebSocket Connection Status
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: WebSocketManager.isConnected 
-                                  ? Colors.green.withOpacity(0.08) 
-                                  : Colors.orange.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: WebSocketManager.isConnected 
-                                    ? Colors.green.withOpacity(0.2) 
-                                    : Colors.orange.withOpacity(0.2),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  WebSocketManager.isConnected ? Icons.wifi : Icons.wifi_off,
-                                  color: WebSocketManager.isConnected ? Colors.green : Colors.orange,
-                                  size: 18,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        WebSocketManager.isConnected ? 'Server Connected' : 'Server Disconnected',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.bold,
-                                          color: WebSocketManager.isConnected ? Colors.green[700] : Colors.orange[700],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 1),
-                                      Text(
-                                        WebSocketManager.isConnected 
-                                            ? 'Ready for focus sessions' 
-                                            : 'Focus mode requires connection',
-                                        style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (!WebSocketManager.isConnected) ...[
-                                  const SizedBox(width: 6),
-                                  GestureDetector(
-                                    onTap: _isReconnecting ? null : _attemptReconnection,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: _isReconnecting ? Colors.grey : const Color(0xFF43E97B),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: _isReconnecting
-                                          ? const SizedBox(
-                                              width: 12,
-                                              height: 12,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 1.5,
-                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                              ),
-                                            )
-                                          : const Text(
-                                              'Reconnect',
-                                              style: TextStyle(
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.white,
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+                      child: const Text('Retry', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
-                    
-                    SizedBox(height: isSmallScreen ? 12 : 16),
-                    
-                    // Features Grid (Compact)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
-                            blurRadius: 10,
-                            offset: const Offset(0, 3),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'What You Get',
-                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
-                          ),
-                          const SizedBox(height: 10),
-                          _buildFeatureItem(
-                            icon: Icons.block_rounded,
-                            title: 'App Blocking',
-                            description: 'Block distracting apps',
-                            color: const Color(0xFF43E97B),
-                            isSmallScreen: isSmallScreen,
-                          ),
-                          const SizedBox(height: 8),
-                          _buildFeatureItem(
-                            icon: Icons.analytics_rounded,
-                            title: 'Time Tracking',
-                            description: 'Monitor focus sessions',
-                            color: const Color(0xFF38F9D7),
-                            isSmallScreen: isSmallScreen,
-                          ),
-                          const SizedBox(height: 8),
-                          _buildFeatureItem(
-                            icon: Icons.trending_up_rounded,
-                            title: 'Productivity Boost',
-                            description: 'Stay focused, achieve more',
-                            color: const Color(0xFFF4B400),
-                            isSmallScreen: isSmallScreen,
-                          ),
-                        ],
-                      ),
-                    ),
-                    
-                    const Spacer(),
-                    
-                    // Start Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton(
-                        onPressed: (!_isStartingFocusMode && !_isReconnecting && WebSocketManager.isConnected) ? _startFocusMode : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: WebSocketManager.isConnected 
-                              ? const Color(0xFF43E97B) 
-                              : Colors.grey[400],
-                          disabledBackgroundColor: Colors.grey[300],
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          elevation: (_isStartingFocusMode || _isReconnecting) ? 0 : 4,
-                          shadowColor: WebSocketManager.isConnected 
-                              ? const Color(0xFF43E97B).withOpacity(0.3) 
-                              : Colors.grey,
-                        ),
-                        child: (_isStartingFocusMode || _isReconnecting)
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(WebSocketManager.isConnected ? 0.2 : 0.1),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Icon(
-                                      WebSocketManager.isConnected ? Icons.play_arrow_rounded : Icons.wifi_off,
-                                      color: Colors.white,
-                                      size: 18,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    WebSocketManager.isConnected 
-                                        ? 'Start Focus Session' 
-                                        : 'Connection Required',
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 8),
-                    
-                    // Warning banner when disconnected
-                    if (_wasDisconnectedByWebSocket)
-                      Container(
-                        width: double.infinity,
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.orange.withOpacity(0.2)),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.wifi_off, size: 16, color: Colors.orange[700]),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Previous session stopped',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.orange[700],
-                                    ),
-                                  ),
-                                  Text(
-                                    'Server connection was lost',
-                                    style: TextStyle(fontSize: 10, color: Colors.grey[700]),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            IconButton(
-                              icon: Icon(Icons.close, size: 14, color: Colors.grey[600]),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () {
-                                setState(() {
-                                  _wasDisconnectedByWebSocket = false;
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
                   ],
                 ),
               ),
             );
-          },
-        ),
+          }
+          
+          // Get the focus time from snapshot
+          final Duration focusTime = snapshot.data ?? Duration.zero;
+          
+          return SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Header with Logout Button
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            IconButton(
+                              icon: _isLoggingOut 
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                  : const Icon(Icons.logout_rounded, size: 20),
+                              onPressed: _isLoggingOut ? null : _showLogoutDialog,
+                              padding: const EdgeInsets.all(8),
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Logout',
+                              color: Colors.grey[700],
+                            ),
+                            const Spacer(),
+                            ScaleTransition(
+                              scale: _pulseAnimation,
+                              child: Container(
+                                width: isSmallScreen ? 70 : 80,
+                                height: isSmallScreen ? 70 : 80,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [Color(0xFF43E97B), Color(0xFF38F9D7)],
+                                  ),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF43E97B).withOpacity(0.2),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(Icons.psychology_rounded, size: isSmallScreen ? 35 : 40, color: Colors.white),
+                              ),
+                            ),
+                            const Spacer(),
+                            const SizedBox(width: 40),
+                          ],
+                        ),
+                        
+                        SizedBox(height: isSmallScreen ? 8 : 12),
+                        
+                        const Text(
+                          'Focus Mode',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                        
+                        const SizedBox(height: 4),
+                        
+                        Text(
+                          _hasOverlayPermission ? 'Ready to boost productivity' : 'Grant permission to start',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500),
+                        ),
+                        
+                        SizedBox(height: isSmallScreen ? 12 : 16),
+                        
+                        // Stats Card (Compact)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            children: [
+                              // Timer Display
+                              Container(
+                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      const Color(0xFF43E97B).withOpacity(0.08),
+                                      const Color(0xFF38F9D7).withOpacity(0.08),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(5),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF43E97B).withOpacity(0.15),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Icon(Icons.timer_rounded, color: Color(0xFF43E97B), size: 16),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        const Text(
+                                          'Today\'s Focus Time',
+                                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.black87),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _formatDuration(focusTime), // Now using the properly defined focusTime variable
+                                      style: const TextStyle(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF43E97B),
+                                        fontFamily: 'monospace',
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
+                                    if (_isRestoredFromDisconnect) ...[
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.green.withOpacity(0.3), width: 1),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.restore, size: 10, color: Colors.green),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Restored from last session',
+                                              style: TextStyle(fontSize: 10, color: Colors.green[700], fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              
+                              const SizedBox(height: 12),
+                              
+                              // Permission Status
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
+                                      color: _hasOverlayPermission ? Colors.green : Colors.orange,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _hasOverlayPermission ? 'Full Protection Enabled' : 'Permission Required',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 1),
+                                          Text(
+                                            _hasOverlayPermission ? 'Distraction blocking is active' : 'Enable overlay for best results',
+                                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              
+                              // WebSocket Connection Status
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: WebSocketManager.isConnected 
+                                      ? Colors.green.withOpacity(0.08) 
+                                      : Colors.orange.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: WebSocketManager.isConnected 
+                                        ? Colors.green.withOpacity(0.2) 
+                                        : Colors.orange.withOpacity(0.2),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      WebSocketManager.isConnected ? Icons.wifi : Icons.wifi_off,
+                                      color: WebSocketManager.isConnected ? Colors.green : Colors.orange,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            WebSocketManager.isConnected ? 'Server Connected' : 'Server Disconnected',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: WebSocketManager.isConnected ? Colors.green[700] : Colors.orange[700],
+                                            ),
+                                          ),
+                                          const SizedBox(height: 1),
+                                          Text(
+                                            WebSocketManager.isConnected 
+                                                ? 'Ready for focus sessions' 
+                                                : 'Focus mode requires connection',
+                                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (!WebSocketManager.isConnected) ...[
+                                      const SizedBox(width: 6),
+                                      GestureDetector(
+                                        onTap: _isReconnecting ? null : _attemptReconnection,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: _isReconnecting ? Colors.grey : const Color(0xFF43E97B),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: _isReconnecting
+                                              ? const SizedBox(
+                                                  width: 12,
+                                                  height: 12,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 1.5,
+                                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                                  ),
+                                                )
+                                              : const Text(
+                                                  'Reconnect',
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.white,
+                                                  ),
+                                                ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        SizedBox(height: isSmallScreen ? 20 : 28),
+                        
+                        // Features Grid (Compact)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'What You Get',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                              ),
+                              const SizedBox(height: 10),
+                              _buildFeatureItem(
+                                icon: Icons.block_rounded,
+                                title: 'App Blocking',
+                                description: 'Block distracting apps',
+                                color: const Color(0xFF43E97B),
+                                isSmallScreen: isSmallScreen,
+                              ),
+                              const SizedBox(height: 8),
+                              _buildFeatureItem(
+                                icon: Icons.analytics_rounded,
+                                title: 'Time Tracking',
+                                description: 'Monitor focus sessions',
+                                color: const Color(0xFF38F9D7),
+                                isSmallScreen: isSmallScreen,
+                              ),
+                              const SizedBox(height: 8),
+                              _buildFeatureItem(
+                                icon: Icons.trending_up_rounded,
+                                title: 'Productivity Boost',
+                                description: 'Stay focused, achieve more',
+                                color: const Color(0xFFF4B400),
+                                isSmallScreen: isSmallScreen,
+                              ),
+                            ],
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 20), // Space before button
+                        
+                        // Start Button - Positioned higher
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: (!_isStartingFocusMode && !_isReconnecting && WebSocketManager.isConnected) ? _startFocusMode : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: WebSocketManager.isConnected 
+                                  ? const Color(0xFF43E97B) 
+                                  : Colors.grey[400],
+                              disabledBackgroundColor: Colors.grey[300],
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              elevation: (_isStartingFocusMode || _isReconnecting) ? 0 : 4,
+                              shadowColor: WebSocketManager.isConnected 
+                                  ? const Color(0xFF43E97B).withOpacity(0.3) 
+                                  : Colors.grey,
+                            ),
+                            child: (_isStartingFocusMode || _isReconnecting)
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(WebSocketManager.isConnected ? 0.2 : 0.1),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Icon(
+                                          WebSocketManager.isConnected ? Icons.play_arrow_rounded : Icons.wifi_off,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        WebSocketManager.isConnected 
+                                            ? 'Start Focus Session' 
+                                            : 'Connection Required',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                        
+                        const SizedBox(height: 8), 
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          );
+        },
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildFeatureItem({
     required IconData icon,

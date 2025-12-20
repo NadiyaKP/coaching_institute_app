@@ -93,17 +93,18 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    
-    if (_studentType.toLowerCase() == 'online') {
-      if (state == AppLifecycleState.paused || 
-          state == AppLifecycleState.inactive ||
-          state == AppLifecycleState.hidden) {
-        _sendStoredVideoDataToAPI();
-      }
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  super.didChangeAppLifecycleState(state);
+  
+  // Enable for both 'online' and 'offline' students, but not 'public'
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _sendStoredVideoDataToAPI();
     }
   }
+}
 
   Future<void> _loadStudentType() async {
     try {
@@ -375,80 +376,81 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
   }
 
   Future<void> _sendStoredVideoDataToAPI() async {
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('Student type is $_studentType - skipping video data collection');
+  // Check for both 'online' and 'offline' student types, exclude 'public'
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
+    debugPrint('Student type is $_studentType - skipping video data collection');
+    return;
+  }
+
+  try {
+    final allRecords = _videoRecordsBox.values.toList();
+    
+    if (allRecords.isEmpty) {
+      debugPrint('No stored video watching data found to send');
       return;
     }
 
-    try {
-      final allRecords = _videoRecordsBox.values.toList();
+    debugPrint('=== SENDING ALL STORED VIDEO WATCHING DATA TO API ===');
+    debugPrint('Total records to send: ${allRecords.length}');
+
+    List<Map<String, dynamic>> allVideoData = [];
+
+    for (final record in allRecords) {
+      final watchedMinutes = double.parse((record.watchedTime / 60).toStringAsFixed(2));
       
-      if (allRecords.isEmpty) {
-        debugPrint('No stored video watching data found to send');
-        return;
-      }
-
-      debugPrint('=== SENDING ALL STORED VIDEO WATCHING DATA TO API ===');
-      debugPrint('Total records to send: ${allRecords.length}');
-
-      List<Map<String, dynamic>> allVideoData = [];
-
-      for (final record in allRecords) {
-        final watchedMinutes = double.parse((record.watchedTime / 60).toStringAsFixed(2));
-        
-        final videoData = {
-          'encrypted_referencelink_id': record.encryptedReferencelinkId,
-          'watched_time': watchedMinutes,
-          'watched_date': record.watchedDate,
-        };
-        allVideoData.add(videoData);
-        
-        debugPrint('Prepared record for encrypted_referencelink_id: ${record.encryptedReferencelinkId}');
-        debugPrint('   - Watched time: ${record.watchedTime} seconds = $watchedMinutes minutes');
-      }
-
-      if (allVideoData.isEmpty) {
-        debugPrint('No valid records to send');
-        return;
-      }
-
-      final requestBody = {
-        'referencelinks': allVideoData,
+      final videoData = {
+        'encrypted_referencelink_id': record.encryptedReferencelinkId,
+        'watched_time': watchedMinutes,
+        'watched_date': record.watchedDate,
       };
-
-      debugPrint('Request Body: ${const JsonEncoder.withIndent('  ').convert(requestBody)}');
-
-      final client = ApiConfig.createHttpClient();
-      final httpClient = IOClient(client);
-
-      final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_referencelink/';
-
-      // Fire and forget - don't await the response
-      httpClient.post(
-        Uri.parse(apiUrl),
-        headers: {
-          'Authorization': 'Bearer $_accessToken',
-          'Content-Type': 'application/json',
-          ...ApiConfig.commonHeaders,
-        },
-        body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 30)).then((response) {
-        debugPrint('Status Code: ${response.statusCode}');
-        
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          debugPrint('✓ All video watching data sent successfully to API');
-          _clearStoredVideoData();
-        } else {
-          debugPrint('✗ Failed to send video watching data. Status: ${response.statusCode}');
-        }
-      }).catchError((error) {
-        debugPrint('✗ Error sending stored video records to API: $error');
-      });
-
-    } catch (e) {
-      debugPrint('✗ Error preparing API call: $e');
+      allVideoData.add(videoData);
+      
+      debugPrint('Prepared record for encrypted_referencelink_id: ${record.encryptedReferencelinkId}');
+      debugPrint('   - Watched time: ${record.watchedTime} seconds = $watchedMinutes minutes');
     }
+
+    if (allVideoData.isEmpty) {
+      debugPrint('No valid records to send');
+      return;
+    }
+
+    final requestBody = {
+      'referencelinks': allVideoData,
+    };
+
+    debugPrint('Request Body: ${const JsonEncoder.withIndent('  ').convert(requestBody)}');
+
+    final client = ApiConfig.createHttpClient();
+    final httpClient = IOClient(client);
+
+    final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_referencelink/';
+
+    // Fire and forget - don't await the response
+    httpClient.post(
+      Uri.parse(apiUrl),
+      headers: {
+        'Authorization': 'Bearer $_accessToken',
+        'Content-Type': 'application/json',
+        ...ApiConfig.commonHeaders,
+      },
+      body: jsonEncode(requestBody),
+    ).timeout(const Duration(seconds: 30)).then((response) {
+      debugPrint('Status Code: ${response.statusCode}');
+      
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('✓ All video watching data sent successfully to API');
+        _clearStoredVideoData();
+      } else {
+        debugPrint('✗ Failed to send video watching data. Status: ${response.statusCode}');
+      }
+    }).catchError((error) {
+      debugPrint('✗ Error sending stored video records to API: $error');
+    });
+
+  } catch (e) {
+    debugPrint('✗ Error preparing API call: $e');
   }
+}
 
   Future<void> _clearStoredVideoData() async {
     try {
@@ -459,28 +461,29 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
     }
   }
 
-  Future<bool> _handleDeviceBackButton() async {
-    if (_studentType.toLowerCase() == 'online') {
-      final hasData = await _hasStoredVideoData();
-      if (hasData) {
-        _sendStoredVideoDataToAPI();
-      }
-    }
-    return true;
-  }
-
-  void _handleBackNavigation() async {
-    if (_studentType.toLowerCase() == 'online') {
-      final hasData = await _hasStoredVideoData();
-      if (hasData) {
-        _sendStoredVideoDataToAPI();
-      }
-    }
-    if (mounted) {
-      Navigator.pop(context);
+ Future<bool> _handleDeviceBackButton() async {
+  // Enable for both 'online' and 'offline' students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    final hasData = await _hasStoredVideoData();
+    if (hasData) {
+      _sendStoredVideoDataToAPI();
     }
   }
+  return true;
+}
 
+ void _handleBackNavigation() async {
+  // Enable for both 'online' and 'offline' students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    final hasData = await _hasStoredVideoData();
+    if (hasData) {
+      _sendStoredVideoDataToAPI();
+    }
+  }
+  if (mounted) {
+    Navigator.pop(context);
+  }
+}
   String _getAppBarTitle() {
     return _isSearching ? 'Search Videos' : 'Reference Classes';
   }
@@ -512,25 +515,25 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
     return 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
   }
 
-  void _openVideo(String url, String title, String encryptedReferencelinkId) {
-    final videoId = _extractYouTubeId(url);
-    if (videoId != null && videoId.isNotEmpty) {
-      debugPrint('🎬 Opening YouTube video: $videoId - $title');
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => VideoPlayerPage(
-            youtubeUrl: url,
-            videoId: videoId, 
-            title: title,
-            encryptedReferencelinkId: encryptedReferencelinkId,
-            enableWatchingData: _studentType.toLowerCase() == 'online', 
-          ),
+ void _openVideo(String url, String title, String encryptedReferencelinkId) {
+  final videoId = _extractYouTubeId(url);
+  if (videoId != null && videoId.isNotEmpty) {
+    debugPrint('🎬 Opening YouTube video: $videoId - $title');
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => VideoPlayerPage(
+          youtubeUrl: url,
+          videoId: videoId, 
+          title: title,
+          encryptedReferencelinkId: encryptedReferencelinkId,
+          enableWatchingData: _studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline', // Modified this line
         ),
-      );
-    } else {
-      _showError('Could not extract YouTube video ID from URL');
-    }
+      ),
+    );
+  } else {
+    _showError('Could not extract YouTube video ID from URL');
   }
+}
 
   String _formatDate(String dateString) {
     try {
@@ -1355,11 +1358,12 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
       await _videoPlayerController!.initialize();
 
       // Set up listener for video state changes
-      _videoPlayerController!.addListener(() {
-        if (widget.enableWatchingData) {
-          _handleVideoStateChange(_videoPlayerController!.value);
-        }
-      });
+    _videoPlayerController!.addListener(() {
+      // Only track if watching data is enabled (online or offline students)
+      if (widget.enableWatchingData) {
+        _handleVideoStateChange(_videoPlayerController!.value);
+      }
+    });
 
       // Initialize Chewie controller
       _chewieController = ChewieController(
@@ -1397,18 +1401,21 @@ class _VideoPlayerPageState extends State<VideoPlayerPage> {
     }
   }
 
-  void _handleVideoStateChange(VideoPlayerValue value) {
-    if (value.isPlaying && !_isPlaying) {
-      _startWatchingTimer();
-    } else if (!value.isPlaying && _isPlaying) {
-      _pauseWatchingTimer();
-    }
-    
-    // Check if video ended
-    if (value.position >= value.duration && value.duration > Duration.zero) {
-      _stopWatchingTimer();
-    }
+ void _handleVideoStateChange(VideoPlayerValue value) {
+  // Only track for students with watching data enabled
+  if (!widget.enableWatchingData) return;
+  
+  if (value.isPlaying && !_isPlaying) {
+    _startWatchingTimer();
+  } else if (!value.isPlaying && _isPlaying) {
+    _pauseWatchingTimer();
   }
+  
+  // Check if video ended
+  if (value.position >= value.duration && value.duration > Duration.zero) {
+    _stopWatchingTimer();
+  }
+}
 
   void _startWatchingTimer() {
     _isPlaying = true;

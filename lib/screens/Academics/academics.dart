@@ -12,7 +12,6 @@ import '../settings/settings.dart';
 import '../../service/auth_service.dart';
 import '../../service/api_config.dart';
 import '../../service/notification_service.dart';
-import '../Academics/results.dart';
 import 'assignments/assignments.dart';
 import '../../screens/performance.dart';
 import '../../screens/Academics/my_leave_application/my_leave_application.dart';
@@ -353,15 +352,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
   _updateAcademicsBadge();
 }
 
-  void _navigateToResults() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ResultsScreen(),
-      ),
-    );
-  }
-
   void _navigateToPerformance() {
     Navigator.push(
       context,
@@ -441,15 +431,15 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     );
   }
 
-  // Navigate to Settings
-  void _navigateToSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const SettingsScreen(),
-      ),
-    );
-  }
+// Navigate to Settings
+void _navigateToSettings() {
+  Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => const SettingsScreen(),
+    ),
+  );
+}
 
   void _showLogoutDialog() {
     showDialog(
@@ -553,30 +543,31 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     );
   }
 
-  @override
+ @override
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: AppColors.backgroundLight,
+   
       endDrawer: CommonProfileDrawer(
-        name: name,
-        email: email,
-        course: course,
-        subcourse: subcourse,
-        studentType: studentType,
-        profileCompleted: profileCompleted,
-        onViewProfile: () {
-          Navigator.of(context).pop(); 
-          _navigateToViewProfile();
-        },
-        onSettings: () {
-          Navigator.of(context).pop(); 
-          _navigateToSettings();
-        },
-        onClose: () {
-          Navigator.of(context).pop(); 
-        },
-      ),
+      name: name,
+      email: email,
+      course: course,
+      subcourse: subcourse,
+      studentType: studentType,
+      profileCompleted: profileCompleted,
+      onViewProfile: () {
+        // Remove the Navigator.of(context).pop() line
+        _navigateToViewProfile();
+      },
+      onSettings: () {
+        // Remove the Navigator.of(context).pop() line
+        _navigateToSettings();
+      },
+      onClose: () {
+        Navigator.of(context).pop(); 
+      },
+    ),
       body: PopScope(
         canPop: false,
         onPopInvoked: (bool didPop) async {
@@ -677,40 +668,27 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
                     const SizedBox(height: 18),
 
                     if (isRegularStudent) ...[
-  // Exam Schedule Card (For Online and Offline students) - With unread badge
-                        _buildAcademicCard(
-                          icon: Icons.calendar_today_rounded,
-                          title: 'Exam Schedule',
-                          subtitle: 'View your upcoming exams',
-                          color: AppColors.primaryBlue,
-                          onTap: _navigateToExamSchedule,
-                          badgeCount: unreadExamsCount,
-                        ),
-
-                        const SizedBox(height: 12),
-                      ],
-
-                      if (isOnlineStudent) ...[
-                        // Performance Card (Only for online students)
-                        _buildAcademicCard(
-                          icon: Icons.trending_up_rounded,
-                          title: 'Performance',
-                          subtitle: 'Track your learning progress',
-                          color: AppColors.primaryBlue,
-                          onTap: _navigateToPerformance,
-                        ),
-
-                        const SizedBox(height: 12),
-                      ],
-
-                    if (!isOnlineStudent) ...[
-                      // Results Card (Only for offline students)
+                      // Exam Schedule Card (For Online and Offline students) - With unread badge
                       _buildAcademicCard(
-                        icon: Icons.assessment_rounded,
-                        title: 'Results',
-                        subtitle: 'Check your exam results',
-                        color: AppColors.primaryYellowLight,
-                        onTap: _navigateToResults,
+                        icon: Icons.calendar_today_rounded,
+                        title: 'Exam Schedule',
+                        subtitle: 'View your upcoming exams',
+                        color: AppColors.primaryBlue,
+                        onTap: _navigateToExamSchedule,
+                        badgeCount: unreadExamsCount,
+                      ),
+
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (isOnlineStudent) ...[
+                      // Performance Card (Only for online students)
+                      _buildAcademicCard(
+                        icon: Icons.trending_up_rounded,
+                        title: 'Performance',
+                        subtitle: 'Track your learning progress',
+                        color: AppColors.primaryBlue,
+                        onTap: _navigateToPerformance,
                       ),
 
                       const SizedBox(height: 12),

@@ -160,13 +160,12 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
         errorBuilder: (context, errorMsg) => _buildErrorContent(errorMsg),
       );
 
-      // Setup event listeners for online students only
-      if (_studentType.toLowerCase() == 'online') {
-        _videoPlayerController!.addListener(_handleVideoPlayerChanges);
-        debugPrint('🎬 Event tracking ENABLED for online student');
-      } else {
-        debugPrint('🎬 Event tracking DISABLED for student type: $_studentType');
-      }
+    if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+  _videoPlayerController!.addListener(_handleVideoPlayerChanges);
+  debugPrint('🎬 Event tracking ENABLED for ${_studentType.toLowerCase()} student');
+} else {
+  debugPrint('🎬 Event tracking DISABLED for student type: $_studentType');
+}
 
       setState(() => _isLoading = false);
     } catch (e) {
@@ -181,94 +180,94 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
     }
   }
 
-  void _handleVideoPlayerChanges() {
-    // Only track for online students
-    if (_studentType.toLowerCase() != 'online') return;
-    if (!_videoPlayerController!.value.isInitialized) return;
+ void _handleVideoPlayerChanges() {
+  // Only track for online and offline students, not public
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') return;
+  if (!_videoPlayerController!.value.isInitialized) return;
 
-    final currentPosition = _videoPlayerController!.value.position;
-    final isPlaying = _videoPlayerController!.value.isPlaying;
-    final speed = _videoPlayerController!.value.playbackSpeed;
-    final now = DateTime.now();
+  final currentPosition = _videoPlayerController!.value.position;
+  final isPlaying = _videoPlayerController!.value.isPlaying;
+  final speed = _videoPlayerController!.value.playbackSpeed;
+  final now = DateTime.now();
 
-    // Track speed changes
-    if (speed != _currentPlaybackSpeed) {
-      _handleSpeedChange(currentPosition, speed);
-      _currentPlaybackSpeed = speed;
-    }
+  // Track speed changes
+  if (speed != _currentPlaybackSpeed) {
+    _handleSpeedChange(currentPosition, speed);
+    _currentPlaybackSpeed = speed;
+  }
 
-    // Position-based seek detection
-    if (_previousPosition != null && _lastPositionCheckTime != null) {
-      final timeDiff = now.difference(_lastPositionCheckTime!).inMilliseconds;
-      final positionDiff = (currentPosition.inSeconds - _previousPosition!.inSeconds).abs();
+  // Position-based seek detection
+  if (_previousPosition != null && _lastPositionCheckTime != null) {
+    final timeDiff = now.difference(_lastPositionCheckTime!).inMilliseconds;
+    final positionDiff = (currentPosition.inSeconds - _previousPosition!.inSeconds).abs();
 
-      // Expected change based on playback
-      final expectedChange = (timeDiff / 1000) * _currentPlaybackSpeed;
+    // Expected change based on playback
+    final expectedChange = (timeDiff / 1000) * _currentPlaybackSpeed;
 
-      if (positionDiff > expectedChange + 2 && timeDiff < 1000) {
-        // Seek detected
-        if (!_isSeeking) {
-          debugPrint('🔍 Seek started: from ${_formatTime(_previousPosition!)}');
-          _handleSeekStart(_previousPosition, _currentPlaybackSpeed);
-        }
-
-        _pendingSeekEndPosition = currentPosition;
-        _lastSeekTime = now;
-        debugPrint('🔍 Seek in progress: to ${_formatTime(currentPosition)}');
-      } else if (_isSeeking && timeDiff > 500) {
-        // Seek completed
-        if (_pendingSeekEndPosition != null) {
-          debugPrint('🔍 Seek completed: finalizing to ${_formatTime(_pendingSeekEndPosition!)}');
-          _finalizeSeekEvent(_pendingSeekEndPosition!, _currentPlaybackSpeed);
-          _pendingSeekEndPosition = null;
-        }
+    if (positionDiff > expectedChange + 2 && timeDiff < 1000) {
+      // Seek detected
+      if (!_isSeeking) {
+        debugPrint('🔍 Seek started: from ${_formatTime(_previousPosition!)}');
+        _handleSeekStart(_previousPosition, _currentPlaybackSpeed);
       }
-    }
 
-    _previousPosition = currentPosition;
-    _lastPositionCheckTime = now;
-
-    // Handle play/pause events
-    if (isPlaying && !_wasPlaying) {
-      // Video just started playing
-      debugPrint('📹 Video PLAY event detected');
-      
-      // Finalize any pending seek before recording play
-      if (_isSeeking && _pendingSeekEndPosition != null) {
-        _finalizeSeekEvent(_pendingSeekEndPosition!, speed);
+      _pendingSeekEndPosition = currentPosition;
+      _lastSeekTime = now;
+      debugPrint('🔍 Seek in progress: to ${_formatTime(currentPosition)}');
+    } else if (_isSeeking && timeDiff > 500) {
+      // Seek completed
+      if (_pendingSeekEndPosition != null) {
+        debugPrint('🔍 Seek completed: finalizing to ${_formatTime(_pendingSeekEndPosition!)}');
+        _finalizeSeekEvent(_pendingSeekEndPosition!, _currentPlaybackSpeed);
         _pendingSeekEndPosition = null;
       }
-      
-      if (_isFirstPlay) {
-        _isFirstPlay = false;
-      }
-      _addPlayEvent(currentPosition, speed);
-      _wasPlaying = true;
-    } else if (!isPlaying && _wasPlaying) {
-      // Video just paused
-      debugPrint('⏸ Video PAUSE event detected');
-      
-      // Finalize any pending seek before recording pause
-      if (_isSeeking && _pendingSeekEndPosition != null) {
-        _finalizeSeekEvent(_pendingSeekEndPosition!, speed);
-        _pendingSeekEndPosition = null;
-      }
-      
-      _addPauseEvent(currentPosition, speed);
-      _wasPlaying = false;
-    }
-
-    _lastPosition = currentPosition;
-
-    // Detect video end
-    final duration = _videoPlayerController!.value.duration;
-    if (duration.inSeconds > 0 &&
-        currentPosition.inSeconds >= duration.inSeconds - 1 &&
-        !_videoCompletedInThisSession) {
-      _videoCompletedInThisSession = true;
-      _addEndedEvent(currentPosition, speed);
     }
   }
+
+  _previousPosition = currentPosition;
+  _lastPositionCheckTime = now;
+
+  // Handle play/pause events
+  if (isPlaying && !_wasPlaying) {
+    // Video just started playing
+    debugPrint('📹 Video PLAY event detected');
+    
+    // Finalize any pending seek before recording play
+    if (_isSeeking && _pendingSeekEndPosition != null) {
+      _finalizeSeekEvent(_pendingSeekEndPosition!, speed);
+      _pendingSeekEndPosition = null;
+    }
+    
+    if (_isFirstPlay) {
+      _isFirstPlay = false;
+    }
+    _addPlayEvent(currentPosition, speed);
+    _wasPlaying = true;
+  } else if (!isPlaying && _wasPlaying) {
+    // Video just paused
+    debugPrint('⏸ Video PAUSE event detected');
+    
+    // Finalize any pending seek before recording pause
+    if (_isSeeking && _pendingSeekEndPosition != null) {
+      _finalizeSeekEvent(_pendingSeekEndPosition!, speed);
+      _pendingSeekEndPosition = null;
+    }
+    
+    _addPauseEvent(currentPosition, speed);
+    _wasPlaying = false;
+  }
+
+  _lastPosition = currentPosition;
+
+  // Detect video end
+  final duration = _videoPlayerController!.value.duration;
+  if (duration.inSeconds > 0 &&
+      currentPosition.inSeconds >= duration.inSeconds - 1 &&
+      !_videoCompletedInThisSession) {
+    _videoCompletedInThisSession = true;
+    _addEndedEvent(currentPosition, speed);
+  }
+}
 
   void _handleSeekStart(Duration? currentPosition, double speed) {
     if (currentPosition == null) return;
@@ -447,107 +446,108 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
     }
   }
 
-  Future<void> _saveEventsToHive() async {
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('🎬 Student type is $_studentType - skipping event saving to Hive');
-      return;
-    }
-
-    if (_hasEventsSaved) {
-      debugPrint('⚠ Events already saved, skipping duplicate save');
-      return;
-    }
-
-    try {
-      final currentPosition = _videoPlayerController?.value.position ?? Duration.zero;
-      final currentSpeed = _videoPlayerController?.value.playbackSpeed ?? _currentPlaybackSpeed;
-
-      // Finalize any pending seek
-      if (_isSeeking && _pendingSeekEndPosition != null) {
-        _finalizeSeekEvent(_pendingSeekEndPosition!, currentSpeed);
-        _pendingSeekEndPosition = null;
-      }
-
-      if (_events.isEmpty || _events.last['event_type'] != 'ended') {
-        if (currentPosition != Duration.zero) {
-          _addEndedEvent(currentPosition, currentSpeed);
-
-          if (_videoCompletedInThisSession) {
-            debugPrint('📝 Added ENDED event - Video completed naturally');
-          } else {
-            debugPrint('📝 Added ENDED event - User exited early at ${_formatTime(currentPosition)}');
-          }
-        }
-      }
-
-      if (_events.isEmpty) {
-        debugPrint('⚠ No events to save');
-        _hasEventsSaved = true;
-        return;
-      }
-
-      final box = await Hive.openBox('videoEvents');
-      Map<String, dynamic> videoData;
-
-      // Use cleaned video ID for Hive storage
-      if (box.containsKey(_cleanVideoId)) {
-        final existingData = box.get(_cleanVideoId) as Map;
-        videoData = Map<String, dynamic>.from(existingData);
-
-        List<dynamic> allSessions = List.from(videoData['events'] ?? []);
-
-        if (allSessions.isNotEmpty && allSessions.last is! List) {
-          allSessions = [allSessions];
-        }
-
-        allSessions.add(_events);
-        debugPrint('📌 Created NEW SESSION');
-
-        videoData['events'] = allSessions;
-        videoData['lastSessionCompleted'] = _videoCompletedInThisSession;
-        videoData['lastUpdated'] = DateTime.now().toIso8601String();
-      } else {
-        videoData = {
-          'video_id': _cleanVideoId,
-          'video_title': widget.videoTitle,
-          'events': [_events],
-          'lastSessionCompleted': _videoCompletedInThisSession,
-          'createdAt': DateTime.now().toIso8601String(),
-          'lastUpdated': DateTime.now().toIso8601String(),
-        };
-        debugPrint('📌 Created FIRST VIDEO ENTRY');
-      }
-
-      await box.put(_cleanVideoId, videoData);
-      _hasEventsSaved = true;
-
-      int totalSessions = 0;
-      int totalEvents = 0;
-      final allEvents = videoData['events'] as List;
-      for (var session in allEvents) {
-        if (session is List) {
-          totalSessions++;
-          totalEvents += session.length;
-        }
-      }
-
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('💾 VIDEO EVENTS SAVED TO HIVE');
-      debugPrint('═══════════════════════════════════════════════════════');
-      debugPrint('Video ID: $_cleanVideoId');
-      debugPrint('Video Title: ${widget.videoTitle}');
-      debugPrint('Events recorded in this watch: ${_events.length}');
-      debugPrint('Video Completed: $_videoCompletedInThisSession');
-      debugPrint('Total watch sessions: $totalSessions');
-      debugPrint('Total events across all sessions: $totalEvents');
-      debugPrint('Saved at: ${DateTime.now()}');
-      debugPrint('═══════════════════════════════════════════════════════');
-
-      _printAllHiveData(box);
-    } catch (e) {
-      debugPrint('❌ Error saving events to Hive: $e');
-    }
+ Future<void> _saveEventsToHive() async {
+  // Check for both 'online' and 'offline' student types, exclude 'public'
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
+    debugPrint('🎬 Student type is $_studentType - skipping event saving to Hive');
+    return;
   }
+
+  if (_hasEventsSaved) {
+    debugPrint('⚠ Events already saved, skipping duplicate save');
+    return;
+  }
+
+  try {
+    final currentPosition = _videoPlayerController?.value.position ?? Duration.zero;
+    final currentSpeed = _videoPlayerController?.value.playbackSpeed ?? _currentPlaybackSpeed;
+
+    // Finalize any pending seek
+    if (_isSeeking && _pendingSeekEndPosition != null) {
+      _finalizeSeekEvent(_pendingSeekEndPosition!, currentSpeed);
+      _pendingSeekEndPosition = null;
+    }
+
+    if (_events.isEmpty || _events.last['event_type'] != 'ended') {
+      if (currentPosition != Duration.zero) {
+        _addEndedEvent(currentPosition, currentSpeed);
+
+        if (_videoCompletedInThisSession) {
+          debugPrint('📝 Added ENDED event - Video completed naturally');
+        } else {
+          debugPrint('📝 Added ENDED event - User exited early at ${_formatTime(currentPosition)}');
+        }
+      }
+    }
+
+    if (_events.isEmpty) {
+      debugPrint('⚠ No events to save');
+      _hasEventsSaved = true;
+      return;
+    }
+
+    final box = await Hive.openBox('videoEvents');
+    Map<String, dynamic> videoData;
+
+    // Use cleaned video ID for Hive storage
+    if (box.containsKey(_cleanVideoId)) {
+      final existingData = box.get(_cleanVideoId) as Map;
+      videoData = Map<String, dynamic>.from(existingData);
+
+      List<dynamic> allSessions = List.from(videoData['events'] ?? []);
+
+      if (allSessions.isNotEmpty && allSessions.last is! List) {
+        allSessions = [allSessions];
+      }
+
+      allSessions.add(_events);
+      debugPrint('📌 Created NEW SESSION');
+
+      videoData['events'] = allSessions;
+      videoData['lastSessionCompleted'] = _videoCompletedInThisSession;
+      videoData['lastUpdated'] = DateTime.now().toIso8601String();
+    } else {
+      videoData = {
+        'video_id': _cleanVideoId,
+        'video_title': widget.videoTitle,
+        'events': [_events],
+        'lastSessionCompleted': _videoCompletedInThisSession,
+        'createdAt': DateTime.now().toIso8601String(),
+        'lastUpdated': DateTime.now().toIso8601String(),
+      };
+      debugPrint('📌 Created FIRST VIDEO ENTRY');
+    }
+
+    await box.put(_cleanVideoId, videoData);
+    _hasEventsSaved = true;
+
+    int totalSessions = 0;
+    int totalEvents = 0;
+    final allEvents = videoData['events'] as List;
+    for (var session in allEvents) {
+      if (session is List) {
+        totalSessions++;
+        totalEvents += session.length;
+      }
+    }
+
+    debugPrint('═══════════════════════════════════════════════════════');
+    debugPrint('💾 VIDEO EVENTS SAVED TO HIVE');
+    debugPrint('═══════════════════════════════════════════════════════');
+    debugPrint('Video ID: $_cleanVideoId');
+    debugPrint('Video Title: ${widget.videoTitle}');
+    debugPrint('Events recorded in this watch: ${_events.length}');
+    debugPrint('Video Completed: $_videoCompletedInThisSession');
+    debugPrint('Total watch sessions: $totalSessions');
+    debugPrint('Total events across all sessions: $totalEvents');
+    debugPrint('Saved at: ${DateTime.now()}');
+    debugPrint('═══════════════════════════════════════════════════════');
+
+    _printAllHiveData(box);
+  } catch (e) {
+    debugPrint('❌ Error saving events to Hive: $e');
+  }
+}
 
   void _printAllHiveData(Box box) {
     debugPrint('\n📦 ALL VIDEO EVENTS IN HIVE DATABASE:');
@@ -692,47 +692,49 @@ class _VideoStreamScreenState extends State<VideoStreamScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    if (_studentType.toLowerCase() == 'online') {
-      _saveEventsToHive();
-      _videoPlayerController?.removeListener(_handleVideoPlayerChanges);
-    }
-    _videoPlayerController?.dispose();
-    _chewieController?.dispose();
-    super.dispose();
+@override
+void dispose() {
+  // Save events for both online and offline students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    _saveEventsToHive();
+    _videoPlayerController?.removeListener(_handleVideoPlayerChanges);
   }
+  _videoPlayerController?.dispose();
+  _chewieController?.dispose();
+  super.dispose();
+}
 
-  @override
-  Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        if (_studentType.toLowerCase() == 'online') {
-          await _saveEventsToHive();
-        }
-        return true;
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        appBar: AppBar(
-          title: Text(
-            widget.videoTitle,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+ @override
+Widget build(BuildContext context) {
+  return WillPopScope(
+    onWillPop: () async {
+      // Save events for both online and offline students
+      if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+        await _saveEventsToHive();
+      }
+      return true;
+    },
+    child: Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(
+          widget.videoTitle,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
           ),
-          backgroundColor: Colors.black,
-          iconTheme: const IconThemeData(color: Colors.white),
-          elevation: 0,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        body: SafeArea(child: _buildBody()),
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
       ),
-    );
-  }
+      body: SafeArea(child: _buildBody()),
+    ),
+  );
+}
 
   Widget _buildBody() {
     if (_isLoading) {

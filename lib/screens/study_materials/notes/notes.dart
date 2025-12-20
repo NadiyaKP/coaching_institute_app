@@ -131,18 +131,19 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    
-    if (_studentType.toLowerCase() == 'online') {
-      if (state == AppLifecycleState.paused || 
-          state == AppLifecycleState.inactive ||
-          state == AppLifecycleState.hidden) {
-        _sendStoredReadingDataToAPI();
-      }
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  super.didChangeAppLifecycleState(state);
+  
+  // Enable for both 'online' and 'offline' students, but not 'public'
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    if (state == AppLifecycleState.paused || 
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _sendStoredReadingDataToAPI();
     }
   }
+}
 
   Future<void> _initializeData() async {
     await _getAccessToken();
@@ -701,18 +702,19 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
   // Enhanced exit screen method that sends data without waiting
   void _exitScreen() {
-    if (_studentType.toLowerCase() == 'online') {
-      // Send reading data to backend without waiting for response
-      _sendStoredReadingDataToAPI().catchError((e) {
-        debugPrint('Error sending reading data on exit: $e');
-        // Don't show error to user, just log it
-      });
-    }
-    
-    if (mounted) {
-      Navigator.pop(context);
-    }
+  // Enable for both 'online' and 'offline' students
+  if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
+    // Send reading data to backend without waiting for response
+    _sendStoredReadingDataToAPI().catchError((e) {
+      debugPrint('Error sending reading data on exit: $e');
+      // Don't show error to user, just log it
+    });
   }
+  
+  if (mounted) {
+    Navigator.pop(context);
+  }
+}
 
   Future<bool> _hasStoredReadingData() async {
     try {
@@ -724,115 +726,116 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
   }
 
   // FIXED: Enhanced with debouncing to prevent multiple API calls
-  Future<void> _sendStoredReadingDataToAPI() async {
-    if (_studentType.toLowerCase() != 'online') {
-      debugPrint('Student type is $_studentType - skipping reading data collection');
+Future<void> _sendStoredReadingDataToAPI() async {
+  // Check for both 'online' and 'offline' student types, exclude 'public'
+  if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
+    debugPrint('Student type is $_studentType - skipping reading data collection');
+    return;
+  }
+
+  // Check if we're already sending data
+  if (_isSendingData) {
+    debugPrint('📱 API call already in progress, skipping duplicate call');
+    return;
+  }
+
+  // Check debounce time
+  final now = DateTime.now();
+  if (_lastApiCallTime != null && 
+      now.difference(_lastApiCallTime!) < _apiCallDebounceTime) {
+    debugPrint('📱 API call debounced, too soon since last call');
+    return;
+  }
+
+  try {
+    final allRecords = _pdfRecordsBox.values.toList();
+    
+    if (allRecords.isEmpty) {
+      debugPrint('No stored note reading data found to send');
       return;
     }
 
-    // Check if we're already sending data
-    if (_isSendingData) {
-      debugPrint('📱 API call already in progress, skipping duplicate call');
-      return;
-    }
+    debugPrint('=== SENDING ALL STORED NOTE READING DATA TO API ===');
+    debugPrint('Total records to send: ${allRecords.length}');
 
-    // Check debounce time
-    final now = DateTime.now();
-    if (_lastApiCallTime != null && 
-        now.difference(_lastApiCallTime!) < _apiCallDebounceTime) {
-      debugPrint('📱 API call debounced, too soon since last call');
-      return;
-    }
+    List<Map<String, dynamic>> allNotesData = [];
 
-    try {
-      final allRecords = _pdfRecordsBox.values.toList();
-      
-      if (allRecords.isEmpty) {
-        debugPrint('No stored note reading data found to send');
-        return;
-      }
-
-      debugPrint('=== SENDING ALL STORED NOTE READING DATA TO API ===');
-      debugPrint('Total records to send: ${allRecords.length}');
-
-      List<Map<String, dynamic>> allNotesData = [];
-
-      for (final record in allRecords) {
-        final noteData = {
-          'encrypted_note_id': record.encryptedNoteId,
-          'readedtime': record.readedtime,
-          'readed_date': record.readedDate,
-        };
-        allNotesData.add(noteData);
-        
-        debugPrint('Prepared record for encrypted_note_id: ${record.encryptedNoteId}');
-      }
-
-      if (allNotesData.isEmpty) {
-        debugPrint('No valid note records to send');
-        return;
-      }
-
-      final requestBody = {
-        'notes': allNotesData,
+    for (final record in allRecords) {
+      final noteData = {
+        'encrypted_note_id': record.encryptedNoteId,
+        'readedtime': record.readedtime,
+        'readed_date': record.readedDate,
       };
+      allNotesData.add(noteData);
+      
+      debugPrint('Prepared record for encrypted_note_id: ${record.encryptedNoteId}');
+    }
 
-      // Set flags to prevent duplicate calls
-      setState(() {
-        _isSendingData = true;
-        _lastApiCallTime = now;
-      });
+    if (allNotesData.isEmpty) {
+      debugPrint('No valid note records to send');
+      return;
+    }
 
-      final client = ApiConfig.createHttpClient();
-      final httpClient = IOClient(client);
+    final requestBody = {
+      'notes': allNotesData,
+    };
 
-      final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_notes/';
+    // Set flags to prevent duplicate calls
+    setState(() {
+      _isSendingData = true;
+      _lastApiCallTime = now;
+    });
 
-      // Fire and forget - don't wait for response
-      globalHttpClient.post(
-        Uri.parse(apiUrl),
-        headers: {
-          'Authorization': 'Bearer $_accessToken',
-          'Content-Type': 'application/json',
-          ...ApiConfig.commonHeaders,
-        },
-        body: jsonEncode(requestBody),
-      ).timeout(const Duration(seconds: 10)).then((response) {
-        if (response.statusCode == 200 || response.statusCode == 201) {
-          debugPrint('✓ All note data sent successfully to API');
-          _clearStoredReadingData().catchError((e) {
-            debugPrint('Error clearing stored data: $e');
-          });
-        } else {
-          debugPrint('✗ Failed to send note data. Status: ${response.statusCode}');
-        }
-        
-        // Reset sending flag after completion
-        if (mounted) {
-          setState(() {
-            _isSendingData = false;
-          });
-        }
-      }).catchError((e) {
-        debugPrint('✗ Error sending stored note records to API: $e');
-        // Reset sending flag on error
-        if (mounted) {
-          setState(() {
-            _isSendingData = false;
-          });
-        }
-      });
+    final client = ApiConfig.createHttpClient();
+    final httpClient = IOClient(client);
 
-    } catch (e) {
-      debugPrint('✗ Error preparing to send stored note records: $e');
+    final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_notes/';
+
+    // Fire and forget - don't wait for response
+    globalHttpClient.post(
+      Uri.parse(apiUrl),
+      headers: {
+        'Authorization': 'Bearer $_accessToken',
+        'Content-Type': 'application/json',
+        ...ApiConfig.commonHeaders,
+      },
+      body: jsonEncode(requestBody),
+    ).timeout(const Duration(seconds: 10)).then((response) {
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        debugPrint('✓ All note data sent successfully to API');
+        _clearStoredReadingData().catchError((e) {
+          debugPrint('Error clearing stored data: $e');
+        });
+      } else {
+        debugPrint('✗ Failed to send note data. Status: ${response.statusCode}');
+      }
+      
+      // Reset sending flag after completion
+      if (mounted) {
+        setState(() {
+          _isSendingData = false;
+        });
+      }
+    }).catchError((e) {
+      debugPrint('✗ Error sending stored note records to API: $e');
       // Reset sending flag on error
       if (mounted) {
         setState(() {
           _isSendingData = false;
         });
       }
+    });
+
+  } catch (e) {
+    debugPrint('✗ Error preparing to send stored note records: $e');
+    // Reset sending flag on error
+    if (mounted) {
+      setState(() {
+        _isSendingData = false;
+      });
     }
   }
+}
 
   Future<void> _clearStoredReadingData() async {
     try {
@@ -2039,7 +2042,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
         debugPrint('Navigating to PDF viewer with URL: "$fileUrl"');
         debugPrint('Reading data collection enabled for student type: $_studentType');
         debugPrint('=== END NOTE CARD CLICK ===\n');
-        
+
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -2048,7 +2051,7 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
               title: title,
               accessToken: _accessToken!,
               noteId: noteId,
-              enableReadingData: _studentType.toLowerCase() == 'online', 
+              enableReadingData: _studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline', // Modified this line
             ),
           ),
         );

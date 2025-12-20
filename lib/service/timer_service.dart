@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'websocket_manager.dart';
 import 'dart:convert';
 
-// 🆕 NEW: Timer snapshot for accurate state tracking
+// Timer snapshot for accurate state tracking
 class _TimerSnapshot {
   final Duration totalElapsed;
   final DateTime snapshotTime;
@@ -53,12 +53,10 @@ class TimerService {
   static const String websocketDisconnectTimeKey = 'websocket_disconnect_time';
   static const String wasWebsocketDisconnectedKey = 'was_websocket_disconnected';
   static const String timerPausedByWebsocketKey = 'timer_paused_by_websocket';
-  static const String timerStateBeforeDisconnectKey = 'timer_state_before_disconnect';
-  
-  // 🆕 NEW: Add snapshot key
   static const String timerSnapshotKey = 'timer_snapshot';
+  static const String pausedTotalTimeKey = 'paused_total_time';
   
-  // 🆕 WebSocket state tracking
+  // WebSocket state tracking
   static bool _isWebSocketConnected = false;
   static DateTime? _lastWebSocketDisconnectTime;
   StreamSubscription? _websocketSubscription;
@@ -72,6 +70,7 @@ class TimerService {
 
   Timer? _activeTimer;
   Timer? _heartbeatTimer;
+  Timer? _dateCheckTimer; // NEW: Timer for checking date changes
   DateTime? _timerStartTime;
   Duration _baseTimeWhenTimerStarted = Duration.zero;
   bool _isInitialized = false;
@@ -80,25 +79,25 @@ class TimerService {
   DateTime? _lastAppResumeTime;
   bool _appInForeground = true;
   
-  // 🆕 NEW: Callback to navigate back to entry screen
+  // Track current date for comparison
+  String _currentDate = ''; // NEW: Track current date
+  
+  // Callback to navigate back to entry screen
   Function()? _onWebSocketDisconnectCallback;
   
-  // 🆕 NEW: Timer state tracking for accurate pause/resume
-  _TimerSnapshot? _lastValidSnapshot;
-  Duration _accumulatedPauseTime = Duration.zero;
+  // NEW: Simplified state tracking
+  Duration _exactTimeAtPause = Duration.zero;
   bool _isPausedByWebSocket = false;
-  DateTime? _lastPauseTime;
-  Duration _totalElapsedBeforePause = Duration.zero;
 
   bool get hasOverlayPermission => _hasOverlayPermission;
   static const MethodChannel _overlayChannel = MethodChannel('focus_mode_overlay_channel');
 
-  // 🆕 NEW: Set callback for WebSocket disconnection
+  // Set callback for WebSocket disconnection
   void setWebSocketDisconnectCallback(Function() callback) {
     _onWebSocketDisconnectCallback = callback;
   }
 
-  // 🆕 NEW: Initialize WebSocket monitoring
+  // Initialize WebSocket monitoring
   Future<void> _initializeWebSocketMonitoring() async {
     try {
       _startWebSocketMonitor();
@@ -108,44 +107,46 @@ class TimerService {
   }
 
   void _startWebSocketMonitor() {
-    // 🆕 NEW: Register callback to send focus status when WebSocket requests it
+    // Register callback to send focus status when WebSocket requests it
     WebSocketManager.registerFocusStatusRequestCallback(() {
       _handleHeartbeatWithFocusStatus();
     });
     
-    // 🆕 NEW: Listen to WebSocket connection state changes
+    // Listen to WebSocket connection state changes
     _websocketConnectionSubscription?.cancel();
     _websocketConnectionSubscription = WebSocketManager.connectionStateStream.listen((isConnected) async {  
-      debugPrint('🔌 WebSocket connection state changed: $isConnected');
+      debugPrint('🔌 WebSocket connection state changed: $isConnected (was: $_isWebSocketConnected)');
       
       final bool wasConnected = _isWebSocketConnected;
       _isWebSocketConnected = isConnected;
       
       if (wasConnected && !_isWebSocketConnected) {
+        // WebSocket disconnected
         debugPrint('🔌 WebSocket disconnected - handling timer pause');
         await _handleWebSocketDisconnection();
       } else if (!wasConnected && _isWebSocketConnected) {
+        // WebSocket reconnected
         debugPrint('🔗 WebSocket reconnected - checking for paused timer');
         _lastWebSocketDisconnectTime = null;
         
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(wasWebsocketDisconnectedKey);
         
-        // 🆕 NEW: Send focus status immediately on reconnection
+        // Send focus status immediately on reconnection
         _sendFocusStatusToWebSocket();
         
-        // 🆕 NEW: Check if timer was paused by WebSocket and resume it
+        // Check if timer was paused by WebSocket and resume it
         await _checkAndResumeTimerAfterReconnect();
       }
     });
     
-    // 🆕 NEW: Also listen to the reconnected stream for additional safety
+    // Also listen to the reconnected stream for additional safety
     WebSocketManager.reconnectedStream.listen((_) async {
       debugPrint('🔗 WebSocketManager.reconnectedStream fired');
       await _checkAndResumeTimerAfterReconnect();
     });
     
-    // 🆕 NEW: Register callback in WebSocketManager
+    // Register callback in WebSocketManager
     WebSocketManager.registerDisconnectionCallback(() {
       if (_isFocusMode.value) {
         debugPrint('🔌 Immediate WebSocket disconnection detected');
@@ -153,7 +154,7 @@ class TimerService {
       }
     });
     
-    // 🆕 NEW: Register reconnection callback
+    // Register reconnection callback
     WebSocketManager.registerReconnectionCallback(() {
       debugPrint('🔗 WebSocket reconnection callback - resuming timer');
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -162,7 +163,7 @@ class TimerService {
     });
   }
 
-  // 🆕 NEW: Send focus status to WebSocket
+  // Send focus status to WebSocket
   void _sendFocusStatusToWebSocket() {
     if (WebSocketManager.isConnected) {
       final isFocusing = _isFocusMode.value ? 1 : 0;
@@ -173,7 +174,7 @@ class TimerService {
     }
   }
 
-  // 🆕 NEW: Handle heartbeat with focus status
+  // Handle heartbeat with focus status
   void _handleHeartbeatWithFocusStatus() {
     if (WebSocketManager.isConnected) {
       final isFocusing = _isFocusMode.value ? 1 : 0;
@@ -182,37 +183,39 @@ class TimerService {
     }
   }
 
-  // 🆕 NEW: Create snapshot of current timer state
-  _TimerSnapshot _createSnapshot() {
-    Duration currentTotal = _baseTimeWhenTimerStarted;
-    if (_timerStartTime != null && _isFocusMode.value) {
+  // NEW: Get exact current elapsed time
+  Duration _getCurrentElapsedTime() {
+    if (_timerStartTime != null && !_isPausedByWebSocket) {
       final elapsed = DateTime.now().difference(_timerStartTime!);
-      currentTotal = _baseTimeWhenTimerStarted + elapsed;
-    } else {
-      // If timer is not running, use the current display value
-      currentTotal = _focusTimeToday.value;
+      return _baseTimeWhenTimerStarted + elapsed;
     }
+    return _exactTimeAtPause.inSeconds > 0 ? _exactTimeAtPause : _baseTimeWhenTimerStarted;
+  }
+
+  // Create snapshot of current timer state
+  _TimerSnapshot _createSnapshot() {
+    final currentTotal = _getCurrentElapsedTime();
     
     return _TimerSnapshot(
       totalElapsed: currentTotal,
       snapshotTime: DateTime.now(),
-      isRunning: _isFocusMode.value && _timerStartTime != null,
+      isRunning: _isFocusMode.value && _timerStartTime != null && !_isPausedByWebSocket,
     );
   }
 
-  // 🆕 NEW: Save snapshot to shared preferences
+  // Save snapshot to shared preferences
   Future<void> _saveSnapshot(_TimerSnapshot snapshot) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(timerSnapshotKey, jsonEncode(snapshot.toJson()));
-      _lastValidSnapshot = snapshot;
+      await prefs.setInt(pausedTotalTimeKey, snapshot.totalElapsed.inSeconds);
       debugPrint('💾 Timer snapshot saved: ${snapshot.totalElapsed.inSeconds}s at ${snapshot.snapshotTime}');
     } catch (e) {
       debugPrint('❌ Error saving snapshot: $e');
     }
   }
 
-  // 🆕 NEW: Load snapshot from shared preferences
+  // Load snapshot from shared preferences
   Future<_TimerSnapshot?> _loadSnapshot() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -228,250 +231,237 @@ class TimerService {
     return null;
   }
 
-  // 🆕 NEW: Clear snapshot
+  // Clear snapshot
   Future<void> _clearSnapshot() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(timerSnapshotKey);
-      _lastValidSnapshot = null;
+      await prefs.remove(pausedTotalTimeKey);
       debugPrint('🗑️ Timer snapshot cleared');
     } catch (e) {
       debugPrint('❌ Error clearing snapshot: $e');
     }
   }
 
-  // 🆕 NEW: Restore timer from snapshot
-  void _restoreFromSnapshot(_TimerSnapshot snapshot) {
-    final now = DateTime.now();
-    final timeSinceSnapshot = now.difference(snapshot.snapshotTime);
-    
-    if (snapshot.isRunning && timeSinceSnapshot < const Duration(minutes: 5)) {
-      // Timer was running and not too much time has passed
-      _baseTimeWhenTimerStarted = snapshot.totalElapsed;
-      _timerStartTime = now;
-      _focusTimeToday.value = snapshot.totalElapsed;
-      _isFocusMode.value = true;
-      
-      debugPrint('🔄 Timer restored and resumed from snapshot:');
-      debugPrint('   - Previous total: ${snapshot.totalElapsed.inSeconds}s');
-      debugPrint('   - Time since snapshot: ${timeSinceSnapshot.inSeconds}s');
-      debugPrint('   - Continuing from: ${_focusTimeToday.value.inSeconds}s');
-      
-      _startFocusTimer();
-      _startHeartbeat();
-    } else {
-      // Too much time passed or wasn't running
-      _baseTimeWhenTimerStarted = snapshot.totalElapsed;
-      _timerStartTime = null;
-      _focusTimeToday.value = snapshot.totalElapsed;
-      _isFocusMode.value = false;
-      
-      debugPrint('⏸️ Timer restored but not resumed:');
-      debugPrint('   - Too much time: ${timeSinceSnapshot.inMinutes}min');
-      debugPrint('   - Set to: ${_focusTimeToday.value.inSeconds}s');
-    }
-  }
-
-  // 🆕 MODIFIED: Accurate pause/resume logic
+  // NEW: Check and resume timer after reconnection
   Future<void> _checkAndResumeTimerAfterReconnect() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final wasPausedByWebSocket = prefs.getBool(timerPausedByWebsocketKey) ?? false;
       
-      if (wasPausedByWebSocket) {
-        debugPrint('🔄 Timer was paused by WebSocket - attempting to resume');
-        
-        // Try to load saved snapshot first
-        final snapshot = await _loadSnapshot();
-        if (snapshot != null) {
-          debugPrint('📊 Resume from snapshot:');
-          debugPrint('   - Saved total: ${snapshot.totalElapsed.inSeconds}s');
-          debugPrint('   - Snapshot time: ${snapshot.snapshotTime}');
-          debugPrint('   - Was running: ${snapshot.isRunning}');
-          
-          final timeSinceSnapshot = DateTime.now().difference(snapshot.snapshotTime);
-          
-          // Only resume if it's been less than 5 minutes
-          if (timeSinceSnapshot < const Duration(minutes: 5) && snapshot.isRunning) {
-            debugPrint('⏱️ Resuming timer from snapshot');
-            _restoreFromSnapshot(snapshot);
-            
-            // Send combined heartbeat after resuming
-            _handleHeartbeatWithFocusStatus();
-            
-            debugPrint('✅ Timer resumed from snapshot successfully');
-          } else {
-            debugPrint('⏰ Too much time has passed (${timeSinceSnapshot.inMinutes}min) or was not running');
-            // Keep the timer paused but update the display
-            _focusTimeToday.value = snapshot.totalElapsed;
-            await prefs.setInt(focusKey, snapshot.totalElapsed.inSeconds);
-          }
-        } else {
-          // Fallback to old method
-          final stateJson = prefs.getString(timerStateBeforeDisconnectKey);
-          if (stateJson != null) {
-            final state = jsonDecode(stateJson);
-            final timestamp = DateTime.parse(state['timestamp']);
-            final savedTotal = Duration(seconds: state['currentTotal']);
-            final timeSincePause = DateTime.now().difference(timestamp);
-            
-            debugPrint('📊 Fallback resume calculation:');
-            debugPrint('   - Saved total: ${savedTotal.inSeconds}s');
-            debugPrint('   - Time since pause: ${timeSincePause.inSeconds}s');
-            
-            // Only resume if it's been less than 5 minutes
-            if (timeSincePause < const Duration(minutes: 5)) {
-              debugPrint('⏱️ Resuming timer from saved state');
-              
-              // Resume with the exact saved time
-              _isFocusMode.value = true;
-              _baseTimeWhenTimerStarted = savedTotal;
-              _timerStartTime = DateTime.now();
-              _focusTimeToday.value = savedTotal;
-              _isPausedByWebSocket = false;
-              
-              // Update shared preferences
-              await prefs.setBool(isFocusModeKey, true);
-              await prefs.setString(focusStartTimeKey, _timerStartTime!.toIso8601String());
-              await prefs.setInt(focusKey, savedTotal.inSeconds);
-              await prefs.setInt(lastStoredFocusTimeKey, savedTotal.inSeconds);
-              
-              // Start the timer
-              _startFocusTimer();
-              _startHeartbeat();
-              
-              // Send combined heartbeat after resuming
-              _handleHeartbeatWithFocusStatus();
-              
-              debugPrint('✅ Timer resumed at exact value: ${savedTotal.inSeconds}s');
-            } else {
-              debugPrint('⏰ Too much time has passed (${timeSincePause.inMinutes}min)');
-              _focusTimeToday.value = savedTotal;
-              await prefs.setInt(focusKey, savedTotal.inSeconds);
-            }
-          } else {
-            debugPrint('⚠️ No saved state found - cannot resume');
-          }
-        }
-        
-        // Clean up flags
-        await prefs.remove(timerPausedByWebsocketKey);
-        await prefs.remove(timerStateBeforeDisconnectKey);
-        await _clearSnapshot();
+      if (!wasPausedByWebSocket) {
+        debugPrint('ℹ️ Timer was not paused by WebSocket - no action needed');
+        return;
       }
+      
+      debugPrint('🔄 Timer was paused by WebSocket - attempting to resume');
+      
+      // Load the exact time at which we paused
+      final pausedTotalSeconds = prefs.getInt(pausedTotalTimeKey);
+      
+      if (pausedTotalSeconds == null) {
+        debugPrint('⚠️ No paused time found - cannot resume accurately');
+        await prefs.remove(timerPausedByWebsocketKey);
+        return;
+      }
+      
+      final pausedTotal = Duration(seconds: pausedTotalSeconds);
+      debugPrint('📊 Resuming from paused time: ${pausedTotal.inSeconds}s');
+      
+      // Resume the timer with exact time
+      _isPausedByWebSocket = false;
+      _isFocusMode.value = true;
+      _baseTimeWhenTimerStarted = pausedTotal;
+      _timerStartTime = DateTime.now();
+      _exactTimeAtPause = Duration.zero;
+      
+      // Update UI immediately
+      _focusTimeToday.value = pausedTotal;
+      
+      // Update shared preferences
+      await prefs.setBool(isFocusModeKey, true);
+      await prefs.setString(focusStartTimeKey, _timerStartTime!.toIso8601String());
+      await prefs.setInt(focusKey, pausedTotal.inSeconds);
+      await prefs.setInt(lastStoredFocusTimeKey, pausedTotal.inSeconds);
+      
+      // Clear pause flags
+      await prefs.remove(timerPausedByWebsocketKey);
+      await _clearSnapshot();
+      
+      // Start the timer
+      _startFocusTimer();
+      _startHeartbeat();
+      
+      // Send combined heartbeat after resuming
+      _handleHeartbeatWithFocusStatus();
+      
+      debugPrint('✅ Timer resumed successfully at: ${pausedTotal.inSeconds}s');
+      
     } catch (e) {
       debugPrint('❌ Error checking/resuming timer: $e');
+      // Clean up on error
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(timerPausedByWebsocketKey);
+      await _clearSnapshot();
     }
   }
 
-  // 🆕 MODIFIED: Handle WebSocket disconnection with snapshot
+  // NEW: Handle WebSocket disconnection with accurate pause
   Future<void> _handleWebSocketDisconnection() async {
     try {
-      if (_isFocusMode.value) {
-        debugPrint('🔌 WebSocket disconnected - pausing focus timer');
-        
-        // Create and save snapshot of current state
-        final snapshot = _createSnapshot();
-        await _saveSnapshot(snapshot);
-        
-        // Also save state using old method for backward compatibility
-        await _saveTimerStateBeforeDisconnect();
-        
-        // Pause the timer without losing precision
-        await _pauseTimerForWebSocketDisconnect();
-        
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool(timerPausedByWebsocketKey, true);
-        await prefs.setBool(wasWebsocketDisconnectedKey, true);
-        
-        _lastWebSocketDisconnectTime = DateTime.now();
-        await prefs.setString(websocketDisconnectTimeKey, 
-            _lastWebSocketDisconnectTime!.toUtc().toIso8601String());
-        
-        debugPrint('⏸️ Focus timer paused due to WebSocket disconnect');
-        
-        // Hide overlay if shown
-        if (_hasOverlayPermission) {
-          await hideOverlay();
-        }
-        
-        // Trigger callback to show connection lost UI
-        if (_onWebSocketDisconnectCallback != null) {
-          debugPrint('🔄 Triggering navigation callback');
-          _onWebSocketDisconnectCallback!();
-        }
+      if (!_isFocusMode.value) {
+        debugPrint('ℹ️ Timer not running - no action needed');
+        return;
+      }
+      
+      debugPrint('🔌 WebSocket disconnected - pausing focus timer');
+      
+      // Get exact current time BEFORE stopping anything
+      final exactCurrentTime = _getCurrentElapsedTime();
+      _exactTimeAtPause = exactCurrentTime;
+      
+      debugPrint('📊 Exact time at pause: ${_exactTimeAtPause.inSeconds}s');
+      debugPrint('   - Base time: ${_baseTimeWhenTimerStarted.inSeconds}s');
+      if (_timerStartTime != null) {
+        final sessionElapsed = DateTime.now().difference(_timerStartTime!);
+        debugPrint('   - Session elapsed: ${sessionElapsed.inSeconds}s');
+      }
+      
+      // Create and save snapshot
+      final snapshot = _createSnapshot();
+      await _saveSnapshot(snapshot);
+      
+      // Stop the timer
+      _stopActiveTimer();
+      _stopHeartbeat();
+      
+      // Update display to show exact paused time
+      _focusTimeToday.value = _exactTimeAtPause;
+      
+      // Save to preferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(focusKey, _exactTimeAtPause.inSeconds);
+      await prefs.setInt(lastStoredFocusTimeKey, _exactTimeAtPause.inSeconds);
+      await prefs.setInt(pausedTotalTimeKey, _exactTimeAtPause.inSeconds);
+      await prefs.setBool(timerPausedByWebsocketKey, true);
+      await prefs.setBool(wasWebsocketDisconnectedKey, true);
+      
+      // Mark as paused but keep focus mode indicator
+      _isPausedByWebSocket = true;
+      _timerStartTime = null;
+      
+      _lastWebSocketDisconnectTime = DateTime.now();
+      await prefs.setString(websocketDisconnectTimeKey, 
+          _lastWebSocketDisconnectTime!.toUtc().toIso8601String());
+      
+      debugPrint('⏸️ Focus timer paused at exactly: ${_exactTimeAtPause.inSeconds}s');
+      
+      // Hide overlay if shown
+      if (_hasOverlayPermission) {
+        await hideOverlay();
+      }
+      
+      // Trigger callback to show connection lost UI
+      if (_onWebSocketDisconnectCallback != null) {
+        debugPrint('🔄 Triggering navigation callback');
+        _onWebSocketDisconnectCallback!();
       }
     } catch (e) {
       debugPrint('❌ Error handling WebSocket disconnection: $e');
     }
   }
-  
-  // 🆕 MODIFIED: Accurate pause method
-  Future<void> _pauseTimerForWebSocketDisconnect() async {
-    debugPrint('⏸️ Pausing timer for WebSocket disconnect');
+
+  // NEW: Start date check timer to monitor date changes
+  void _startDateCheckTimer() {
+    _stopDateCheckTimer();
     
-    // Save current elapsed time before stopping timer
-    if (_timerStartTime != null) {
-      final now = DateTime.now();
-      final elapsed = now.difference(_timerStartTime!);
-      _totalElapsedBeforePause = _baseTimeWhenTimerStarted + elapsed;
-      _lastPauseTime = now;
-      
-      debugPrint('📊 Pause calculation:');
-      debugPrint('   - Base time: ${_baseTimeWhenTimerStarted.inSeconds}s');
-      debugPrint('   - Session elapsed: ${elapsed.inSeconds}s');
-      debugPrint('   - Total before pause: ${_totalElapsedBeforePause.inSeconds}s');
-    } else {
-      _totalElapsedBeforePause = _focusTimeToday.value;
-      _lastPauseTime = DateTime.now();
-    }
+    // Check every 30 seconds for date changes
+    _dateCheckTimer = Timer.periodic(const Duration(seconds: 30), (timer) async {
+      await _checkForDateChange();
+    });
     
-    // Stop active timer
-    _stopActiveTimer();
-    _stopHeartbeat();
-    
-    // Update the focus time to exact current value
-    _focusTimeToday.value = _totalElapsedBeforePause;
-    
-    // Save to SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(focusKey, _totalElapsedBeforePause.inSeconds);
-    await prefs.setInt(lastStoredFocusTimeKey, _totalElapsedBeforePause.inSeconds);
-    
-    // Update state
-    _baseTimeWhenTimerStarted = _totalElapsedBeforePause;
-    _timerStartTime = null;
-    _isPausedByWebSocket = true;
-    
-    debugPrint('✅ Timer paused at exactly: ${_totalElapsedBeforePause.inSeconds}s');
+    debugPrint('📅 Date check timer started');
   }
 
-  // 🆕 MODIFIED: Save timer state with snapshot
-  Future<void> _saveTimerStateBeforeDisconnect() async {
+  // NEW: Stop date check timer
+  void _stopDateCheckTimer() {
+    _dateCheckTimer?.cancel();
+    _dateCheckTimer = null;
+  }
+
+  // NEW: Check if date has changed and handle it
+  Future<void> _checkForDateChange() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      final today = now.toIso8601String().split('T')[0];
       
-      // Calculate exact current total
-      Duration currentTotal = _baseTimeWhenTimerStarted;
-      if (_timerStartTime != null) {
-        final elapsed = DateTime.now().difference(_timerStartTime!);
-        currentTotal = _baseTimeWhenTimerStarted + elapsed;
+      if (_currentDate != today) {
+        debugPrint('📅 Date changed detected! Was: $_currentDate, Now: $today');
+        
+        // Store the previous date for debugging
+        final previousDate = _currentDate;
+        _currentDate = today;
+        
+        // Update last date in preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(lastDateKey, today);
+        await prefs.setString(heartbeatDateKey, today);
+        
+        if (_isFocusMode.value) {
+          debugPrint('🔄 Timer is running on date change - resetting and restarting');
+          
+          // If timer is running, we need to reset it and start fresh
+          // First, stop the current timer
+          _stopActiveTimer();
+          _stopHeartbeat();
+          
+          // Reset all timer variables
+          _baseTimeWhenTimerStarted = Duration.zero;
+          _exactTimeAtPause = Duration.zero;
+          _timerStartTime = DateTime.now(); // Reset start time to now
+          _focusTimeToday.value = Duration.zero;
+          
+          // Update preferences
+          await prefs.setInt(focusKey, 0);
+          await prefs.setInt(lastStoredFocusTimeKey, 0);
+          await prefs.setString(lastStoredFocusDateKey, today);
+          await prefs.setString(focusStartTimeKey, _timerStartTime!.toIso8601String());
+          await prefs.setInt(focusElapsedKey, 0);
+          
+          // Restart the timer
+          _startFocusTimer();
+          _startHeartbeat();
+          
+          // Send heartbeat to notify server of reset
+          _handleHeartbeatWithFocusStatus();
+          
+          debugPrint('✅ Timer reset for new day: $today');
+          debugPrint('   - Previous date: $previousDate');
+          debugPrint('   - New start time: ${_timerStartTime!.toIso8601String()}');
+        } else {
+          // Timer is not running, just reset stored values
+          debugPrint('📅 Date changed but timer not running - resetting stored values');
+          
+          await prefs.setInt(focusKey, 0);
+          await prefs.setInt(lastStoredFocusTimeKey, 0);
+          await prefs.setString(lastStoredFocusDateKey, today);
+          await prefs.remove(focusStartTimeKey);
+          await prefs.remove(focusElapsedKey);
+          
+          // Update UI
+          _focusTimeToday.value = Duration.zero;
+          
+          debugPrint('✅ Stored values reset for new day: $today');
+        }
+        
+        // Clear any disconnect flags since it's a new day
+        await prefs.remove(websocketDisconnectTimeKey);
+        await prefs.remove(wasWebsocketDisconnectedKey);
+        await prefs.remove(timerPausedByWebsocketKey);
+        await _clearSnapshot();
       }
-      
-      // Save current timer state with precise values
-      final state = {
-        'isFocusMode': _isFocusMode.value,
-        'currentTotal': currentTotal.inSeconds,
-        'timestamp': DateTime.now().toUtc().toIso8601String(),
-      };
-      
-      await prefs.setString(timerStateBeforeDisconnectKey, jsonEncode(state));
-      debugPrint('💾 Timer state saved at disconnect:');
-      debugPrint('   - Current total: ${currentTotal.inSeconds}s');
-      debugPrint('   - Timestamp: ${state['timestamp']}');
-      
     } catch (e) {
-      debugPrint('❌ Error saving timer state: $e');
+      debugPrint('❌ Error checking for date change: $e');
     }
   }
 
@@ -503,6 +493,7 @@ class TimerService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final today = DateTime.now().toIso8601String().split('T')[0];
+      _currentDate = today; // Initialize current date
       
       final lastStoredTime = prefs.getInt(lastStoredFocusTimeKey);
       final lastStoredDate = prefs.getString(lastStoredFocusDateKey);
@@ -570,6 +561,8 @@ class TimerService {
           await prefs.remove(websocketDisconnectTimeKey);
           await prefs.remove(wasWebsocketDisconnectedKey);
           await prefs.remove(timerSnapshotKey);
+          await prefs.remove(pausedTotalTimeKey);
+          await prefs.remove(timerPausedByWebsocketKey);
           return Future.value(true);
         }
         
@@ -591,6 +584,8 @@ class TimerService {
             await prefs.remove(websocketDisconnectTimeKey);
             await prefs.remove(wasWebsocketDisconnectedKey);
             await prefs.remove(timerSnapshotKey);
+            await prefs.remove(pausedTotalTimeKey);
+            await prefs.remove(timerPausedByWebsocketKey);
           }
         }
         
@@ -624,7 +619,7 @@ class TimerService {
       
       debugPrint('💓 Heartbeat: ${now.toIso8601String()}');
       
-      // 🆕 NEW: Send combined heartbeat with focus status when WebSocket is connected
+      // Send combined heartbeat with focus status when WebSocket is connected
       if (WebSocketManager.isConnected) {
         _handleHeartbeatWithFocusStatus();
       }
@@ -651,6 +646,7 @@ class TimerService {
     debugPrint('🔴 SHUTDOWN FOR LOGOUT');
     try {
       _stopHeartbeat();
+      _stopDateCheckTimer(); // NEW: Stop date check timer
       await Workmanager().cancelAll();
       await Future.delayed(const Duration(milliseconds: 500));
       _stopActiveTimer();
@@ -671,6 +667,8 @@ class TimerService {
       await prefs.remove(websocketDisconnectTimeKey);
       await prefs.remove(wasWebsocketDisconnectedKey);
       await prefs.remove(timerSnapshotKey);
+      await prefs.remove(pausedTotalTimeKey);
+      await prefs.remove(timerPausedByWebsocketKey);
       
       _resetInstance();
       
@@ -775,6 +773,7 @@ class TimerService {
       
       final lastDate = prefs.getString(lastDateKey);
       final today = DateTime.now().toIso8601String().split('T')[0];
+      _currentDate = today; // Initialize current date
       
       if (lastDate != today) {
         debugPrint('📅 New day, resetting');
@@ -792,6 +791,8 @@ class TimerService {
         await prefs.remove(websocketDisconnectTimeKey);
         await prefs.remove(wasWebsocketDisconnectedKey);
         await prefs.remove(timerSnapshotKey);
+        await prefs.remove(pausedTotalTimeKey);
+        await prefs.remove(timerPausedByWebsocketKey);
       } else {
         await _checkAndRestoreFocusTime();
       }
@@ -807,8 +808,9 @@ class TimerService {
           _focusTimeToday.value += Duration(seconds: elapsedSeconds);
           _startFocusTimer();
           _startHeartbeat();
+          _startDateCheckTimer(); // NEW: Start date checking
           
-          // 🆕 NEW: Send combined heartbeat on initialization if WebSocket is connected
+          // Send combined heartbeat on initialization if WebSocket is connected
           if (WebSocketManager.isConnected) {
             _handleHeartbeatWithFocusStatus();
           }
@@ -818,6 +820,10 @@ class TimerService {
         }
       }
       
+      // NEW: Start date check timer even if timer is not running
+      // This ensures we detect date changes when user opens the app
+      _startDateCheckTimer();
+      
       await _registerBackgroundTask();
       await prefs.setString(lastUserEmailKey, _currentUserEmail!);
       await _saveAppState('resumed');
@@ -826,6 +832,7 @@ class TimerService {
       await _initializeWebSocketMonitoring();
       
       debugPrint('✅ Initialized for: $_currentUserEmail');
+      debugPrint('📅 Current date tracking: $_currentDate');
     } catch (e) {
       debugPrint('❌ Init error: $e');
       rethrow;
@@ -846,6 +853,8 @@ class TimerService {
     await prefs.remove(websocketDisconnectTimeKey);
     await prefs.remove(wasWebsocketDisconnectedKey);
     await prefs.remove(timerSnapshotKey);
+    await prefs.remove(pausedTotalTimeKey);
+    await prefs.remove(timerPausedByWebsocketKey);
     
     final today = DateTime.now().toIso8601String().split('T')[0];
     await prefs.setString(lastDateKey, today);
@@ -875,10 +884,10 @@ class TimerService {
     }
   }
 
-  // 🆕 MODIFIED: Check WebSocket connection before starting
+  // Check WebSocket connection before starting
   Future<void> startFocusMode({bool skipPermissionCheck = false}) async {
     try {
-      // 🆕 NEW: Check WebSocket connection first
+      // Check WebSocket connection first
       if (!WebSocketManager.isConnected) {
         debugPrint('❌ Cannot start focus mode: WebSocket not connected');
         throw Exception('WebSocket connection required');
@@ -896,7 +905,11 @@ class TimerService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(websocketDisconnectTimeKey);
       await prefs.remove(wasWebsocketDisconnectedKey);
+      await prefs.remove(timerPausedByWebsocketKey);
       await _clearSnapshot();
+      
+      // Check for date change before starting
+      await _checkForDateChange();
       
       final currentSavedSeconds = prefs.getInt(focusKey) ?? 0;
       _baseTimeWhenTimerStarted = Duration(seconds: currentSavedSeconds);
@@ -907,9 +920,10 @@ class TimerService {
       _timerStartTime = DateTime.now();
       _appInForeground = true;
       _isPausedByWebSocket = false;
-      _accumulatedPauseTime = Duration.zero;
+      _exactTimeAtPause = Duration.zero;
       
       final today = DateTime.now().toIso8601String().split('T')[0];
+      _currentDate = today; // Update current date
       
       await prefs.setBool(isFocusModeKey, true);
       await prefs.setString(focusStartTimeKey, _timerStartTime!.toIso8601String());
@@ -921,12 +935,13 @@ class TimerService {
       _startFocusTimer();
       _startHeartbeat();
       
-      // 🆕 NEW: Send combined heartbeat to WebSocket
+      // Send combined heartbeat to WebSocket
       _handleHeartbeatWithFocusStatus();
       
       await _registerBackgroundTask();
       
       debugPrint('✅ Focus mode started');
+      debugPrint('📅 Current date: $_currentDate');
     } catch (e) {
       debugPrint('❌ Start focus error: $e');
       _isFocusMode.value = false;
@@ -948,7 +963,7 @@ class TimerService {
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(timerPausedByWebsocketKey);
-      await prefs.remove(timerStateBeforeDisconnectKey);
+      await prefs.remove(pausedTotalTimeKey);
       await _clearSnapshot();
       
       if (_timerStartTime != null) {
@@ -987,9 +1002,9 @@ class TimerService {
       
       _timerStartTime = null;
       _baseTimeWhenTimerStarted = Duration.zero;
-      _accumulatedPauseTime = Duration.zero;
+      _exactTimeAtPause = Duration.zero;
       
-      // 🆕 NEW: Send combined heartbeat to WebSocket when stopping
+      // Send combined heartbeat to WebSocket when stopping
       _handleHeartbeatWithFocusStatus();
       
       debugPrint('✅ Focus mode stopped successfully');
@@ -1005,10 +1020,10 @@ class TimerService {
         _stopHeartbeat();
         _timerStartTime = null;
         _baseTimeWhenTimerStarted = Duration.zero;
-        _accumulatedPauseTime = Duration.zero;
+        _exactTimeAtPause = Duration.zero;
         _isPausedByWebSocket = false;
         
-        // 🆕 NEW: Send combined heartbeat even on error
+        // Send combined heartbeat even on error
         _handleHeartbeatWithFocusStatus();
       } catch (cleanupError) {
         debugPrint('❌ Error during cleanup: $cleanupError');
@@ -1018,7 +1033,7 @@ class TimerService {
     }
   }
 
-  // 🆕 NEW: Check if focus was stopped by WebSocket
+  // Check if focus was stopped by WebSocket
   Future<bool> wasStoppedByWebSocket() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(wasWebsocketDisconnectedKey) ?? false;
@@ -1054,6 +1069,9 @@ class TimerService {
     _appInForeground = true;
     _lastAppResumeTime = DateTime.now();
     
+    // Check for date change immediately on app resume
+    await _checkForDateChange();
+    
     if (_isFocusMode.value) {
       final prefs = await SharedPreferences.getInstance();
       final startTimeStr = prefs.getString(focusStartTimeKey);
@@ -1067,7 +1085,7 @@ class TimerService {
         _startFocusTimer();
         _startHeartbeat();
         
-        // 🆕 NEW: Send combined heartbeat on app resume
+        // Send combined heartbeat on app resume
         _handleHeartbeatWithFocusStatus();
       }
       
@@ -1101,23 +1119,24 @@ class TimerService {
       _isFocusMode.value = false;
       await prefs.setBool(isFocusModeKey, false);
       
-      // 🆕 NEW: Send combined heartbeat on app detached
+      // Send combined heartbeat on app detached
       _handleHeartbeatWithFocusStatus();
     }
     
     if (_hasOverlayPermission) await hideOverlay();
   }
 
-  // 🆕 MODIFIED: Accurate timer with snapshot support
+  // Accurate timer with snapshot support
   void _startFocusTimer() {
     _stopActiveTimer();
     
     debugPrint('⏱️ Starting timer:');
     debugPrint('   - Base time: ${_baseTimeWhenTimerStarted.inSeconds}s');
     debugPrint('   - Display value: ${_focusTimeToday.value.inSeconds}s');
+    debugPrint('   - Is paused by WS: $_isPausedByWebSocket');
     
     _activeTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      if (_timerStartTime != null && _isFocusMode.value && _appInForeground) {
+      if (_timerStartTime != null && _isFocusMode.value && _appInForeground && !_isPausedByWebSocket) {
         final elapsed = DateTime.now().difference(_timerStartTime!);
         final total = _baseTimeWhenTimerStarted + elapsed;
         
@@ -1145,7 +1164,7 @@ class TimerService {
           debugPrint('💾 Auto-saved: ${total.inSeconds}s');
           debugPrint('   - Base: ${_baseTimeWhenTimerStarted.inSeconds}s + Elapsed: ${elapsed.inSeconds}s');
         }
-      } else if (!_isFocusMode.value) {
+      } else if (!_isFocusMode.value || _isPausedByWebSocket) {
         _stopActiveTimer();
       }
     });
@@ -1174,6 +1193,8 @@ class TimerService {
       await prefs.remove(websocketDisconnectTimeKey);
       await prefs.remove(wasWebsocketDisconnectedKey);
       await prefs.remove(timerSnapshotKey);
+      await prefs.remove(pausedTotalTimeKey);
+      await prefs.remove(timerPausedByWebsocketKey);
       
       await Workmanager().cancelAll();
       TimerService()._resetInstance();
@@ -1185,6 +1206,7 @@ class TimerService {
   void _resetInstance() {
     _stopActiveTimer();
     _stopHeartbeat();
+    _stopDateCheckTimer(); // NEW: Stop date check timer
     _focusTimeToday.value = Duration.zero;
     _isFocusMode.value = false;
     _timerStartTime = null;
@@ -1196,13 +1218,11 @@ class TimerService {
     _isWebSocketConnected = false;
     _lastWebSocketDisconnectTime = null;
     _onWebSocketDisconnectCallback = null;
-    _lastValidSnapshot = null;
-    _accumulatedPauseTime = Duration.zero;
+    _exactTimeAtPause = Duration.zero;
     _isPausedByWebSocket = false;
-    _lastPauseTime = null;
-    _totalElapsedBeforePause = Duration.zero;
+    _currentDate = ''; // NEW: Reset current date
     
-    // 🆕 NEW: Clean up WebSocket subscriptions
+    // Clean up WebSocket subscriptions
     _websocketConnectionSubscription?.cancel();
     _websocketConnectionSubscription = null;
     WebSocketManager.removeCallbacks();
@@ -1221,6 +1241,7 @@ class TimerService {
     if (_isInitialized) {
       _stopActiveTimer();
       _stopHeartbeat();
+      _stopDateCheckTimer(); // NEW: Stop date check timer
       _websocketConnectionSubscription?.cancel();
       WebSocketManager.removeCallbacks();
       _isFocusMode.dispose();

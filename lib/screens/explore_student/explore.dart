@@ -85,7 +85,7 @@ class Student {
 
   factory Student.fromJson(Map<String, dynamic> json) {
     return Student(
-      id: json['id'] ?? '',  // ADD THIS LINE
+      id: json['id'] ?? '',
       name: json['name'] ?? '',
       gender: json['gender'] ?? '',
       studentType: json['student_type'] ?? '',
@@ -110,7 +110,6 @@ class ExploreProvider extends ChangeNotifier {
   List<Course> _courses = [];
   List<Student> _students = [];
   
-  String? _selectedBatchId;
   String? _selectedCourseId;
   String? _selectedGender;
   String _searchQuery = '';
@@ -118,28 +117,18 @@ class ExploreProvider extends ChangeNotifier {
   String? _errorMessage;
   int _studentCount = 0;
 
-  // Getters (same as before)
+  // Getters
   bool get isLoadingBatches => _isLoadingBatches;
   bool get isLoadingCourses => _isLoadingCourses;
   bool get isSearching => _isSearching;
   List<Batch> get batches => _batches;
   List<Course> get courses => _courses;
   List<Student> get students => _students;
-  String? get selectedBatchId => _selectedBatchId;
   String? get selectedCourseId => _selectedCourseId;
   String? get selectedGender => _selectedGender;
   String get searchQuery => _searchQuery;
   String? get errorMessage => _errorMessage;
   int get studentCount => _studentCount;
-
-  String? getSelectedBatchName() {
-    if (_selectedBatchId == null) return null;
-    final batch = _batches.firstWhere(
-      (b) => b.id == _selectedBatchId,
-      orElse: () => Batch(id: '', name: '', startDate: '', endDate: '', addedBy: ''),
-    );
-    return batch.name.isEmpty ? null : batch.name;
-  }
 
   String? getSelectedCourseName() {
     if (_selectedCourseId == null) return null;
@@ -155,11 +144,6 @@ class ExploreProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setSelectedBatch(String? batchId) {
-    _selectedBatchId = batchId;
-    notifyListeners();
-  }
-
   void setSelectedCourse(String? courseId) {
     _selectedCourseId = courseId;
     notifyListeners();
@@ -171,7 +155,6 @@ class ExploreProvider extends ChangeNotifier {
   }
 
   void clearFilters() {
-    _selectedBatchId = null;
     _selectedCourseId = null;
     _selectedGender = null;
     _searchQuery = '';
@@ -298,7 +281,7 @@ class ExploreProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Build query parameters
+      // Build query parameters - REMOVED batch_id parameter
       Map<String, String> queryParams = {};
       
       if (_selectedCourseId != null && _selectedCourseId!.isNotEmpty) {
@@ -309,9 +292,7 @@ class ExploreProvider extends ChangeNotifier {
         queryParams['gender'] = _selectedGender!;
       }
       
-      if (_selectedBatchId != null && _selectedBatchId!.isNotEmpty) {
-        queryParams['batch_id'] = _selectedBatchId!;
-      }
+      // REMOVED: Batch filter query parameter
       
       if (_searchQuery.isNotEmpty) {
         queryParams['search'] = _searchQuery;
@@ -463,7 +444,7 @@ class FiltersSkeleton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           const SizedBox(height: 12),
-          // Filter chips skeleton
+          // Filter chips skeleton - Updated to show only 2 filters
           Row(
             children: [
               SkeletonLoader(
@@ -474,12 +455,6 @@ class FiltersSkeleton extends StatelessWidget {
               const SizedBox(width: 8),
               SkeletonLoader(
                 width: 90,
-                height: 40,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              const SizedBox(width: 8),
-              SkeletonLoader(
-                width: 85,
                 height: 40,
                 borderRadius: BorderRadius.circular(20),
               ),
@@ -686,23 +661,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
     }
   }
 
-  void _showBatchDropdown() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => _buildDropdownSheet(
-        title: 'Select Batch',
-        items: _provider.batches.map((b) => b.name).toList(),
-        selectedValue: _provider.getSelectedBatchName(),
-        onSelected: (name) {
-          final batch = _provider.batches.firstWhere((b) => b.name == name);
-          _provider.setSelectedBatch(batch.id);
-          Navigator.pop(context);
-        },
-      ),
-    );
-  }
+  // REMOVED: _showBatchDropdown method
 
   void _showCourseDropdown() {
     showModalBottomSheet(
@@ -1028,8 +987,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
  Widget _buildStudentCard(Student student) {
     final fontSize = ResponsiveUtils.getFontSize(context, 14);
     
-    return InkWell(  // WRAP WITH InkWell
-      onTap: () {  // ADD THIS
+    return InkWell(
+      onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -1040,8 +999,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ),
         );
       },
-      borderRadius: BorderRadius.circular(16),  // ADD THIS
-      child: Container(  // WRAP Container with child
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
           color: AppColors.white,
@@ -1098,7 +1057,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                       ],
                     ),
                   ),
-                  Icon(  // ADD THIS ARROW ICON
+                  Icon(
                     Icons.arrow_forward_ios,
                     size: fontSize,
                     color: AppColors.grey400,
@@ -1265,8 +1224,8 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ListenableBuilder(
             listenable: _provider,
             builder: (context, child) {
-              final hasFilters = _provider.selectedBatchId != null ||
-                  _provider.selectedCourseId != null ||
+              // Updated: Only check for course, gender, and search query
+              final hasFilters = _provider.selectedCourseId != null ||
                   _provider.selectedGender != null ||
                   _provider.searchQuery.isNotEmpty;
               
@@ -1344,14 +1303,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               onClear: () => _provider.setSelectedGender(null),
                               icon: Icons.person_outline,
                             ),
-                            const SizedBox(width: 8),
-                            _buildFilterChip(
-                              label: 'Batch',
-                              value: _provider.getSelectedBatchName(),
-                              onTap: _showBatchDropdown,
-                              onClear: () => _provider.setSelectedBatch(null),
-                              icon: Icons.group_outlined,
-                            ),
+                            // REMOVED: Batch filter chip
                           ],
                         ),
                       ),

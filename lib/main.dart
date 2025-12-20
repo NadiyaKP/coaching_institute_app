@@ -806,7 +806,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     onError: (error) {
       debugPrint('❌ WebSocket stream error: $error');
       if (_appInForeground) {
-        _showWebSocketErrorSnackbar('Connection error. Reconnecting...');
+         //_showWebSocketErrorSnackbar('Connection error. Reconnecting...');
       }
       _wasWebSocketConnected = false;
     },
@@ -824,7 +824,7 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
       if (WebSocketManager.connectionStatus != 'force_disconnected') {
         // Don't show if we're already showing a snackbar
         if (!_isShowingReconnectionSnackbar) {
-          _showWebSocketErrorSnackbar('Connection lost. Reconnecting...');
+           _showWebSocketErrorSnackbar('Connection lost. Reconnecting...');
         }
       }
     } else if (isConnected && _appInForeground) {

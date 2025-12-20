@@ -223,29 +223,34 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   }
 
   Widget _buildSkeletonLoader() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        children: [
-          Container(
-            height: 50,
-            decoration: BoxDecoration(
-              color: Colors.grey[300],
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-          const SizedBox(height: 8),
-          ...List.generate(8, (index) => Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Container(
-              height: 60,
+    return RefreshIndicator(
+      onRefresh: _fetchTimeTable,
+      color: AppColors.primaryYellow,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: 5,
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            // Header skeleton
+            return Container(
+              height: 50,
+              margin: const EdgeInsets.only(bottom: 8),
               decoration: BoxDecoration(
-                color: Colors.grey[200],
+                color: Colors.grey[300],
                 borderRadius: BorderRadius.circular(8),
               ),
+            );
+          }
+          // Row skeleton
+          return Container(
+            height: 60,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Colors.grey[200],
+              borderRadius: BorderRadius.circular(8),
             ),
-          )),
-        ],
+          );
+        },
       ),
     );
   }
@@ -470,7 +475,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
 
   Widget _buildZoomControls() {
     return Positioned(
-      bottom: 80,
+      bottom: 60, // Changed from 20 to 60 to lift it upwards
       right: 16,
       child: Container(
         decoration: BoxDecoration(
@@ -478,9 +483,9 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
           borderRadius: BorderRadius.circular(30),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -488,7 +493,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: const Icon(Icons.add, color: AppColors.primaryYellow),
+              icon: const Icon(Icons.add, color: AppColors.primaryYellow, size: 24),
               onPressed: _zoomIn,
               tooltip: 'Zoom In',
             ),
@@ -498,7 +503,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
               color: Colors.grey[300],
             ),
             IconButton(
-              icon: const Icon(Icons.refresh, color: AppColors.primaryYellow),
+              icon: const Icon(Icons.refresh, color: AppColors.primaryYellow, size: 24),
               onPressed: _resetZoom,
               tooltip: 'Reset Zoom',
             ),
@@ -508,7 +513,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
               color: Colors.grey[300],
             ),
             IconButton(
-              icon: const Icon(Icons.remove, color: AppColors.primaryYellow),
+              icon: const Icon(Icons.remove, color: AppColors.primaryYellow, size: 24),
               onPressed: _zoomOut,
               tooltip: 'Zoom Out',
             ),
@@ -522,144 +527,156 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
-      body: Column(
+      body: Stack(
         children: [
-          // Header Section with Curved Bottom
-          ClipPath(
-            clipper: CurvedHeaderClipper(),
-            child: Container(
-              width: double.infinity,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    AppColors.primaryYellow,
-                    AppColors.primaryYellowDark,
-                  ],
-                ),
-              ),
-              padding: const EdgeInsets.fromLTRB(16, 50, 16, 30),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+          Column(
+            children: [
+              // Header Section with Curved Bottom
+              ClipPath(
+                clipper: CurvedHeaderClipper(),
+                child: Container(
+                  width: double.infinity,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.primaryYellow,
+                        AppColors.primaryYellowDark,
+                      ],
+                    ),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 50, 16, 30),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.arrow_back_rounded,
-                          color: Colors.white,
-                          size: 22,
-                        ),
-                        onPressed: () => Navigator.pop(context),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _timeTableTitle.isNotEmpty ? _timeTableTitle : 'Time Table',
-                          style: const TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            letterSpacing: -0.5,
+                      Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(
+                              Icons.arrow_back_rounded,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            onPressed: () => Navigator.pop(context),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _timeTableTitle.isNotEmpty ? _timeTableTitle : 'Time Table',
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                                letterSpacing: -0.5,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
+                      const SizedBox(height: 6),
                     ],
                   ),
-                  const SizedBox(height: 6),
-                ],
+                ),
               ),
-            ),
-          ),
 
-          // Main Content - Table
-          Expanded(
-            child: _isLoading
-                ? _buildSkeletonLoader()
-                : _errorMessage.isNotEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              size: 64,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 16),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 24),
-                              child: Text(
-                                _errorMessage,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: AppColors.textGrey,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            ElevatedButton.icon(
-                              onPressed: _fetchTimeTable,
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('Retry'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primaryYellow,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _timeTableDays.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.schedule_outlined,
-                                  size: 64,
-                                  color: Colors.grey[400],
-                                ),
-                                const SizedBox(height: 16),
-                                const Text(
-                                  'No time table available',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Your time table will appear here',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: AppColors.textGrey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : Stack(
-                            children: [
-                              RefreshIndicator(
-                                onRefresh: _fetchTimeTable,
-                                color: AppColors.primaryYellow,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: _buildDataTable(),
-                                ),
-                              ),
-                              _buildZoomControls(),
-                            ],
+              // Main Content - Table
+              Expanded(
+                child: _isLoading
+                    ? _buildSkeletonLoader()
+                    : SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: MediaQuery.of(context).size.height,
                           ),
+                          child: IntrinsicHeight(
+                            child: _errorMessage.isNotEmpty
+                                ? Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline,
+                                          size: 64,
+                                          color: Colors.grey[400],
+                                        ),
+                                        const SizedBox(height: 16),
+                                        Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                                          child: Text(
+                                            _errorMessage,
+                                            textAlign: TextAlign.center,
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                              color: AppColors.textGrey,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 16),
+                                        ElevatedButton.icon(
+                                          onPressed: _fetchTimeTable,
+                                          icon: const Icon(Icons.refresh),
+                                          label: const Text('Retry'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: AppColors.primaryYellow,
+                                            foregroundColor: Colors.white,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                : _timeTableDays.isEmpty
+                                    ? Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.schedule_outlined,
+                                              size: 64,
+                                              color: Colors.grey[400],
+                                            ),
+                                            const SizedBox(height: 16),
+                                            const Text(
+                                              'No time table available',
+                                              style: TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.textGrey,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            const Text(
+                                              'Your time table will appear here',
+                                              style: TextStyle(
+                                                fontSize: 13,
+                                                color: AppColors.textGrey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : RefreshIndicator(
+                                        onRefresh: _fetchTimeTable,
+                                        color: AppColors.primaryYellow,
+                                        child: Padding(
+                                          padding: const EdgeInsets.all(16),
+                                          child: _buildDataTable(),
+                                        ),
+                                      ),
+                          ),
+                        ),
+                      ),
+              ),
+            ],
           ),
+          
+          // Zoom Controls - Always visible floating buttons
+          if (!_isLoading && _timeTableDays.isNotEmpty && _errorMessage.isEmpty)
+            _buildZoomControls(),
         ],
       ),
     );

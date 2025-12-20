@@ -699,7 +699,7 @@ Widget _buildHeader() {
   double logoSize;
   if (!isLandscape) {
     if (isTabletDevice) {
-      logoSize = screenWidth * 0.25; 
+      logoSize = screenWidth * 0.18; // 🔧 REDUCED from 0.25 to 0.18 for tablets
     } else {
       logoSize = screenWidth * 0.22; 
     }
