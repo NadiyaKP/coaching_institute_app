@@ -17,7 +17,7 @@ class ExamInstructionScreen extends StatefulWidget {
   final String startTime;
   final String endTime;
   final String subject;
-  final bool isNewExam; // Add this parameter
+  final bool isNewExam; 
 
   const ExamInstructionScreen({
     super.key,
@@ -27,7 +27,7 @@ class ExamInstructionScreen extends StatefulWidget {
     required this.startTime,
     required this.endTime,
     required this.subject,
-    this.isNewExam = false, // Default to false
+    this.isNewExam = false, 
   });
 
   @override

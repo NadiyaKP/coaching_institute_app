@@ -81,7 +81,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
   String _studentType = '';
 
   // Practice type selection
-  String _selectedPracticeType = 'mcq'; // Default to MCQ Practice
+  String _selectedPracticeType = 'mcq'; 
 
   final AuthService _authService = AuthService();
 
@@ -285,7 +285,6 @@ class _MockTestScreenState extends State<MockTestScreen> {
     }
   }
 
-  // ENHANCED: Load units/chapters for selected subject with proper navigation
   void _loadUnits(String subjectId, String subjectName) {
     try {
       debugPrint('=== LOADING UNITS/CHAPTERS FOR MOCK TEST SUBJECT ===');
@@ -349,7 +348,7 @@ class _MockTestScreenState extends State<MockTestScreen> {
           _chapters = directChapters;
           _selectedSubjectId = subjectId;
           _selectedSubjectName = subjectName;
-          _selectedUnitName = ''; // No unit name since we're going directly to chapters
+          _selectedUnitName = ''; 
           _currentPage = 'chapters';
           _isLoading = false;
         });
@@ -652,17 +651,17 @@ void _navigateToSettings() {
     if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
       debugPrint('At root subjects - exiting screen and resetting bottom nav');
       _exitScreenAndResetNav();
-      return false; // Don't allow default back behavior
+      return false; 
     } else {
       _navigateBack();
-      return false; // Don't allow default back behavior
+      return false; 
     }
   }
 
   // Bottom Navigation Bar methods
   void _onTabTapped(int index) {
     if (index == 3) {
-      // Profile tab - open drawer
+  
       _scaffoldKey.currentState?.openEndDrawer();
       return;
     }
@@ -671,7 +670,6 @@ void _navigateToSettings() {
       _currentIndex = index;
     });
 
-    // Use the common helper for navigation logic
     BottomNavBarHelper.handleTabSelection(
       index,
       context,
@@ -821,11 +819,9 @@ void _navigateToSettings() {
       studentType: _studentType,
       profileCompleted: _profileCompleted,
       onViewProfile: () {
-        // Remove the Navigator.of(context).pop() line
         _navigateToViewProfile();
       },
       onSettings: () {
-        // Remove the Navigator.of(context).pop() line
         _navigateToSettings();
       },
       onClose: () {
@@ -1371,7 +1367,6 @@ void _navigateToSettings() {
             Column(
               children: _subjects
                   .map((subject) {
-                    // Get units and chapters with proper null checking
                     final dynamic unitsData = subject['units'];
                     final dynamic chaptersData = subject['chapters'];
                     

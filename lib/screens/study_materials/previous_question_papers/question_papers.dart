@@ -101,8 +101,6 @@ class QuestionPapersProvider extends ChangeNotifier with WidgetsBindingObserver 
 void didChangeAppLifecycleState(AppLifecycleState state) {
   super.didChangeAppLifecycleState(state);
   
-  // Send stored data when app goes to background (minimized or device locked)
-  // Enable for both 'online' and 'offline' students, but not 'public'
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
     if (state == AppLifecycleState.paused || 
         state == AppLifecycleState.inactive ||
@@ -329,27 +327,15 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       debugPrint('Status Code: ${response.statusCode}');
       debugPrint('Response Headers: ${response.headers}');
       
-      // Use print() instead of debugPrint() to avoid masking
-      print('Response Body (Raw):');
-      print(response.body);
-      
-      // Pretty print JSON if possible
       try {
         final responseJson = jsonDecode(response.body);
-        print('\nResponse Body (Formatted):');
-        print(const JsonEncoder.withIndent('  ').convert(responseJson));
-        
-        // Print file URLs explicitly using print()
+  
         if (responseJson['question_papers'] != null && responseJson['question_papers'] is List) {
-          print('\n=== EXTRACTED FILE URLS ===');
+   
           for (var i = 0; i < responseJson['question_papers'].length; i++) {
             final paper = responseJson['question_papers'][i];
-            print('Paper ${i + 1}:');
-            print('  ID: ${paper['id']}');
-            print('  Title: ${paper['title']}');
-            print('  File URL: ${paper['file_url']}');
           }
-          print('=== END FILE URLS ===\n');
+         
         }
       } catch (e) {
         debugPrint('Unable to format JSON: $e');
@@ -649,10 +635,10 @@ Future<bool> handleDeviceBackButton(BuildContext context) async {
     if (context.mounted) {
       Navigator.of(context).pop();
     }
-    return false; // Don't allow default back behavior
+    return false; 
   } else {
     navigateBack();
-    return false; // Don't allow default back behavior
+    return false; 
   }
 }
  
@@ -660,8 +646,6 @@ Future<bool> handleDeviceBackButton(BuildContext context) async {
 void navigateBackToHome(BuildContext context) {
   debugPrint('=== NAVIGATING BACK TO HOME FROM SUBJECTS ===');
   
-  // Send reading data to backend without waiting for response
-  // Enable for both 'online' and 'offline' students
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
     _sendStoredReadingDataToAPI().catchError((e) {
       debugPrint('Error sending reading data on exit: $e');

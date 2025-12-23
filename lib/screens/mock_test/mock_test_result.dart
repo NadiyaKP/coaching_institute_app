@@ -365,8 +365,7 @@ class MockTestResultScreen extends StatelessWidget {
                                         ),
                                     ],
                                   ),
-                                
-                                // Show selected answer and correct answer if answered
+
                                 if (!skipped)
                                   Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,8 +614,6 @@ class MockTestResultScreen extends StatelessWidget {
   }
 
   String _getChapterIdFromData() { 
-    // Extract chapter ID from the data or use a placeholder
-    // You might need to modify this based on your actual data structure
     return chapterName.toLowerCase().replaceAll(' ', '_');
   }
 }

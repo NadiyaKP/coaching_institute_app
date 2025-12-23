@@ -475,7 +475,7 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
 
   Widget _buildZoomControls() {
     return Positioned(
-      bottom: 60, // Changed from 20 to 60 to lift it upwards
+      bottom: 60,
       right: 16,
       child: Container(
         decoration: BoxDecoration(
@@ -674,7 +674,6 @@ class _TimeTableScreenState extends State<TimeTableScreen> {
             ],
           ),
           
-          // Zoom Controls - Always visible floating buttons
           if (!_isLoading && _timeTableDays.isNotEmpty && _errorMessage.isEmpty)
             _buildZoomControls(),
         ],

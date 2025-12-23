@@ -36,36 +36,37 @@ class AccountCreationProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    try {
-      String trimmedName = name.trim();
-      String trimmedMobile = mobile.trim();
-      String trimmedEmail = email.trim();
-      String trimmedPassword = password;
-      String fullPhoneNumber = '$countryCode $trimmedMobile';
+    
+try {
+  String trimmedName = name.trim();
+  String trimmedMobile = mobile.trim();
+  String trimmedEmail = email.trim();
+  String trimmedPassword = password;
+  String fullPhoneNumber = trimmedMobile;  
 
-      if (trimmedName.isEmpty) {
-        throw Exception('Name is required');
-      }
-      if (trimmedMobile.isEmpty) {
-        throw Exception('Mobile number is required');
-      }
-      if (trimmedEmail.isEmpty) {
-        throw Exception('Email is required');
-      }
-      if (trimmedPassword.isEmpty) {
-        throw Exception('Password is required');
-      }
+  if (trimmedName.isEmpty) {
+    throw Exception('Name is required');
+  }
+  if (trimmedMobile.isEmpty) {
+    throw Exception('Mobile number is required');
+  }
+  if (trimmedEmail.isEmpty) {
+    throw Exception('Email is required');
+  }
+  if (trimmedPassword.isEmpty) {
+    throw Exception('Password is required');
+  }
 
-      final requestData = {
-        "phone_number": fullPhoneNumber,
-        "email": trimmedEmail,
-        "name": trimmedName,
-        "password": trimmedPassword,
-      };
+  final requestData = {
+    "phone_number": fullPhoneNumber,  
+    "email": trimmedEmail,
+    "name": trimmedName,
+    "password": trimmedPassword,
+  };
 
-      debugPrint('=== API REQUEST DEBUG ===');
-      debugPrint('URL: ${ApiConfig.buildUrl('/api/students/register_student/')}');
-      debugPrint('Request Data: ${json.encode(requestData)}');
+  debugPrint('=== API REQUEST DEBUG ===');
+  debugPrint('URL: ${ApiConfig.buildUrl('/api/students/register_student/')}');
+  debugPrint('Request Data: ${json.encode(requestData)}');
 
       final httpClient = ApiConfig.createHttpClient();
       final ioClient = IOClient(httpClient);
@@ -110,21 +111,21 @@ class AccountCreationProvider extends ChangeNotifier {
             };
           }
         } else {
-          debugPrint('HTTP Error: ${response.statusCode}');
+        debugPrint('HTTP Error: ${response.statusCode}');
 
-          String errorMessage = 'Failed to register';
-          try {
-            final errorData = json.decode(response.body);
-            errorMessage = errorData['message'] ?? errorMessage;
-          } catch (e) {
-            debugPrint('Failed to parse error response: $e');
-          }
-
-          return {
-            'success': false,
-            'message': 'Error: ${response.statusCode} - $errorMessage',
-          };
+        String errorMessage = 'Failed to register';
+        try {
+          final errorData = json.decode(response.body);
+          errorMessage = errorData['message'] ?? errorMessage;
+        } catch (e) {
+          debugPrint('Failed to parse error response: $e');
         }
+
+        return {
+          'success': false,
+          'message': errorMessage,  
+        };
+      }
       } finally {
         try {
           httpClient.close(force: true);

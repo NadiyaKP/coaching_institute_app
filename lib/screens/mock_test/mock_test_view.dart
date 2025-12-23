@@ -186,14 +186,13 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
         _handleError('Session expired. Please login again.');
         _navigateBack();
       } else if (response.statusCode == 404) {
-        // Handle 404 - No questions available
         setState(() {
           _isLoading = false;
           _noQuestionsAvailable = true;
         });
         debugPrint('❌ No questions available for this chapter (404)');
       } else {
-        // Try to parse error response
+  
         try {
           final Map<String, dynamic> errorData = json.decode(response.body);
           if (errorData['error_code'] == 'FREE_USER_LIMIT') {
@@ -211,11 +210,11 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
           debugPrint('Error parsing error response: $e');
         }
         
-        _handleError('Failed to load mock test: ${response.statusCode}');
+        //_handleError('Failed to load mock test');
       }
     } catch (e) {
       debugPrint('Exception occurred while fetching mock test: $e');
-      // Check if it's a 404 error in the exception
+    
       if (e.toString().contains('404')) {
         setState(() {
           _isLoading = false;
@@ -782,7 +781,6 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
       _isLoading = true;
     });
     
-    // Submit test results to API and get response
     final resultData = await _submitTestResults();
     
     setState(() {
@@ -1492,23 +1490,21 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                     ),
                   );
                 }),
-                
-                // Add extra space at the bottom to ensure buttons are visible
-                const SizedBox(height: 80), // Increased space for buttons
+
+                const SizedBox(height: 80),
               ],
             ),
           ),
         ),
-        
-        // Navigation buttons - Lifted significantly upward with SafeArea
+
         SafeArea(
           top: false,
           child: Container(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16), // Increased padding on all sides
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16), 
             margin: EdgeInsets.only(
               bottom: MediaQuery.of(context).viewInsets.bottom > 0 
                   ? MediaQuery.of(context).viewInsets.bottom 
-                  : 16, // Extra margin to avoid device buttons
+                  : 16, 
             ),
             decoration: BoxDecoration(
               color: Colors.white,
@@ -1535,7 +1531,7 @@ class _MockTestViewScreenState extends State<MockTestViewScreen> {
                         onTapUp: (_) => _cancelSkipTimer(),
                         onTapCancel: _cancelSkipTimer,
                         child: Container(
-                          height: 50, // Slightly increased height for better touch
+                          height: 50,
                           decoration: BoxDecoration(
                             border: Border.all(
                               color: Colors.grey[400]!,

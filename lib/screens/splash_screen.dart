@@ -60,7 +60,7 @@ class _SplashScreenState extends State<SplashScreen> {
           // No student type found: Navigate to home
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const HomeScreen()),
+            MaterialPageRoute(builder: (context) => const LoginScreen()),
           );
         }
       } else {

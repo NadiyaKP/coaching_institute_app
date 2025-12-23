@@ -40,7 +40,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   StreamSubscription<bool>? _websocketConnectionSubscription;
   Timer? _reconnectionCheckTimer;
   
-  // Track connection states to prevent duplicate messages
   bool _hasShownDisconnectionMessage = false;
   bool _hasShownReconnectionMessage = false;
   bool _lastKnownConnectionState = true;
@@ -148,7 +147,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     }
   }
 
-  // Helper method to show small snackbars
   void _showSmallSnackbar({
     required String message,
     required Color backgroundColor,
@@ -168,7 +166,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
               Expanded(
                 child: Text(
                   message,
-                  style: const TextStyle(fontSize: 11), // Reduced font size
+                  style: const TextStyle(fontSize: 11), 
                 ),
               ),
             ],
@@ -337,8 +335,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     });
 
     try {
-      // Removed: _showSmallSnackbar for 'Reconnecting...'
-      
+    
       await WebSocketManager.resetConnectionState();
       await Future.delayed(const Duration(milliseconds: 300));
       
@@ -358,10 +355,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       }
       
       if (mounted) {
-        // Removed: ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        
-        // Removed: _showSmallSnackbar for 'Reconnected!'
-        
+
         setState(() {
           _isReconnecting = false;
           _initializationFuture = _initializeData();
@@ -373,7 +367,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       debugPrint('Stack: $stackTrace');
       
       if (mounted) {
-        // Removed: ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
         setState(() => _isReconnecting = false);
       }
     }
@@ -1313,8 +1307,7 @@ Widget build(BuildContext context) {
                         ),
                         
                         SizedBox(height: isSmallScreen ? 12 : 16),
-                        
-                        // Stats Card (Compact)
+                    
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.all(14),
@@ -1367,7 +1360,7 @@ Widget build(BuildContext context) {
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      _formatDuration(focusTime), // Now using the properly defined focusTime variable
+                                      _formatDuration(focusTime), 
                                       style: const TextStyle(
                                         fontSize: 28,
                                         fontWeight: FontWeight.bold,
@@ -1582,9 +1575,9 @@ Widget build(BuildContext context) {
                           ),
                         ),
                         
-                        const SizedBox(height: 20), // Space before button
+                        const SizedBox(height: 20), 
                         
-                        // Start Button - Positioned higher
+                        // Start Button 
                         SizedBox(
                           width: double.infinity,
                           height: 50,

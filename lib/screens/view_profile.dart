@@ -148,9 +148,6 @@ class ProfileProvider with ChangeNotifier {
         body: jsonEncode({'show_public': value}),
       ).timeout(ApiConfig.requestTimeout);
 
-      print('Toggle Visibility API Response Status: ${response.statusCode}');
-      print('Toggle Visibility API Response Body: ${response.body}');
-
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
         if (responseData['success'] == true) {
@@ -166,7 +163,6 @@ class ProfileProvider with ChangeNotifier {
 
       httpClient.close();
     } catch (e) {
-      print('❌ Error toggling public visibility: $e');
       rethrow;
     }
   }
@@ -377,12 +373,11 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
   }
 
   Widget _buildProfileCard(ProfileProvider profileProvider) {
-  // Fixed square size - smaller
-  const cardSize = 240.0; // Reduced from 280 to 240
+  const cardSize = 240.0; 
   
   return Container(
     width: cardSize,
-    height: cardSize, // Make it square by setting equal width and height
+    height: cardSize, 
     margin: const EdgeInsets.symmetric(horizontal: 16),
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
@@ -399,7 +394,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center, 
       children: [
-        // Profile Avatar - Reduced size
+        // Profile Avatar
         Container(
           padding: const EdgeInsets.all(3),
           decoration: BoxDecoration(
@@ -421,11 +416,11 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
             ],
           ),
           child: const CircleAvatar(
-            radius: 30, // Reduced from 35 to 30
+            radius: 30, 
             backgroundColor: Colors.white,
             child: Icon(
               Icons.person_rounded,
-              size: 35, // Reduced from 40 to 35
+              size: 35, 
               color: AppColors.primaryYellow,
             ),
           ),
@@ -439,7 +434,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
               ? profileProvider.nameController.text 
               : 'User Name',
           style: const TextStyle(
-            fontSize: 16, // Reduced from 18 to 16
+            fontSize: 16, 
             fontWeight: FontWeight.bold,
             color: AppColors.textDark,
             letterSpacing: -0.3,
@@ -455,7 +450,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           Text(
             profileProvider.emailController.text,
             style: const TextStyle(
-              fontSize: 11, // Reduced from 12 to 11
+              fontSize: 11, 
               color: AppColors.textGrey,
               fontWeight: FontWeight.w500,
             ),
@@ -812,7 +807,7 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
             child: OutlinedButton(
               onPressed: () => _cancelEditing(profileProvider),
               style: OutlinedButton.styleFrom(
-                side: BorderSide(color: AppColors.grey300, width: 1.5),
+                side: const BorderSide(color: AppColors.grey300, width: 1.5),
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1543,11 +1538,11 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
       child: Column(
         children: [
           Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16), // Reduced margin
-            padding: const EdgeInsets.all(24), // Increased padding
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.all(24), 
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(20), // Larger border radius
+              borderRadius: BorderRadius.circular(20), 
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.04),
@@ -1559,17 +1554,17 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
             child: Column(
               children: [
                 Container(
-                  width: 104, // Increased width
-                  height: 104, // Increased height
+                  width: 104, 
+                  height: 104,
                   decoration: const BoxDecoration(
                     color: AppColors.grey200,
                     shape: BoxShape.circle,
                   ),
                 ),
-                const SizedBox(height: 20), // Increased spacing
+                const SizedBox(height: 20), 
                 Container(
                   width: 180,
-                  height: 24, // Increased height
+                  height: 24,
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
@@ -1578,16 +1573,15 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
                 const SizedBox(height: 8),
                 Container(
                   width: 140,
-                  height: 16, // Increased height
+                  height: 16, 
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                const SizedBox(height: 16), // Increased spacing
                 Container(
                   width: 100,
-                  height: 36, // Increased height
+                  height: 36, 
                   decoration: BoxDecoration(
                     color: AppColors.grey200,
                     borderRadius: BorderRadius.circular(20),
@@ -1904,42 +1898,33 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
     for (String key in possibleKeys) {
       String? token = prefs.getString(key);
       if (token != null && token.isNotEmpty && _isValidToken(token)) {
-        print('🔑 Found valid token with key: $key');
         return token;
       } else if (token != null) {
         print('⚠️ Found token with key $key but it seems invalid: ${token.substring(0, token.length > 20 ? 20 : token.length)}...');
       }
     }
     
-    print('📋 Available SharedPreferences keys: ${prefs.getKeys()}');
     return null;
   }
 
   Future<void> _loadProfileData(ProfileProvider profileProvider) async {
     try {
-      print('📥 Starting to load profile data...');
       profileProvider.isLoading = true;
       profileProvider.errorMessage = null;
 
       final prefs = await SharedPreferences.getInstance();
-      print('🔍 Checking SharedPreferences keys...');
       
       String? accessToken = await _getAccessToken();
       
       if (accessToken == null || accessToken.isEmpty) {
-        print('❌ No access token found');
         profileProvider.errorMessage = 'No access token found. Please login again.';
         profileProvider.isLoading = false;
         return;
       }
 
-      print('✅ Access token found, making API call...');
       final httpClient = ApiConfig.createHttpClient();
       final profileUrl = ApiConfig.buildUrl('/api/students/get_profile/');
-      print('🌐 API URL: $profileUrl');
-
       final request = await httpClient.getUrl(Uri.parse(profileUrl));
-      
       final headers = Map<String, String>.from(ApiConfig.commonHeaders);
       headers['Authorization'] = 'Bearer $accessToken';
       
@@ -1947,23 +1932,16 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
         request.headers.set(key, value);
       });
 
-      print('🚀 Sending profile request...');
       final response = await request.close().timeout(ApiConfig.requestTimeout);
-      
       final responseBody = await response.transform(utf8.decoder).join();
       
       httpClient.close();
 
-      print('📊 Response Status: ${response.statusCode}');
-      print('📄 Response Body: $responseBody');
-
       if (response.statusCode == 200) {
         final data = json.decode(responseBody);
-        print('✅ API call successful, parsing data...');
-        
+
         if (data['success'] == true && data['profile'] != null) {
           final profile = data['profile'];
-          print('📋 Profile data structure: $profile');
           
           profileProvider.nameController.text = profile['name']?.toString() ?? '';
           profileProvider.phoneController.text = profile['phone_number']?.toString() ?? '';
@@ -1975,7 +1953,6 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           profileProvider.showPublic = profile['show_public'] ?? false;
           
           if (profile['enrollments'] != null) {
-            print('🎓 Enrollments data: ${profile['enrollments']}');
             profileProvider.selectedCourse = profile['enrollments']['course']?.toString() ?? '';
             profileProvider.selectedSubCourse = profile['enrollments']['subcourse']?.toString() ?? '';
             profileProvider.originalCourse = profileProvider.selectedCourse ?? '';
@@ -1984,7 +1961,6 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
             if (profile['enrollments']['subcourse_id'] != null) {
               profileProvider.selectedSubCourseId = profile['enrollments']['subcourse_id'].toString();
               profileProvider.originalSubCourseId = profileProvider.selectedSubCourseId ?? '';
-              print('📥 Loaded subcourse ID from API: ${profileProvider.selectedSubCourseId}');
             }
           } else {
             print('ℹ️ No enrollments data found');
@@ -1992,39 +1968,25 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
           
           profileProvider.isLoading = false;
           
-          print('🎉 Profile Data Successfully Loaded:');
-          print('   - Name: ${profileProvider.nameController.text}');
-          print('   - Email: ${profileProvider.emailController.text}');
-          print('   - Course: ${profileProvider.selectedCourse}');
-          print('   - Subcourse: ${profileProvider.selectedSubCourse}');
-          print('   - Subcourse ID: ${profileProvider.selectedSubCourseId}');
-          print('   - Student Type: ${profileProvider.studentType}');
-          print('   - Show Public: ${profileProvider.showPublic}');
-          print('   - Can Edit: ${profileProvider.canEditProfile}');
-          
           await _fetchCoursesAndSubcourses(profileProvider);
         } else {
           profileProvider.errorMessage = 'Failed to load profile data';
           profileProvider.isLoading = false;
         }
       } else if (response.statusCode == 401) {
-        print('🔐 Unauthorized - Session expired');
         profileProvider.errorMessage = 'Session expired. Please login again.';
         profileProvider.isLoading = false;
       } else {
-        print('❌ HTTP Error: ${response.statusCode}');
         profileProvider.errorMessage = 'Failed to load profile: ${response.statusCode}';
         profileProvider.isLoading = false;
       }
     } catch (e) {
-      print('💥 Error loading profile: $e');
       profileProvider.errorMessage = 'Error loading profile: $e';
       profileProvider.isLoading = false;
     }
   }
 
   Future<void> _fetchCoursesAndSubcourses(ProfileProvider profileProvider) async {
-    print('📚 Fetching courses and subcourses...');
     profileProvider.isLoadingData = true;
     profileProvider.dataLoadError = null;
 
@@ -2037,7 +1999,6 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
 
       final client = ApiConfig.createHttpClient();
       final apiUrl = ApiConfig.buildUrl('/api/course/list_subcourses/');
-      print('🌐 Courses API URL: $apiUrl');
       
       final request = await client.getUrl(Uri.parse(apiUrl));
       
@@ -2050,16 +2011,12 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
       
       final response = await request.close().timeout(ApiConfig.requestTimeout);
       final String responseBody = await response.transform(utf8.decoder).join();
-      
-      print('📊 Courses Response Status: ${response.statusCode}');
-      print('📄 Courses Response Body: $responseBody');
 
       if (response.statusCode == 200) {
         final data = json.decode(responseBody);
         
         if (data['success'] == true && data['subcourses'] != null) {
           final subcoursesData = data['subcourses'];
-          print('📋 Found ${subcoursesData.length} subcourses');
           _processApiData(profileProvider, subcoursesData);
         } else {
           throw Exception('Invalid response format: ${data['message'] ?? 'Unknown error'}');
@@ -2265,9 +2222,6 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
         headers: headers,
         body: jsonEncode(profileData),
       ).timeout(ApiConfig.requestTimeout);
-      
-      print('Profile API Response Status: ${response.statusCode}');
-      print('Profile API Response Body: ${response.body}');
 
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
@@ -2305,11 +2259,6 @@ class _ViewProfileScreenState extends State<ViewProfileScreen> {
     profileProvider.selectedCourse = profileProvider.originalCourse;
     profileProvider.selectedSubCourse = profileProvider.originalSubCourse;
     profileProvider.selectedSubCourseId = profileProvider.originalSubCourseId;
-    
-    print('↩️ Editing cancelled - restored original values');
-    print('   - Course: ${profileProvider.originalCourse}');
-    print('   - Subcourse: ${profileProvider.originalSubCourse}');
-    print('   - Subcourse ID: ${profileProvider.originalSubCourseId}');
   }
 
   String _formatGender(String? gender) {

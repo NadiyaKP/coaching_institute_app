@@ -358,12 +358,12 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
  // Navigate to View Profile
 void _navigateToViewProfile() async {
-  // DON'T close the drawer here - let it stay open
+
   final result = await Navigator.of(context).push(
     MaterialPageRoute(
       builder: (context) => ViewProfileScreen(
         onProfileUpdated: (Map<String, String> updatedData) {
-          // Refresh profile data when returning from view profile
+      
           _loadProfileData();
           
           ScaffoldMessenger.of(context).showSnackBar(
@@ -380,7 +380,7 @@ void _navigateToViewProfile() async {
 
  // Navigate to Settings
 void _navigateToSettings() {
-  // DON'T close the drawer here - let it stay open
+  
   Navigator.push(
     context,
     MaterialPageRoute(
@@ -501,8 +501,7 @@ void _navigateToSettings() {
   double get _popupWidth {
     if (_isLandscape) {
       final mediaQuery = MediaQuery.of(context);
-      // For landscape mode, use a smaller percentage of screen width
-      // and set a maximum width to prevent it from being too wide
+  
       return mediaQuery.size.width * 0.6 > 500 ? 500 : mediaQuery.size.width * 0.6;
     }
     // For portrait mode, maintain original behavior
@@ -516,7 +515,6 @@ void _navigateToSettings() {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Debug: Check all keys in SharedPreferences
       final allKeys = prefs.getKeys();
       debugPrint('🔑 All SharedPreferences keys: $allKeys');
       
@@ -792,9 +790,9 @@ Widget _buildActivePlanPopup() {
       borderRadius: BorderRadius.circular(16),
     ),
     child: Container(
-      width: _popupWidth, // Use responsive width
+      width: _popupWidth, 
       constraints: BoxConstraints(
-        maxWidth: _isLandscape ? 500 : double.infinity, // Limit max width in landscape
+        maxWidth: _isLandscape ? 500 : double.infinity,
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -1012,11 +1010,9 @@ Widget _buildPlanDetailRow(String label, String value) {
       studentType: _studentType,
       profileCompleted: _profileCompleted,
       onViewProfile: () {
-        // Remove the Navigator.of(context).pop() line
         _navigateToViewProfile();
       },
       onSettings: () {
-        // Remove the Navigator.of(context).pop() line
         _navigateToSettings();
       },
       onClose: () {
@@ -1053,7 +1049,7 @@ Widget _buildPlanDetailRow(String label, String value) {
             
             if (_showActivePlanPopup && _currentActiveSubscription != null)
               Center(
-                child: SingleChildScrollView( // Added to prevent overflow
+                child: SingleChildScrollView(
                   child: _buildActivePlanPopup(),
                 ),
               ),
@@ -1155,7 +1151,7 @@ Widget _buildPlanDetailRow(String label, String value) {
                   16, 
                   20, 
                   16, 
-                  _isLandscape ? 100 : 20, // Extra bottom padding in landscape
+                  _isLandscape ? 100 : 20, 
                 ),
                 child: Column(
                   children: [
@@ -2308,7 +2304,7 @@ Widget _buildPlanDetailRow(String label, String value) {
   }
 }
 
-// Custom Clipper for curved header (same as home page)
+// Custom Clipper for curved header
 class CurvedHeaderClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {

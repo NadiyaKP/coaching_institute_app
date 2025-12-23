@@ -1139,7 +1139,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           content: const Text(
-            'Are you sure you want to logout? This will stop any active focus mode timer.',
+            'Are you sure you want to logout? This will stop the active focus mode timer.',
             style: TextStyle(
               fontSize: 15,
               color: AppColors.textDark,
@@ -1184,6 +1184,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
   }
+
+  Future<void> _clearTimetableCache() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Clear all timetable-related keys
+    await prefs.remove('timetable_data');
+    await prefs.remove('timetable_last_fetch_date');
+    await prefs.remove('timetable_cache');
+    
+    debugPrint('✅ Timetable cache cleared');
+  } catch (e) {
+    debugPrint('❌ Error clearing timetable cache: $e');
+  }
+}
+
 Future<void> _performLogout(SettingsProvider settingsProvider) async {
   String? accessToken;
   
@@ -1207,7 +1223,7 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       },
     );
 
-    // 🔴 CRITICAL STEP 1: Shutdown TimerService completely
+    // 🔴 STEP 1: Shutdown TimerService completely
     debugPrint('🔴 STEP 1: Shutting down TimerService...');
     try {
       final timerService = TimerService();
@@ -1217,10 +1233,9 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       debugPrint('❌ Error shutting down TimerService: $e');
     }
     
-    // Wait to ensure everything is stopped
     await Future.delayed(const Duration(seconds: 1));
     
-    // 🔴 STEP 2: Cancel ALL background tasks again (double-check)
+    // 🔴 STEP 2: Cancel ALL background tasks
     debugPrint('🔴 STEP 2: Cancelling background tasks...');
     try {
       await Workmanager().cancelAll();
@@ -1229,7 +1244,7 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       debugPrint('❌ Error cancelling background tasks: $e');
     }
     
-    // 🔴 STEP 3: Hide all overlays with retries
+    // 🔴 STEP 3: Hide all overlays
     debugPrint('🔴 STEP 3: Hiding all overlays...');
     await _hideAllOverlaysWithRetries();
     
@@ -1281,6 +1296,10 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
     // 🔴 STEP 7: Final cleanup and clear data
     debugPrint('🔴 STEP 7: Final cleanup...');
     await _clearOverlayFlags();
+    
+    // 🆕 NEW: Clear timetable cache explicitly
+    await _clearTimetableCache();
+    
     await _clearLogoutData();
     
     // 🔴 STEP 8: One more overlay hide after everything
@@ -1300,6 +1319,7 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       await WebSocketManager.forceDisconnect();
       await _hideAllOverlaysWithRetries();
       await _clearOverlayFlags();
+      await _clearTimetableCache(); // 🆕 NEW
     } catch (_) {}
     
     await _clearLogoutData();
@@ -1313,9 +1333,11 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       await WebSocketManager.forceDisconnect();
       await _hideAllOverlaysWithRetries();
       await _clearOverlayFlags();
+      await _clearTimetableCache(); // 🆕 NEW
     } catch (_) {}
   }
 }
+
 Future<void> _hideAllOverlaysWithRetries() async {
   debugPrint('🎯 Hiding all overlays with retries...');
   
@@ -1624,95 +1646,110 @@ Future<void> _hideAllOverlaysWithRetries() async {
     }
   }
 
-  // Clear Logout Data
   Future<void> _clearLogoutData() async {
-    try {
-      // Log WebSocket state before clearing
-      WebSocketManager.logConnectionState();
-      
-      await _authService.logout();
-      await _clearCachedProfileData();
-      
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('start_time');
-      await prefs.remove('end_time');
-      await prefs.remove('last_active_time');
-      
-      // Also clear focus mode related data
-      await prefs.remove('is_focus_mode');
-      await prefs.remove('focus_mode_start_time');
-      await prefs.remove('focus_time_today');
-      
-      debugPrint('🗑️ SharedPreferences timestamps and focus mode data cleared');
-      
-      // Log WebSocket state after clearing
-      WebSocketManager.logConnectionState();
+  try {
+    // Log WebSocket state before clearing
+    WebSocketManager.logConnectionState();
+    
+    await _authService.logout();
+    await _clearCachedProfileData(); // This now includes timetable cache
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('start_time');
+    await prefs.remove('end_time');
+    await prefs.remove('last_active_time');
+    
+    // Clear focus mode related data
+    await prefs.remove('is_focus_mode');
+    await prefs.remove('focus_mode_start_time');
+    await prefs.remove('focus_time_today');
+    await prefs.remove(TimerService.focusStartTimeKey);
+    await prefs.remove(TimerService.focusElapsedKey);
+    await prefs.remove(TimerService.focusKey);
+    await prefs.remove(TimerService.lastStoredFocusTimeKey);
+    await prefs.remove(TimerService.lastDateKey);
+    await prefs.setBool(TimerService.isFocusModeKey, false);
+    
+    debugPrint('🗑️ All SharedPreferences data cleared (including timetable)');
+    
+    // Log WebSocket state after clearing
+    WebSocketManager.logConnectionState();
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Logged out successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
-    } catch (e) {
-      debugPrint('❌ Error in _clearLogoutData: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Logged out successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
       
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logout completed (Error: ${e.toString()})'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        
-        Navigator.of(context).pushNamedAndRemoveUntil(
-          '/signup',
-          (Route<dynamic> route) => false,
-        );
-      }
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
+    }
+  } catch (e) {
+    debugPrint('❌ Error in _clearLogoutData: $e');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logout completed (Error: ${e.toString()})'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/signup',
+        (Route<dynamic> route) => false,
+      );
     }
   }
-
-  // Clear Cached Profile Data
-  Future<void> _clearCachedProfileData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      
-      // List of profile-related keys to clear
-      final profileKeys = [
-        'profile_name',
-        'profile_email',
-        'profile_phone',
-        'profile_course',
-        'profile_subcourse',
-        'profile_student_type',
-        'profile_completed',
-        'profile_cache_time',
-        'fcm_token',
-        'device_token_registered',
-        'subjects_data',
-        'cached_subcourse_id',
-        'first_login_subjects_fetched',
-        'unread_notifications',
-        'device_registered_for_session',
-      ];
-      
-      for (String key in profileKeys) {
-        await prefs.remove(key);
-      }
-      
-      debugPrint('✅ Cached profile data cleared');
-    } catch (e) {
-      debugPrint('❌ Error clearing cached profile data: $e');
+}
+Future<void> _clearCachedProfileData() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // List of profile-related keys to clear
+    final profileKeys = [
+      'profile_name',
+      'profile_email',
+      'profile_phone',
+      'profile_course',
+      'profile_subcourse',
+      'profile_subcourse_id', 
+      'profile_enrollment_status',
+      'profile_subscription_type',
+      'profile_subscription_end_date',
+      'profile_is_subscription_active',
+      'profile_student_type',
+      'profile_current_streak',
+      'profile_longest_streak',
+      'profile_completed',
+      'profile_cache_time',
+      'fcm_token',
+      'device_token_registered',
+      'subjects_data',
+      'cached_subcourse_id',
+      'first_login_subjects_fetched',
+      'subjects_count',
+      'unread_notifications',
+      'device_registered_for_session',
+      'timetable_data',
+      'timetable_last_fetch_date',
+      'timetable_cache',
+    ];
+    
+    for (String key in profileKeys) {
+      await prefs.remove(key);
+      debugPrint('🗑️ Cleared: $key');
     }
+    
+    debugPrint('✅ All cached profile and timetable data cleared');
+  } catch (e) {
+    debugPrint('❌ Error clearing cached profile data: $e');
   }
+}
 
   // Show error snackbar
   void _showErrorSnackBar(String message) {

@@ -32,22 +32,18 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
   String _errorMessage = '';
   int _currentIndex = 1;
   
-  // Tab and filter related variables
   late TabController _tabController;
   String _selectedFilter = 'All';
-  
-  // Separate filtered lists for each tab
+
   List<Map<String, dynamic>> _dailyExams = [];
   List<Map<String, dynamic>> _mockExams = [];
-  
-  // Store filtered versions for each filter type
+ 
   Map<String, List<Map<String, dynamic>>> _dailyFilteredCache = {};
   Map<String, List<Map<String, dynamic>>> _mockFilteredCache = {};
-  
-  // Notification-related variables
-  Set<String> _notificationExamIds = {}; // IDs from notifications
-  List<Map<String, dynamic>> _unreadNotifications = []; // Complete notification data
-  List<int> _examNotificationIds = []; // Store notification IDs for API call
+ 
+  Set<String> _notificationExamIds = {}; 
+  List<Map<String, dynamic>> _unreadNotifications = [];
+  List<int> _examNotificationIds = [];
   
   // Timer-related variables
   Timer? _countdownTimer;
@@ -57,7 +53,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadUnreadNotifications(); // Load unread notifications first
+    _loadUnreadNotifications(); 
     _fetchExamSchedule();
     _setupExamStatusRefresh();
     _setupCountdownTimer(); 
@@ -67,8 +63,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
   void dispose() {
     _tabController.dispose();
     _countdownTimer?.cancel();
-    
-    // Mark all exams as viewed synchronously before dispose completes
+
     if (_examNotificationIds.isNotEmpty) {
       _markAllExamsAsViewedSync();
     }
@@ -110,7 +105,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
         setState(() {
           _unreadNotifications = notifications.cast<Map<String, dynamic>>();
           
-          // Extract exam IDs and notification IDs from notifications where type is 'exam'
           _notificationExamIds = _unreadNotifications
               .where((notification) => 
                   notification['data'] != null && 
@@ -281,11 +275,11 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
   }
 
   void _setupExamStatusRefresh() {
-    // Refresh exam status every minute to update button states
+   
     Future.delayed(const Duration(minutes: 1), () {
       if (mounted) {
         setState(() {
-          // Force rebuild to update exam status
+    
         });
         _setupExamStatusRefresh();
       }
@@ -484,9 +478,9 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
       
       // Within same category, sort by date
       if (aIsUpcoming && bIsUpcoming) {
-        return dateA.compareTo(dateB); // Sooner dates first for upcoming
+        return dateA.compareTo(dateB); 
       } else {
-        return dateB.compareTo(dateA); // More recent first for past
+        return dateB.compareTo(dateA);
       }
     });
   }
@@ -574,7 +568,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
         startParts.length > 2 ? int.parse(startParts[2]) : 0,
       );
 
-      // If end_time is provided and not 'None', check if current time is between start and end
       if (endTime != null && endTime != 'None') {
         List<String> endParts = endTime.split(':');
         DateTime endDateTime = DateTime(
@@ -588,7 +581,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
 
         return now.isAfter(startDateTime) && now.isBefore(endDateTime);
       } else {
-        // If no end_time or end_time is 'None', exam is active for the entire day after start time
         DateTime endOfDay = DateTime(
           examDate.year,
           examDate.month,
@@ -611,8 +603,7 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
     try {
       DateTime now = DateTime.now();
       DateTime examDate = DateTime.parse(date);
-      
-      // If end_time is provided and not 'None', check if current time is after end time
+
       if (endTime != null && endTime != 'None') {
         List<String> endParts = endTime.split(':');
         DateTime endDateTime = DateTime(
@@ -626,7 +617,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
 
         return now.isAfter(endDateTime);
       } else {
-        // If no end_time or end_time is 'None', exam is past after the exam date ends
         DateTime nextDay = DateTime(
           examDate.year,
           examDate.month,
@@ -638,7 +628,6 @@ class _ExamScheduleScreenState extends State<ExamScheduleScreen> with SingleTick
     } catch (e) {
       debugPrint('Error checking exam past status: $e');
       
-      // Fallback: check if the date is before today
       DateTime examDate = DateTime.parse(date);
       DateTime today = DateTime.now();
       DateTime examDay = DateTime(examDate.year, examDate.month, examDate.day);
@@ -709,7 +698,7 @@ void _navigateToExamInstruction(Map<String, dynamic> exam) async {
   // When returning from exam instruction, refresh the data
   if (mounted) {
     await _fetchExamSchedule();
-    await _loadUnreadNotifications(); // Reload notifications to update state
+    await _loadUnreadNotifications();
   }
 }
 
@@ -742,13 +731,13 @@ void _navigateToExamInstruction(Map<String, dynamic> exam) async {
       case 0: // Home
         Navigator.pop(context);
         break;
-      case 1: // Exam Schedule - already here
+      case 1: // Exam Schedule
         break;
       case 2: // Result
         _navigateToMockTest();
         break;
       case 3: // Profile
-        Navigator.pop(context); // Go back to home and open drawer
+        Navigator.pop(context); 
         break;
     }
   }
@@ -945,10 +934,10 @@ void _navigateToExamInstruction(Map<String, dynamic> exam) async {
                     itemBuilder: (context, index) {
                       return GestureDetector(
                         onTap: isOfflineStudent 
-                            ? null // Disable tap for offline students
+                            ? null 
                             : () => _navigateToExamInstruction(exams[index]),
                         child: Opacity(
-                          opacity: isOfflineStudent ? 0.6 : 1.0, // Visual feedback for disabled state
+                          opacity: isOfflineStudent ? 0.6 : 1.0,
                           child: _buildExamCard(exams[index], isDailyTest),
                         ),
                       );
@@ -960,7 +949,7 @@ void _navigateToExamInstruction(Map<String, dynamic> exam) async {
   Widget _buildSkeletonLoading() {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
-      itemCount: 4, // Show 4 skeleton items
+      itemCount: 4, 
       itemBuilder: (context, index) {
         return _buildSkeletonCard();
       },

@@ -219,23 +219,17 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
     );
   }
 
-  Widget _buildAppBar() {
+Widget _buildAppBar() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Row(
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.25),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: IconButton(
-              onPressed: () async {
-                await _handleDeviceBackButton();
-              },
-              icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
-              padding: const EdgeInsets.all(8),
-            ),
+          IconButton(
+            onPressed: () async {
+              await _handleDeviceBackButton();
+            },
+            icon: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+            padding: const EdgeInsets.all(8),
           ),
           const SizedBox(width: 16),
           const Expanded(
@@ -450,7 +444,7 @@ class _PerformanceScreenState extends State<PerformanceScreen> with TickerProvid
   }
 
   return SizedBox(
-    width: 360, // ⬅️ Increase this value (example: 360 or MediaQuery width * 0.9)
+    width: 360,
     child: Container(
       decoration: BoxDecoration(
         color: Colors.white,

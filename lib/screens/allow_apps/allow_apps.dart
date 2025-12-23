@@ -46,8 +46,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
   
   // Focus mode overlay service
   final FocusModeOverlayService _focusOverlayService = FocusModeOverlayService();
-  
-  // Debug mode
+ 
   bool _debugMode = true;
 
   @override
@@ -100,19 +99,18 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
         if (_debugMode) {
           debugPrint('🎯 App launch requested from overlay: ${appData['appName']}');
         }
-        
-        // Open the app
+       
         if (appData.containsKey('packageName')) {
           _openApp(appData['packageName']);
         }
       });
       
-      // Listen to return to study events
+      
       _focusOverlayService.returnToStudyStream.listen((_) {
         if (_debugMode) {
           debugPrint('🔙 Return to study requested from overlay');
         }
-        // Handle returning to app if needed
+       
       });
       
     } catch (e) {
@@ -121,7 +119,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
   }
   
   void _setupAppLaunchListener() {
-    // Already set up in _initFocusOverlayService
+    
   }
 
   Future<void> _initNotifications() async {
@@ -439,7 +437,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
     }
   }
   
-  // UPDATED: Method to save allowed apps for overlay with better error handling
   Future<void> _saveAllowedAppsForOverlay(List<_AppData> apps) async {
     try {
       final List<Map<String, dynamic>> appsData = [];
@@ -478,7 +475,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
           debugPrint('✅ Saved ${appsData.length} allowed apps for overlay at ${DateTime.now()}');
         }
         
-        // Force overlay refresh if visible
         if (_focusOverlayService.isOverlayVisible) {
           await _focusOverlayService.refreshAllowedAppsInOverlay();
           if (_debugMode) {
@@ -539,7 +535,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       }
 
       if (parsedMessage is Map<String, dynamic>) {
-        // Handle both message formats: 'app_permission' and 'app_permission_update'
         if (parsedMessage['type'] == 'app_permission' || parsedMessage['type'] == 'app_permission_update') {
           final data = parsedMessage['data'] as Map<String, dynamic>;
           final appPackage = data['app'] as String;
@@ -553,7 +548,6 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
           String appName = appPackage;
           Uint8List? iconBytes;
           
-          // Find the app in installed apps for details
           for (var app in _installedApps) {
             if (app.packageName == appPackage) {
               targetApp = app;
@@ -587,12 +581,12 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
                 SnackBar(
                   content: Row(
                     children: [
-                      Icon(Icons.check_circle, color: AppColors.white, size: 20),
-                      SizedBox(width: 8),
+                      const Icon(Icons.check_circle, color: AppColors.white, size: 20),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Your request for allowing $appName got granted',
-                          style: TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 14),
                         ),
                       ),
                     ],
@@ -625,12 +619,12 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
                 SnackBar(
                   content: Row(
                     children: [
-                      Icon(Icons.error, color: AppColors.white, size: 20),
-                      SizedBox(width: 8),
+                      const Icon(Icons.error, color: AppColors.white, size: 20),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Your request for allowing $appName was not granted',
-                          style: TextStyle(fontSize: 14),
+                          style: const TextStyle(fontSize: 14),
                         ),
                       ),
                     ],
@@ -737,121 +731,116 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
     }
   }
 
-  Future<void> _fetchInstalledApps() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _hasError = false;
-      });
-
-      if (_debugMode) {
-        debugPrint('🔄 Fetching installed apps...');
-      }
-
-      final apps = await DeviceApps.getInstalledApplications(
-        includeSystemApps: true,
-        includeAppIcons: true,
-      );
-
-      List<Application> launchableApps = [];
-      for (var app in apps) {
-        if (app is ApplicationWithIcon) {
-          bool isLaunchable = await DeviceApps.isAppInstalled(app.packageName);
-          if (isLaunchable) {
-            launchableApps.add(app);
-          }
-        }
-      }
-
-      launchableApps.sort((a, b) => a.appName.toLowerCase().compareTo(b.appName.toLowerCase()));
-
-      setState(() {
-        _installedApps = launchableApps;
-        _filteredApps = List.from(_installedApps);
-        _isLoading = false;
-      });
-      
-      if (_debugMode) {
-        debugPrint('✅ Found ${_installedApps.length} launchable apps');
-      }
-      
-      _updateAllowedAppDetails();
-    } catch (e) {
-      setState(() {
-        _hasError = true;
-        _errorMessage = 'Failed to fetch apps: $e\n\n'
-                       'Note: On Android 11+, you might see fewer apps '
-                       'due to privacy restrictions.';
-        _isLoading = false;
-      });
-      debugPrint('❌ Error fetching installed apps: $e');
-    }
-  }
-
-  void _updateAllowedAppDetails() async {
-    if (_debugMode) {
-      debugPrint('🔄 Updating allowed app details...');
-    }
-    
-    List<_AppData> updatedDetails = [];
-    for (var packageName in _allowedAppsPackageNames) {
-      Application? foundApp;
-      for (var app in _installedApps) {
-        if (app.packageName == packageName) {
-          foundApp = app;
-          break;
-        }
-      }
-      
-      if (foundApp != null) {
-        Uint8List? iconBytes;
-        if (foundApp is ApplicationWithIcon) {
-          iconBytes = foundApp.icon;
-          if (_debugMode) {
-            debugPrint('📱 Found icon for ${foundApp.appName}: ${iconBytes?.length ?? 0} bytes');
-          }
-        }
-        
-        updatedDetails.add(_AppData(
-          appName: foundApp.appName,
-          packageName: foundApp.packageName,
-          versionName: foundApp.versionName,
-          systemApp: foundApp.systemApp,
-          enabled: true,
-          iconBytes: iconBytes,
-        ));
-        
-        if (_debugMode) {
-          debugPrint('📱 Updated details for: ${foundApp.appName}');
-        }
-      } else {
-        updatedDetails.add(_AppData(
-          appName: packageName,
-          packageName: packageName,
-          versionName: null,
-          systemApp: false,
-          enabled: true,
-          iconBytes: null,
-        ));
-        
-        if (_debugMode) {
-          debugPrint('⚠️ App not found in installed apps: $packageName');
-        }
-      }
-    }
-    
+ Future<void> _fetchInstalledApps() async {
+  try {
     setState(() {
-      _allowedAppDetails = updatedDetails;
+      _isLoading = true;
+      _hasError = false;
+    });
+
+    if (_debugMode) {
+      debugPrint('🔄 Fetching installed apps...');
+    }
+
+    final apps = await DeviceApps.getInstalledApplications(
+      includeSystemApps: true,
+      includeAppIcons: true,
+      onlyAppsWithLaunchIntent: true, 
+    );
+
+    List<Application> launchableApps = apps.whereType<ApplicationWithIcon>().toList();
+
+    launchableApps.sort((a, b) => 
+      a.appName.toLowerCase().compareTo(b.appName.toLowerCase())
+    );
+
+    setState(() {
+      _installedApps = launchableApps;
+      _filteredApps = launchableApps; 
+      _isLoading = false;
     });
     
     if (_debugMode) {
-      debugPrint('📱 Total updated app details: ${updatedDetails.length}');
+      debugPrint('✅ Found ${_installedApps.length} launchable apps');
     }
     
-    // Save to preferences AND overlay
-    await _saveAllowedAppsToPrefs(_allowedAppsPackageNames, _allowedAppDetails);
+    _updateAllowedAppDetails();
+  } catch (e) {
+    setState(() {
+      _hasError = true;
+      _errorMessage = 'Failed to fetch apps: $e\n\n'
+                     'Note: On Android 11+, you might see fewer apps '
+                     'due to privacy restrictions.';
+      _isLoading = false;
+    });
+    debugPrint('❌ Error fetching installed apps: $e');
   }
+}
 
+// Optimization 5: Make _updateAllowedAppDetails more efficient
+void _updateAllowedAppDetails() async {
+  if (_debugMode) {
+    debugPrint('🔄 Updating allowed app details...');
+  }
+  
+  // Create a map for O(1) lookups instead of O(n) for each package
+  final Map<String, Application> installedAppsMap = {
+    for (var app in _installedApps) app.packageName: app
+  };
+  
+  List<_AppData> updatedDetails = [];
+  
+  for (var packageName in _allowedAppsPackageNames) {
+    final foundApp = installedAppsMap[packageName];
+    
+    if (foundApp != null) {
+      Uint8List? iconBytes;
+      if (foundApp is ApplicationWithIcon) {
+        iconBytes = foundApp.icon;
+        if (_debugMode) {
+          debugPrint('📱 Found icon for ${foundApp.appName}: ${iconBytes?.length ?? 0} bytes');
+        }
+      }
+      
+      updatedDetails.add(_AppData(
+        appName: foundApp.appName,
+        packageName: foundApp.packageName,
+        versionName: foundApp.versionName,
+        systemApp: foundApp.systemApp,
+        enabled: true,
+        iconBytes: iconBytes,
+      ));
+      
+      if (_debugMode) {
+        debugPrint('📱 Updated details for: ${foundApp.appName}');
+      }
+    } else {
+      updatedDetails.add(_AppData(
+        appName: packageName,
+        packageName: packageName,
+        versionName: null,
+        systemApp: false,
+        enabled: true,
+        iconBytes: null,
+      ));
+      
+      if (_debugMode) {
+        debugPrint('⚠️ App not found in installed apps: $packageName');
+      }
+    }
+  }
+  
+  setState(() {
+    _allowedAppDetails = updatedDetails;
+  });
+  
+  if (_debugMode) {
+    debugPrint('📱 Total updated app details: ${updatedDetails.length}');
+  }
+  
+  // Save to preferences AND overlay
+  await _saveAllowedAppsToPrefs(_allowedAppsPackageNames, _allowedAppDetails);
+}
   void _filterApps() {
     final query = _searchController.text.toLowerCase();
     if (query.isEmpty) {
@@ -872,7 +861,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.lock_outline, color: AppColors.primaryBlue),
             SizedBox(width: 8),
@@ -886,7 +875,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
               Container(
                 width: 60,
                 height: 60,
-                margin: EdgeInsets.only(bottom: 16),
+                margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
                   color: AppColors.backgroundGrey,
@@ -896,26 +885,26 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
                   child: Image.memory(app.icon!, fit: BoxFit.cover),
                 ),
               ),
-            Text(
+            const Text(
               'Ask permission to allow',
               style: TextStyle(fontSize: 14, color: AppColors.grey600),
             ),
-            SizedBox(height: 4),
+            const SizedBox(height: 4),
             Text(
               '"${app.appName}"',
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
                 color: AppColors.primaryBlue,
               ),
             ),
-            SizedBox(height: 4),
-            Text(
+            const SizedBox(height: 4),
+            const Text(
               'to use?',
               style: TextStyle(fontSize: 14, color: AppColors.grey600),
             ),
-            SizedBox(height: 16),
-            Text(
+            const SizedBox(height: 16),
+            const Text(
               'Your mentor will review your request',
               style: TextStyle(
                 fontSize: 12,
@@ -928,7 +917,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(
+            child: const Text(
               'Cancel',
               style: TextStyle(
                 color: AppColors.grey500,
@@ -944,9 +933,9 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primaryBlue,
               foregroundColor: Colors.white,
-              padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
-            child: Text('Ask Permission'),
+            child: const Text('Ask Permission'),
           ),
         ],
       ),
@@ -963,7 +952,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       WebSocketManager.send(eventData);
       
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Row(
             children: [
               Icon(Icons.check_circle, color: Colors.white, size: 20),
@@ -977,7 +966,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
             ],
           ),
           backgroundColor: AppColors.successGreen,
-          duration: const Duration(seconds: 4),
+          duration: Duration(seconds: 4),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -990,8 +979,8 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
         SnackBar(
           content: Row(
             children: [
-              Icon(Icons.error, color: Colors.white, size: 20),
-              SizedBox(width: 8),
+              const Icon(Icons.error, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   'Failed to send permission request: $e',
@@ -1014,10 +1003,10 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       bool opened = await DeviceApps.openApp(packageName);
       if (!opened && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Could not open app'),
             backgroundColor: AppColors.warningOrange,
-            duration: const Duration(seconds: 2),
+            duration: Duration(seconds: 2),
           ),
         );
       }
@@ -1511,7 +1500,7 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
                   borderRadius: BorderRadius.circular(8),
                   color: AppColors.primaryBlue.withOpacity(0.1),
                 ),
-                child: Icon(
+                child: const Icon(
                   Icons.apps_rounded,
                   size: 20,
                   color: AppColors.successGreen,

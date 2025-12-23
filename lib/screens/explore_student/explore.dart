@@ -273,15 +273,12 @@ class ExploreProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-  // ✅ UPDATED: Using globalHttpClient with http package
   Future<void> searchStudents() async {
     _isSearching = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      // Build query parameters - REMOVED batch_id parameter
       Map<String, String> queryParams = {};
       
       if (_selectedCourseId != null && _selectedCourseId!.isNotEmpty) {
@@ -291,8 +288,6 @@ class ExploreProvider extends ChangeNotifier {
       if (_selectedGender != null && _selectedGender!.isNotEmpty) {
         queryParams['gender'] = _selectedGender!;
       }
-      
-      // REMOVED: Batch filter query parameter
       
       if (_searchQuery.isNotEmpty) {
         queryParams['search'] = _searchQuery;
@@ -305,7 +300,6 @@ class ExploreProvider extends ChangeNotifier {
       debugPrint('URL: $uri');
       debugPrint('Query Params: $queryParams');
 
-      // ✅ Use globalHttpClient instead of HttpClient
       final response = await globalHttpClient.get(
         uri,
         headers: ApiConfig.commonHeaders,
@@ -444,7 +438,7 @@ class FiltersSkeleton extends StatelessWidget {
             borderRadius: BorderRadius.circular(16),
           ),
           const SizedBox(height: 12),
-          // Filter chips skeleton - Updated to show only 2 filters
+
           Row(
             children: [
               SkeletonLoader(
@@ -660,8 +654,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
       );
     }
   }
-
-  // REMOVED: _showBatchDropdown method
 
   void _showCourseDropdown() {
     showModalBottomSheet(
@@ -1224,7 +1216,7 @@ class _ExploreScreenState extends State<ExploreScreen> {
           ListenableBuilder(
             listenable: _provider,
             builder: (context, child) {
-              // Updated: Only check for course, gender, and search query
+            
               final hasFilters = _provider.selectedCourseId != null ||
                   _provider.selectedGender != null ||
                   _provider.searchQuery.isNotEmpty;
@@ -1303,7 +1295,6 @@ class _ExploreScreenState extends State<ExploreScreen> {
                               onClear: () => _provider.setSelectedGender(null),
                               icon: Icons.person_outline,
                             ),
-                            // REMOVED: Batch filter chip
                           ],
                         ),
                       ),

@@ -76,17 +76,14 @@ class _NewLeaveApplicationScreenState extends State<NewLeaveApplicationScreen> {
     return emojiRegex.hasMatch(text);
   }
 
-  // Format date to DD-MM-YYYY for display
   String _formatDateForDisplay(DateTime date) {
     return DateFormat('dd-MM-yyyy').format(date);
   }
 
-  // Format date to YYYY-MM-DD for API
   String _formatDateForAPI(DateTime date) {
     return DateFormat('yyyy-MM-dd').format(date);
   }
 
-  // Select start date
   Future<void> _selectStartDate() async {
     final DateTime? pickedDate = await showDatePicker(
       context: context,
@@ -110,7 +107,7 @@ class _NewLeaveApplicationScreenState extends State<NewLeaveApplicationScreen> {
     if (pickedDate != null) {
       setState(() {
         _startDate = pickedDate;
-        // Reset end date if it's before the new start date
+   
         if (_endDate != null && _endDate!.isBefore(pickedDate)) {
           _endDate = null;
         }
@@ -187,7 +184,7 @@ class _NewLeaveApplicationScreenState extends State<NewLeaveApplicationScreen> {
     });
 
     try {
-      // Get access token
+
       final String? accessToken = await _authService.getAccessToken();
       
       if (accessToken == null || accessToken.isEmpty) {

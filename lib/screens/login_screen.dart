@@ -255,111 +255,117 @@ class LoginProvider extends ChangeNotifier {
     debugPrint('Response status: ${response.statusCode}');
     debugPrint('Response body: ${response.body}');
 
-    if (response.statusCode == 200) {
-      final Map<String, dynamic> responseData = jsonDecode(response.body);
-      
-      if (responseData['success'] == true) {
-        await saveEmail(username);
-        final prefs = await SharedPreferences.getInstance();
-        
-        // 🆕 Store all user data
-        await prefs.setString('accessToken', responseData['access'] ?? '');
-        await prefs.setString('studentType', responseData['student_type'] ?? '');
-        await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
-        await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
-        
-        // 🆕 CRITICAL: Store username (email) - This is used by TimerService
-        await prefs.setString('username', username);
-        
-        // 🆕 Also store as profile_email if available
-        if (responseData.containsKey('email')) {
-          await prefs.setString('profile_email', responseData['email'].toString());
-        } else {
-          await prefs.setString('profile_email', username);
-        }
-        
-        debugPrint('=== STORED IN SHARED PREFERENCES ===');
-        debugPrint('Stored accessToken: ${prefs.getString('accessToken')}');
-        debugPrint('Stored studentType: ${prefs.getString('studentType')}');
-        debugPrint('Stored phoneNumber: ${prefs.getString('phoneNumber')}');
-        debugPrint('Stored profileCompleted: ${prefs.getBool('profileCompleted')}');
-        debugPrint('Stored username: ${prefs.getString('username')}');
-        debugPrint('Stored profile_email: ${prefs.getString('profile_email')}');
-        
-        return {
-          'success': true,
-          'message': 'Login successful!',
-          'profile_completed': responseData['profile_completed'] ?? false,
-          'response_data': responseData,
-        };
-      } else {
-        debugPrint('Login failed: ${responseData['message']}');
-        return {
-          'success': false,
-          'message': responseData['message'] ?? 'Invalid credentials',
-        };
-      }
-    } else if (response.statusCode == 401) {
-      debugPrint('Authentication failed: 401 Unauthorized');
-      return {
-        'success': false,
-        'message': 'Invalid email or password',
-      };
-    } else if (response.statusCode == 404) {
-      debugPrint('API endpoint not found: 404');
-      return {
-        'success': false,
-        'message': 'API endpoint not found',
-      };
+   if (response.statusCode == 200) {
+  final Map<String, dynamic> responseData = jsonDecode(response.body);
+  
+  if (responseData['success'] == true) {
+    await saveEmail(username);
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Store all user data
+    await prefs.setString('accessToken', responseData['access'] ?? '');
+    await prefs.setString('studentType', responseData['student_type'] ?? '');
+    await prefs.setString('phoneNumber', responseData['phone_number'] ?? '');
+    await prefs.setBool('profileCompleted', responseData['profile_completed'] ?? false);
+    await prefs.setString('username', username);
+    
+    if (responseData.containsKey('email')) {
+      await prefs.setString('profile_email', responseData['email'].toString());
     } else {
-      debugPrint('Server error: ${response.statusCode}');
-      return {
-        'success': false,
-        'message': 'Server error: ${response.statusCode}',
-      };
+      await prefs.setString('profile_email', username);
     }
     
-  } on TimeoutException catch (e) {
-    debugPrint('Timeout Error: $e');
-    return {
-      'success': false,
-      'message': 'Request timeout. Please check your connection.',
-    };
-  } on http.ClientException catch (e) {
-    debugPrint('ClientException: $e');
+    debugPrint('=== STORED IN SHARED PREFERENCES ===');
+    debugPrint('Stored accessToken: ${prefs.getString('accessToken')}');
+    debugPrint('Stored studentType: ${prefs.getString('studentType')}');
+    debugPrint('Stored phoneNumber: ${prefs.getString('phoneNumber')}');
+    debugPrint('Stored profileCompleted: ${prefs.getBool('profileCompleted')}');
+    debugPrint('Stored username: ${prefs.getString('username')}');
+    debugPrint('Stored profile_email: ${prefs.getString('profile_email')}');
     
     return {
-      'success': false,
-      'message': e.message,
+      'success': true,
+      'message': 'Login successful!',
+      'profile_completed': responseData['profile_completed'] ?? false,
+      'response_data': responseData,
     };
-  } on SocketException catch (e) {
-    debugPrint('SocketException: $e');
+  } else {
+    debugPrint('Login failed: ${responseData['message']}');
     return {
       'success': false,
-      'message': 'No internet connection. Please check your network.',
+      'message': responseData['message'] ?? 'Invalid credentials',
     };
-  } on FormatException catch (e) {
-    debugPrint('JSON Format Error: $e');
-    return {
-      'success': false,
-      'message': 'Invalid response format from server.',
-    };
-  } catch (e) {
-    String errorMessage = 'Network error: ${e.toString()}';
-    if (e.toString().contains('SocketException')) {
-      errorMessage = 'No internet connection. Please check your network.';
-    }
-    debugPrint('API Error: $e');
-    debugPrint('Error Stack Trace: ${StackTrace.current}');
-    return {
-      'success': false,
-      'message': errorMessage,
-    };
-  } finally {
-    _isLoading = false;
-    notifyListeners();
-    debugPrint('=== LOGIN REQUEST COMPLETED ===');
   }
+} else if (response.statusCode == 401) {
+  debugPrint('Authentication failed: 401 Unauthorized');
+  return {
+    'success': false,
+    'message': 'Invalid email or password',
+  };
+} else if (response.statusCode == 404) {
+  debugPrint('API endpoint not found: 404');
+  return {
+    'success': false,
+    'message': 'Service not available. Please try again later.',
+  };
+} else {
+  debugPrint('Server error: ${response.statusCode}');
+  
+  String errorMessage = 'Unable to connect to server. Please try again.';
+  try {
+    final errorData = jsonDecode(response.body);
+    errorMessage = errorData['message'] ?? errorMessage;
+  } catch (e) {
+    debugPrint('Failed to parse error response: $e');
+  }
+  
+  return {
+    'success': false,
+    'message': errorMessage,
+  };
+}
+
+} on TimeoutException catch (e) {
+debugPrint('Timeout Error: $e');
+return {
+  'success': false,
+  'message': 'Request timeout. Please check your connection.',
+};
+} on http.ClientException catch (e) {
+debugPrint('ClientException: $e');
+
+return {
+  'success': false,
+  'message': e.message,
+};
+} on SocketException catch (e) {
+debugPrint('SocketException: $e');
+return {
+  'success': false,
+  'message': 'No internet connection. Please check your network.',
+};
+} on FormatException catch (e) {
+debugPrint('JSON Format Error: $e');
+return {
+  'success': false,
+  'message': 'Invalid response format from server.',
+};
+} catch (e) {
+String errorMessage = 'Something went wrong. Please try again.';
+if (e.toString().contains('SocketException')) {
+  errorMessage = 'No internet connection. Please check your network.';
+}
+debugPrint('API Error: $e');
+debugPrint('Error Stack Trace: ${StackTrace.current}');
+return {
+  'success': false,
+  'message': errorMessage,
+};
+} finally {
+_isLoading = false;
+notifyListeners();
+debugPrint('=== LOGIN REQUEST COMPLETED ===');
+}
 }
 }
 
@@ -589,7 +595,7 @@ Future<void> _loginUser() async {
             arguments: responseData,
           );
         } else {
-          // 🆕 Initialize TimerService to ensure it detects the new user
+          // Initialize TimerService to ensure it detects the new user
           final timerService = TimerService();
           await timerService.initialize();
           
@@ -632,7 +638,7 @@ Future<void> _loginUser() async {
         }
       });
     } else {
-      // Check if the error is "Server error: 400"
+      
       final errorMessage = result?['message'] ?? 'Login failed';
       
       if (errorMessage == 'Server error: 400') {
@@ -699,7 +705,7 @@ Widget _buildHeader() {
   double logoSize;
   if (!isLandscape) {
     if (isTabletDevice) {
-      logoSize = screenWidth * 0.18; // 🔧 REDUCED from 0.25 to 0.18 for tablets
+      logoSize = screenWidth * 0.18;
     } else {
       logoSize = screenWidth * 0.22; 
     }

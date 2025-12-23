@@ -96,7 +96,6 @@ class _ReferenceClassesScreenState extends State<ReferenceClassesScreen> with Wi
 void didChangeAppLifecycleState(AppLifecycleState state) {
   super.didChangeAppLifecycleState(state);
   
-  // Enable for both 'online' and 'offline' students, but not 'public'
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
     if (state == AppLifecycleState.paused || 
         state == AppLifecycleState.inactive ||
@@ -218,8 +217,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
             _subjects = data['subjects'] ?? [];
           });
           debugPrint('✅ Fetched ${_subjects.length} subjects');
-          
-          // Debug: Print all subjects with their IDs
+
           for (var subject in _subjects) {
             debugPrint('Subject: ${subject['title']} - ID: ${subject['id']}');
           }
@@ -270,7 +268,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           });
           debugPrint('✅ Fetched ${_videos.length} videos');
           
-          // Debug: Print all videos with their subject IDs
           for (var video in _videos) {
             debugPrint('Video: ${video['title']} - Subject ID: ${video['subject_id']}');
           }
@@ -376,7 +373,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   }
 
   Future<void> _sendStoredVideoDataToAPI() async {
-  // Check for both 'online' and 'offline' student types, exclude 'public'
+
   if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
     debugPrint('Student type is $_studentType - skipping video data collection');
     return;
@@ -425,7 +422,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     final apiUrl = '${ApiConfig.baseUrl}/api/performance/add_readed_referencelink/';
 
-    // Fire and forget - don't await the response
     httpClient.post(
       Uri.parse(apiUrl),
       headers: {
@@ -462,7 +458,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   }
 
  Future<bool> _handleDeviceBackButton() async {
-  // Enable for both 'online' and 'offline' students
+
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
     final hasData = await _hasStoredVideoData();
     if (hasData) {
@@ -473,7 +469,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 }
 
  void _handleBackNavigation() async {
-  // Enable for both 'online' and 'offline' students
+
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
     final hasData = await _hasStoredVideoData();
     if (hasData) {
@@ -1153,7 +1149,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
                                       value: loadingProgress.expectedTotalBytes != null
                                           ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
                                           : null,
-                                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
+                                      valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primaryYellow),
                                     ),
                                   ),
                                 );

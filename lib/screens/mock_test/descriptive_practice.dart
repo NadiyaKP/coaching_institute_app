@@ -120,7 +120,6 @@ class _DescriptivePracticeScreenState extends State<DescriptivePracticeScreen> {
         _currentQuestionIndex++;
       });
     } else {
-      // Last question - navigate back to chapters page
       _finishPractice();
     }
   }
@@ -134,7 +133,6 @@ class _DescriptivePracticeScreenState extends State<DescriptivePracticeScreen> {
   }
 
   void _finishPractice() {
-    // Navigate back to the mock test screen (chapters section)
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -175,7 +173,7 @@ class _DescriptivePracticeScreenState extends State<DescriptivePracticeScreen> {
               color: AppColors.errorRed.withOpacity(0.7),
             ),
             const SizedBox(height: 20),
-            Text(
+            const Text(
               'Failed to Load Questions',
               style: TextStyle(
                 fontSize: 18,
@@ -462,8 +460,6 @@ class _DescriptivePracticeScreenState extends State<DescriptivePracticeScreen> {
               ),
             ),
           ],
-
-          // Add extra space at the bottom for better scrolling
           const SizedBox(height: 100),
         ],
       ),

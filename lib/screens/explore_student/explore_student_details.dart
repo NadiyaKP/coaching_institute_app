@@ -313,7 +313,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
     );
   }
 
-  // Helper method to check if a field is valid (not null, not empty, not "Not specified")
   bool _isFieldValid(String? value) {
     if (value == null || value.isEmpty) return false;
     final trimmed = value.trim();
@@ -591,7 +590,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       ));
     }
 
-    // If no valid fields, don't show the section
     if (fields.isEmpty) return const SizedBox.shrink();
 
     return Padding(
@@ -664,7 +662,6 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
       ));
     }
 
-    // If no valid fields, don't show the section
     if (fields.isEmpty) return const SizedBox.shrink();
 
     return Padding(
@@ -1316,21 +1313,18 @@ class _ExploreStudentDetailsScreenState extends State<ExploreStudentDetailsScree
                           children: [
                             _buildProfileCard(),
                             
-                            // Only show Personal Information section if there are valid fields
                             if (hasPersonalInfo) ...[
                               const SizedBox(height: 22),
                               _buildSectionHeader('Personal Information', Icons.person_outline_rounded),
                               _buildPersonalInfoSection(),
                             ],
 
-                            // Only show Academic Information section if there are valid fields
                             if (hasAcademicInfo) ...[
                               const SizedBox(height: 22),
                               _buildSectionHeader('Academic Information', Icons.menu_book_rounded),
                               _buildAcademicInfoSection(),
                             ],
 
-                            // Documents Section - always show header
                             const SizedBox(height: 22),
                             _buildSectionHeader('Documents', Icons.description_outlined),
                             _buildDocumentsSection(),

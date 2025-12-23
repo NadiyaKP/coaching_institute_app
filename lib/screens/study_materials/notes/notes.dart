@@ -82,8 +82,6 @@ class _NotesScreenState extends State<NotesScreen> with WidgetsBindingObserver {
 
   // Enhanced navigation stack to track the complete path
   final List<NavigationState> _navigationStack = [];
-
-  // FIX: Add debouncing for API calls
   bool _isSendingData = false;
   DateTime? _lastApiCallTime;
   static const Duration _apiCallDebounceTime = Duration(seconds: 5);
@@ -356,7 +354,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     });
   }
 
-  // FIXED: Enhanced _loadUnits method to properly handle direct chapters
   void _loadUnits(String subjectId, String subjectName) {
     try {
       debugPrint('=== LOADING UNITS/CHAPTERS FOR SUBJECT ===');
@@ -385,11 +382,8 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       debugPrint('Direct chapters found: ${directChapters.length}');
       
       // Check if units exist and are not empty
-      final bool hasUnits = units.isNotEmpty;
-      
-      // Check if direct chapters exist and are not empty  
+      final bool hasUnits = units.isNotEmpty; 
       final bool hasDirectChapters = directChapters.isNotEmpty;
-
       debugPrint('Has units: $hasUnits');
       debugPrint('Has direct chapters: $hasDirectChapters');
 
@@ -420,7 +414,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           _chapters = directChapters;
           _selectedSubjectId = subjectId;
           _selectedSubjectName = subjectName;
-          _selectedUnitName = ''; // No unit name since we're going directly to chapters
+          _selectedUnitName = ''; 
           _currentPage = 'chapters';
           _isLoading = false;
         });
@@ -554,7 +548,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
             unitName: _selectedUnitName,
             chapterId: chapterId,
             chapterName: chapterName,
-            hasDirectChapters: _selectedUnitId == null, // If no unit, it's direct chapters
+            hasDirectChapters: _selectedUnitId == null, 
           ));
 
           if (hasLockedNotes) {
@@ -625,7 +619,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // ENHANCED: Proper hierarchical backward navigation
+  // Proper hierarchical backward navigation
   void _navigateBack() {
     debugPrint('=== BACK NAVIGATION START ===');
     debugPrint('Current stack length: ${_navigationStack.length}');
@@ -694,20 +688,15 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       debugPrint('New current page: $_currentPage');
       debugPrint('Stack length after: ${_navigationStack.length}');
     } else {
-      // If we're at the root (subjects), exit the screen
       debugPrint('At root level - exiting screen');
       _exitScreen();
     }
   }
 
-  // Enhanced exit screen method that sends data without waiting
   void _exitScreen() {
-  // Enable for both 'online' and 'offline' students
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
-    // Send reading data to backend without waiting for response
     _sendStoredReadingDataToAPI().catchError((e) {
       debugPrint('Error sending reading data on exit: $e');
-      // Don't show error to user, just log it
     });
   }
   
@@ -725,9 +714,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // FIXED: Enhanced with debouncing to prevent multiple API calls
 Future<void> _sendStoredReadingDataToAPI() async {
-  // Check for both 'online' and 'offline' student types, exclude 'public'
   if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
     debugPrint('Student type is $_studentType - skipping reading data collection');
     return;
@@ -810,7 +797,6 @@ Future<void> _sendStoredReadingDataToAPI() async {
         debugPrint('✗ Failed to send note data. Status: ${response.statusCode}');
       }
       
-      // Reset sending flag after completion
       if (mounted) {
         setState(() {
           _isSendingData = false;
@@ -818,7 +804,7 @@ Future<void> _sendStoredReadingDataToAPI() async {
       }
     }).catchError((e) {
       debugPrint('✗ Error sending stored note records to API: $e');
-      // Reset sending flag on error
+
       if (mounted) {
         setState(() {
           _isSendingData = false;
@@ -828,7 +814,7 @@ Future<void> _sendStoredReadingDataToAPI() async {
 
   } catch (e) {
     debugPrint('✗ Error preparing to send stored note records: $e');
-    // Reset sending flag on error
+
     if (mounted) {
       setState(() {
         _isSendingData = false;
@@ -854,10 +840,10 @@ Future<void> _sendStoredReadingDataToAPI() async {
     if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
       debugPrint('At root subjects - exiting screen');
       _exitScreen();
-      return false; // Don't allow default back behavior
+      return false; 
     } else {
       _navigateBack();
-      return false; // Don't allow default back behavior
+      return false;
     }
   }
 

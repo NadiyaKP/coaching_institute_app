@@ -729,7 +729,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                   ),
                 ),
                 
-                // Next button below card - Reduced width
+                // Next button below card
                 SizedBox(height: ResponsiveUtils.getResponsivePadding(context, 24)),
                 Container(
                   width: nextButtonWidth,
@@ -999,7 +999,7 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                       
                       SizedBox(height: ResponsiveUtils.getResponsivePadding(context, 24)),
                       
-                      // Course Dropdown - Scrollable
+                     // Course Dropdown - Scrollable
                       Container(
                         width: double.infinity,
                         padding: EdgeInsets.symmetric(
@@ -1077,13 +1077,20 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                                     fontWeight: FontWeight.w500,
                                   ),
                                   dropdownColor: AppColors.white,
-                                  menuMaxHeight: isLandscape ? 200 : 300,
+                                  // tablet portrait mode
+                                  menuMaxHeight: isLandscape 
+                                      ? 200 
+                                      : (ResponsiveUtils.isTablet(context) ? 400 : 300),
+                                  itemHeight: null, // Allow items to size dynamically
                                   items: provider.availableCourses.map((CourseModel course) {
                                     return DropdownMenuItem<String>(
                                       value: course.title,
                                       child: Padding(
+                                        // Reduced padding for tablet portrait mode
                                         padding: EdgeInsets.symmetric(
-                                          vertical: ResponsiveUtils.getResponsivePadding(context, 12),
+                                          vertical: ResponsiveUtils.isTablet(context) && !isLandscape 
+                                              ? ResponsiveUtils.getResponsivePadding(context, 8)
+                                              : ResponsiveUtils.getResponsivePadding(context, 12),
                                         ),
                                         child: Text(
                                           course.title,
@@ -1091,6 +1098,8 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                                             fontSize: ResponsiveUtils.getResponsiveFontSize(context, 15),
                                             fontWeight: FontWeight.w500,
                                           ),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 2,
                                         ),
                                       ),
                                     );
@@ -1158,71 +1167,79 @@ class _ProfileCompletionPageState extends State<ProfileCompletionPage>
                       ],
                       
                       if (provider.selectedCourse != null) ...[
-                        SizedBox(height: ResponsiveUtils.getResponsivePadding(context, 16)),
-                        Container(
-                          width: double.infinity,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: ResponsiveUtils.getResponsivePadding(context, 18),
-                            vertical: ResponsiveUtils.getResponsivePadding(context, 4),
-                          ),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: AppColors.grey300, width: 1.5),
-                            borderRadius: BorderRadius.circular(12),
-                            color: AppColors.grey50,
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: provider.selectedSubCourse,
-                              hint: Text(
-                                'Select your level',
-                                style: TextStyle(
-                                  fontSize: ResponsiveUtils.getResponsiveFontSize(context, 15),
-                                  color: AppColors.grey500,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              isExpanded: true,
-                              icon: Icon(
-                                Icons.arrow_drop_down,
-                                color: AppColors.primaryBlue,
-                                size: ResponsiveUtils.getResponsiveIconSize(context, 24),
-                              ),
+                      SizedBox(height: ResponsiveUtils.getResponsivePadding(context, 16)),
+                      Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: ResponsiveUtils.getResponsivePadding(context, 18),
+                          vertical: ResponsiveUtils.getResponsivePadding(context, 4),
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppColors.grey300, width: 1.5),
+                          borderRadius: BorderRadius.circular(12),
+                          color: AppColors.grey50,
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: provider.selectedSubCourse,
+                            hint: Text(
+                              'Select your level',
                               style: TextStyle(
                                 fontSize: ResponsiveUtils.getResponsiveFontSize(context, 15),
-                                color: AppColors.textDark,
+                                color: AppColors.grey500,
                                 fontWeight: FontWeight.w500,
                               ),
-                              dropdownColor: AppColors.white,
-                              menuMaxHeight: isLandscape ? 200 : 300,
-                              items: provider.availableSubcourses
-                                  .where((subcourse) => subcourse.course == provider.selectedCourse)
-                                  .map((SubcourseModel subcourse) {
-                                return DropdownMenuItem<String>(
-                                  value: subcourse.title,
-                                  child: Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      vertical: ResponsiveUtils.getResponsivePadding(context, 12),
-                                    ),
-                                    child: Text(
-                                      subcourse.title,
-                                      style: TextStyle(
-                                        fontSize: ResponsiveUtils.getResponsiveFontSize(context, 15),
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                  onTap: () {
-                                    provider.setSubCourse(subcourse.title, subcourse.id);
-                                  },
-                                );
-                              }).toList(),
-                              onChanged: (String? newValue) {
-                                provider.setSubCourse(newValue, provider.selectedSubCourseId);
-                              },
                             ),
+                            isExpanded: true,
+                            icon: Icon(
+                              Icons.arrow_drop_down,
+                              color: AppColors.primaryBlue,
+                              size: ResponsiveUtils.getResponsiveIconSize(context, 24),
+                            ),
+                            style: TextStyle(
+                              fontSize: ResponsiveUtils.getResponsiveFontSize(context, 15),
+                              color: AppColors.textDark,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            dropdownColor: AppColors.white,
+                          
+                            menuMaxHeight: isLandscape 
+                                ? 200 
+                                : (ResponsiveUtils.isTablet(context) ? 400 : 300),
+                            itemHeight: null, 
+                            items: provider.availableSubcourses
+                                .where((subcourse) => subcourse.course == provider.selectedCourse)
+                                .map((SubcourseModel subcourse) {
+                              return DropdownMenuItem<String>(
+                                value: subcourse.title,
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: ResponsiveUtils.isTablet(context) && !isLandscape 
+                                        ? ResponsiveUtils.getResponsivePadding(context, 8)
+                                        : ResponsiveUtils.getResponsivePadding(context, 12),
+                                  ),
+                                  child: Text(
+                                    subcourse.title,
+                                    style: TextStyle(
+                                      fontSize: ResponsiveUtils.getResponsiveFontSize(context, 15),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 2,
+                                  ),
+                                ),
+                                onTap: () {
+                                  provider.setSubCourse(subcourse.title, subcourse.id);
+                                },
+                              );
+                            }).toList(),
+                            onChanged: (String? newValue) {
+                              provider.setSubCourse(newValue, provider.selectedSubCourseId);
+                            },
                           ),
                         ),
-                      ],
+                      ),
+                    ],
                     ],
                   ),
                 ),

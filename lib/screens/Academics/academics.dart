@@ -61,7 +61,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      // Reload notification counts when app comes to foreground
       _loadUnreadNotificationCounts();
     }
   }
@@ -93,24 +92,17 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     }
   }
 
-  // Check if student type is Online or Offline (not Public)
   bool get isRegularStudent {
     final type = studentType.toLowerCase();
     return type == 'online' || type == 'offline';
   }
 
-  // Check if student is online specifically
   bool get isOnlineStudent => studentType.toLowerCase() == 'online';
 
-  // Update the bottom navbar badge based on unread counts
   void _updateAcademicsBadge() {
-    // Check if both counts are zero
     final bool hasUnread = (unreadAssignmentsCount > 0 || unreadExamsCount > 0);
-    
-    // Get current subscription badge state
     final bool hasUnreadSubscription = NotificationService.badgeNotifier.value['hasUnreadSubscription'] ?? false;
-    
-    // Update the notification service badges (keeping subscription badge unchanged)
+   
     NotificationService.updateBadges(
       hasUnreadAssignments: hasUnread,
       hasUnreadSubscription: hasUnreadSubscription,
@@ -119,7 +111,6 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     debugPrint('🔔 Updated academics badge - hasUnread: $hasUnread (Assignments: $unreadAssignmentsCount, Exams: $unreadExamsCount)');
   }
 
-  // Load and count unread notifications from SharedPreferences
   Future<void> _loadUnreadNotificationCounts() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -158,8 +149,7 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
           unreadExamsCount = 0;
         });
       }
-      
-      // Update the bottom navbar badge after loading counts
+
       _updateAcademicsBadge();
     } catch (e) {
       debugPrint('❌ Error loading unread notification counts: $e');
@@ -179,8 +169,7 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     
     try {
       final prefs = await SharedPreferences.getInstance();
-      
-      // Debug: Check all keys in SharedPreferences
+     
       final allKeys = prefs.getKeys();
       debugPrint('🔑 All SharedPreferences keys: $allKeys');
       
@@ -242,11 +231,9 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
       debugPrint('📦 Request Body: ${json.encode(requestBody)}');
       debugPrint('🔐 Authorization Header: Bearer ${accessToken.substring(0, 10)}...');
       
-      // Create HTTP client with custom certificate handling
       final client = IOClient(ApiConfig.createHttpClient());
       
       try {
-        // Make POST request with authorization headers
         debugPrint('📡 Sending POST request...');
         final response = await client.post(
           Uri.parse(apiUrl),
@@ -268,13 +255,11 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
         debugPrint('📨 Response Headers: ${response.headers}');
         
         if (response.statusCode == 200 || response.statusCode == 201) {
-          // Successfully marked as read, clear the IDs from SharedPreferences
           await prefs.remove('ids');
           debugPrint('✅ Notifications marked as read successfully!');
           debugPrint('🗑️ IDs list cleared from SharedPreferences');
         } else if (response.statusCode == 401) {
           debugPrint('⚠️ Token expired or invalid - User needs to login again');
-          // Handle token expiration
           await _authService.logout();
           if (mounted) {
             Navigator.of(context).pushNamedAndRemoveUntil(
@@ -304,51 +289,44 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
     debugPrint('🏁 _markNotificationsAsRead() completed');
   }
 
-  // Handle device back button press
   Future<bool> _handleDeviceBackButton() async {
     Navigator.of(context).pushNamedAndRemoveUntil(
       '/home',
       (Route<dynamic> route) => false,
     );
-    return false; // Prevent default back behavior since we're handling navigation
+    return false; 
   }
 
   void _navigateToExamSchedule() async {
-  // Clear exam badge immediately for instant feedback
   setState(() {
     unreadExamsCount = 0;
   });
-  
-  // Update bottom navbar badge immediately
+
   _updateAcademicsBadge();
   
   await Navigator.push(
     context,
     MaterialPageRoute(
       builder: (context) => ExamScheduleScreen(
-        studentType: studentType, // Pass student type
+        studentType: studentType, 
       ),
       settings: const RouteSettings(name: '/exam_schedule'),
     ),
   );
   
-  // After returning from exam_schedule, wait for dispose to complete
   debugPrint('🔄 Returned from Exam Schedule');
   await Future.delayed(const Duration(milliseconds: 300));
-  
-  // Now reload counts - exam notifications should be removed
+
   debugPrint('🔄 Reloading notification counts');
   await _loadUnreadNotificationCounts();
   
-  // Ensure exam count stays 0 even if there's a timing issue
   setState(() {
     if (unreadExamsCount > 0) {
       debugPrint('⚠️ Exam count still showing, forcing to 0');
       unreadExamsCount = 0;
     }
   });
-  
-  // Update badge again after return
+
   _updateAcademicsBadge();
 }
 
@@ -369,23 +347,16 @@ class _AcademicsScreenState extends State<AcademicsScreen> with WidgetsBindingOb
       ),
     );
     
-    // When returning from assignments:
     debugPrint('🔄 Returned from Assignments');
-    
-    // Wait a bit to ensure any dispose() has completed
+ 
     await Future.delayed(const Duration(milliseconds: 100));
     
-    // First mark notifications as read (send to API)
     await _markNotificationsAsRead();
-    
-    // Then reload the counts
+
     debugPrint('🔄 Reloading notification counts after marking as read');
     await _loadUnreadNotificationCounts();
-    
-    // Update bottom navbar badge
     _updateAcademicsBadge();
     
-    // Force UI update
     if (mounted) {
       setState(() {});
     }
@@ -557,11 +528,9 @@ void _navigateToSettings() {
       studentType: studentType,
       profileCompleted: profileCompleted,
       onViewProfile: () {
-        // Remove the Navigator.of(context).pop() line
         _navigateToViewProfile();
       },
       onSettings: () {
-        // Remove the Navigator.of(context).pop() line
         _navigateToSettings();
       },
       onClose: () {
@@ -668,7 +637,6 @@ void _navigateToSettings() {
                     const SizedBox(height: 18),
 
                     if (isRegularStudent) ...[
-                      // Exam Schedule Card (For Online and Offline students) - With unread badge
                       _buildAcademicCard(
                         icon: Icons.calendar_today_rounded,
                         title: 'Exam Schedule',
@@ -682,7 +650,6 @@ void _navigateToSettings() {
                     ],
 
                     if (isOnlineStudent) ...[
-                      // Performance Card (Only for online students)
                       _buildAcademicCard(
                         icon: Icons.trending_up_rounded,
                         title: 'Performance',

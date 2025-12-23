@@ -33,7 +33,6 @@ class _SubscriptionDetailPageState extends State<SubscriptionDetailPage> {
   String subcourseName = '';
   bool isFetchingCourseName = true;
 
-  // SharedPreferences keys matching home.dart
   static const String _keyCourse = 'profile_course';
   static const String _keySubcourse = 'profile_subcourse';
 
@@ -315,7 +314,6 @@ class _SubscriptionDetailPageState extends State<SubscriptionDetailPage> {
           ),
         );
       }
-      // If paymentSuccess is null, user just pressed back without attempting payment
     });
   }
 }
@@ -742,7 +740,7 @@ class _SubscriptionDetailPageState extends State<SubscriptionDetailPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Create subscription when the page loads
+ 
     if (subscriptionResponse == null && !isLoading && errorMessage == null) {
       _createSubscription();
     }

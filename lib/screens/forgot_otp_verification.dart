@@ -1046,7 +1046,7 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
   
   double buttonHeight;
   if (isLandscape) {
-    buttonHeight = 42.0; 
+    buttonHeight = 42.0;
   } else if (isTabletDevice) {
     buttonHeight = 60.0;
   } else {
@@ -1058,6 +1058,7 @@ Widget _buildOtpBox(BuildContext context, ForgotOtpProvider provider, int index,
   return Center(
     child: Container(
       width: isLandscape ? 250.0 : double.infinity,
+      height: buttonHeight,  // ← THIS WAS MISSING - Added height constraint
       decoration: BoxDecoration(
         gradient: isEnabled
             ? AppGradients.primaryYellow

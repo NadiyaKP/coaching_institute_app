@@ -86,8 +86,6 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
   // Notification data
   List<dynamic> _notificationData = [];
   List<String> _idsToMarkRead = [];
-
-  // FIX: Add debouncing and tracking for API calls
   bool _isSendingVideoEvents = false;
   DateTime? _lastVideoEventsCallTime;
   static const Duration _videoEventsDebounceTime = Duration(seconds: 10);
@@ -102,7 +100,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
 
   Future<void> _initializeHive() async {
     try {
-      // Use the same box name as video_stream.dart - 'videoEvents'
+ 
       if (!Hive.isBoxOpen('videoEvents')) {
         _videoEventsBox = await Hive.openBox('videoEvents');
       } else {
@@ -112,11 +110,10 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
       _hiveInitialized = true;
       debugPrint('✅ Hive initialized successfully for videos with box: videoEvents');
       
-      // Print current stored data
       _printStoredVideoEvents();
     } catch (e) {
       debugPrint('❌ Error initializing Hive for videos: $e');
-      // Try to create the box if it doesn't exist
+  
       try {
         _videoEventsBox = await Hive.openBox('videoEvents');
         _hiveInitialized = true;
@@ -132,9 +129,7 @@ class _VideosScreenState extends State<VideosScreen> with WidgetsBindingObserver
  @override
 void didChangeAppLifecycleState(AppLifecycleState state) {
   debugPrint('🎬 VideoScreen Lifecycle State Changed: $state');
-  
-  // Send stored data when app goes to background (minimized or device locked)
-  // Enable for both 'online' and 'offline' students, but not 'public'
+
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
     if (state == AppLifecycleState.paused || 
         state == AppLifecycleState.inactive ||
@@ -155,8 +150,8 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
   Future<void> _initializeData() async {
     await _getAccessToken();
-    await _loadStudentType(); // Load student type first
-    await _loadNotificationData(); // Load notification data
+    await _loadStudentType(); 
+    await _loadNotificationData(); 
     if (_accessToken != null && _accessToken!.isNotEmpty) {
       await _loadDataFromSharedPreferences();
     } else {
@@ -165,7 +160,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Load student type from SharedPreferences
   Future<void> _loadStudentType() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -178,7 +172,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Load notification data from SharedPreferences
   Future<void> _loadNotificationData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -214,7 +207,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Save IDs to mark read in SharedPreferences
   Future<void> _saveIdsToMarkRead() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -225,7 +217,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Remove notification data for a specific video and add to IDs list
   Future<void> _removeNotificationForVideo(String videoId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -235,7 +226,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       for (var notification in _notificationData) {
         final data = notification['data'];
         if (data != null && data['video_id']?.toString() == videoId) {
-          // Add the notification ID to the mark read list
           final notificationId = notification['id']?.toString();
           if (notificationId != null && !_idsToMarkRead.contains(notificationId)) {
             _idsToMarkRead.add(notificationId);
@@ -248,10 +238,9 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       }
 
       if (found) {
-        // Save updated notification data
+       
         await prefs.setString('unread_notifications', json.encode(updatedNotifications));
         
-        // Save IDs to mark read
         await _saveIdsToMarkRead();
         
         setState(() {
@@ -265,7 +254,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Send mark read API call
   Future<void> _sendMarkReadApi() async {
     if (_idsToMarkRead.isEmpty) {
       debugPrint('📭 No IDs to mark as read');
@@ -304,7 +292,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
         if (responseJson['success'] == true) {
           debugPrint('✅ Successfully marked ${_idsToMarkRead.length} notifications as read');
           
-          // Clear the IDs list from SharedPreferences
           final prefs = await SharedPreferences.getInstance();
           await prefs.remove('ids_to_mark_read');
           
@@ -637,7 +624,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           _chapters = directChapters;
           _selectedSubjectId = subjectId;
           _selectedSubjectName = subjectName;
-          _selectedUnitName = ''; // No unit name since we're going directly to chapters
+          _selectedUnitName = ''; 
           _currentPage = 'chapters';
           _isLoading = false;
         });
@@ -718,7 +705,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Fetch videos for a chapter from API - CORRECTED ENDPOINT
   Future<void> _fetchVideos(String chapterId, String chapterName) async {
     if (_accessToken == null || _accessToken!.isEmpty) {
       _showError('Access token not found');
@@ -729,7 +715,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
 
     try {
       String encodedId = Uri.encodeComponent(chapterId);
-      // FIX: Using the correct API endpoint from your working videos.dart
       String apiUrl = '${ApiConfig.baseUrl}/api/videos/list/?chapter_id=$encodedId';
       
       debugPrint('=== FETCHING VIDEOS API CALL ===');
@@ -832,7 +817,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
   List<dynamic> _sortVideos(List<dynamic> videos) {
     if (videos.isEmpty) return videos;
 
-    // Create a copy to avoid modifying the original list
     List<dynamic> sortedVideos = List.from(videos);
 
     // Parse dates and determine locked status for sorting
@@ -845,7 +829,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
       // For public students, prioritize unlocked videos first
       if (_studentType.toLowerCase() == 'public') {
         if (isLockedA != isLockedB) {
-          return isLockedA ? 1 : -1; // Unlocked videos come first
+          return isLockedA ? 1 : -1; 
         }
       }
 
@@ -855,7 +839,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
         final dateB = b['uploaded_at']?.toString() ?? '';
 
         if (dateA.isEmpty && dateB.isEmpty) return 0;
-        if (dateA.isEmpty) return 1; // Videos without date go to bottom
+        if (dateA.isEmpty) return 1; 
         if (dateB.isEmpty) return -1;
 
         final parsedDateA = DateTime.parse(dateA);
@@ -937,14 +921,13 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // ENHANCED: Proper hierarchical backward navigation
+  // Proper hierarchical backward navigation
   void _navigateBack() {
     debugPrint('=== BACK NAVIGATION START FOR VIDEOS ===');
     debugPrint('Current stack length: ${_navigationStack.length}');
     debugPrint('Current page: $_currentPage');
     
     if (_navigationStack.length > 1) {
-      // Remove current state
       final currentState = _navigationStack.removeLast();
       debugPrint('Removed current state: ${currentState.pageType}');
       
@@ -960,7 +943,6 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
         
         switch (previousState.pageType) {
           case 'subjects':
-            // Going back to subjects - restore subjects data
             _units = [];
             _chapters = [];
             _videos = [];
@@ -984,7 +966,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
           case 'chapters':
             // Going back to chapters from videos
             if (previousState.hasDirectChapters) {
-              // Direct chapters (no units)
+              // Direct chapters 
               _chapters = previousState.chaptersData;
               _selectedUnitId = null;
               _selectedUnitName = '';
@@ -1012,18 +994,13 @@ void didChangeAppLifecycleState(AppLifecycleState state) {
     }
   }
 
-  // Enhanced exit screen method that sends data without waiting
 void _exitScreen() {
-  // Enable for both 'online' and 'offline' students
   if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
-    // Send watching data to backend without waiting for response
     _sendStoredVideoEventsToAPI().catchError((e) {
       debugPrint('Error sending watching data on exit: $e');
-      // Don't show error to user, just log it
     });
   }
   
-  // Send mark read API when returning from videos section
   _sendMarkReadApi();
   
   if (mounted) {
@@ -1046,21 +1023,18 @@ void _exitScreen() {
     }
   }
 
-  // FIXED: Enhanced with debouncing and duplicate call prevention
 Future<void> _sendStoredVideoEventsToAPI() async {
-  // Check for both 'online' and 'offline' student types, exclude 'public'
+
   if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
     debugPrint('🎬 Student type is $_studentType - skipping video events collection');
     return;
   }
 
-  // Check if we're already sending data
   if (_isSendingVideoEvents) {
     debugPrint('🎬 Video events API call already in progress, skipping duplicate call');
     return;
   }
 
-  // Check debounce time
   final now = DateTime.now();
   if (_lastVideoEventsCallTime != null && 
       now.difference(_lastVideoEventsCallTime!) < _videoEventsDebounceTime) {
@@ -1080,13 +1054,11 @@ Future<void> _sendStoredVideoEventsToAPI() async {
 
     debugPrint('🎬 Total video entries to send: ${allKeys.length}');
 
-    // Check if we have access token
     if (_accessToken == null || _accessToken!.isEmpty) {
       debugPrint('🎬 ❌ No access token available, cannot send video events');
       return;
     }
 
-    // Set flags to prevent duplicate calls
     setState(() {
       _isSendingVideoEvents = true;
       _lastVideoEventsCallTime = now;
@@ -1096,7 +1068,6 @@ Future<void> _sendStoredVideoEventsToAPI() async {
     final List<String> successfullySentVideoIds = [];
 
     for (final videoId in allKeys) {
-      // Skip if this video is already being processed
       if (_currentlyProcessingVideoIds.contains(videoId)) {
         debugPrint('🎬 ⚠️ Skipping video $videoId - already being processed');
         continue;
@@ -1112,11 +1083,9 @@ Future<void> _sendStoredVideoEventsToAPI() async {
           debugPrint('\n🎬 Processing video: $videoTitle');
           debugPrint('🎬 Video ID: $videoId');
           debugPrint('🎬 Events count: ${events.length}');
-          
-          // Add to currently processing set
+        
           _currentlyProcessingVideoIds.add(videoId);
           
-          // Filter events to ensure only one 'ended' event
           List<dynamic> filteredEvents = _filterEvents(events);
           debugPrint('🎬 Filtered events count: ${filteredEvents.length}');
           
@@ -1177,19 +1146,17 @@ Future<void> _sendStoredVideoEventsToAPI() async {
             } else if (response.statusCode == 401) {
               debugPrint('🎬 ❌ Unauthorized - token may be expired');
               _handleTokenExpiration();
-              break; // Stop trying to send more requests
+              break;
             } else {
               debugPrint('🎬 ❌ Failed to send video events. Status: ${response.statusCode}');
             }
           } catch (e) {
             debugPrint('🎬 ❌ Error sending video events for $videoId: $e');
           } finally {
-            // Remove from currently processing set
             _currentlyProcessingVideoIds.remove(videoId);
           }
         } else {
           debugPrint('🎬 ⚠️ No events found for video: $videoTitle');
-          // Remove empty video entry
           successfullySentVideoIds.add(videoId);
         }
       }
@@ -1293,7 +1260,7 @@ Future<void> _sendStoredVideoEventsToAPI() async {
     return filtered;
   }
 
-  // Method: Flatten nested events structure
+  // Flatten nested events structure
   List<dynamic> _flattenEvents(List<dynamic> events) {
     List<dynamic> flattened = [];
     
@@ -1311,9 +1278,7 @@ Future<void> _sendStoredVideoEventsToAPI() async {
     return flattened;
   }
 
- // Method: Send stored events for other videos when starting a new video
 Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) async {
-  // Check for both 'online' and 'offline' student types, exclude 'public'
   if (_studentType.toLowerCase() != 'online' && _studentType.toLowerCase() != 'offline') {
     debugPrint('🎬 Student type is $_studentType - skipping video events collection');
     return;
@@ -1344,8 +1309,7 @@ Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) asyn
   debugPrint('🎬 Back button pressed - current page: $_currentPage');
   
   if (_currentPage == 'subjects' && _navigationStack.length <= 1) {
-    // On subjects page - check for stored data and send if exists
-    // Enable for both 'online' and 'offline' students
+  
     if (_studentType.toLowerCase() == 'online' || _studentType.toLowerCase() == 'offline') {
       debugPrint('🎬 On subjects page - checking for stored video events');
       final hasData = await _hasStoredVideoEvents();
@@ -1933,7 +1897,7 @@ Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) asyn
                     
                     String contentCount;
                     if (hasUnits) {
-                      contentCount = '${units.length} section${units.length != 1 ? 's' : ''}'; // CHANGED from 'units'
+                      contentCount = '${units.length} section${units.length != 1 ? 's' : ''}'; 
                     } else if (hasChapters) {
                       contentCount = '${chapters.length} chapter${chapters.length != 1 ? 's' : ''}';
                     } else {
@@ -2015,7 +1979,7 @@ Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) asyn
               Padding(
                 padding: const EdgeInsets.only(left: 16),
                 child: Text(
-                  '${_units.length} section${_units.length != 1 ? 's' : ''} available', // CHANGED from 'unit'
+                  '${_units.length} section${_units.length != 1 ? 's' : ''} available',
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.grey400,
@@ -2049,7 +2013,7 @@ Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) asyn
                     ),
                     const SizedBox(height: 16),
                     const Text(
-                      'No sections available', // CHANGED from 'No units available'
+                      'No sections available',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -2059,7 +2023,7 @@ Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) asyn
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Sections for this subject will be added soon', // CHANGED from 'Units'
+                      'Sections for this subject will be added soon', 
                       style: TextStyle(
                         fontSize: 13,
                         color: AppColors.textGrey,
@@ -2074,14 +2038,13 @@ Future<void> _sendOtherVideoEventsBeforeStartingNewVideo(String newVideoId) asyn
             Column(
               children: _units
                   .map((unit) => _buildSubjectCard(
-                        title: unit['title']?.toString() ?? 'Unknown Section', // CHANGED from 'Unknown Unit'
+                        title: unit['title']?.toString() ?? 'Unknown Section', 
                         subtitle: '${unit['chapters']?.length ?? 0} chapter${(unit['chapters']?.length ?? 0) != 1 ? 's' : ''} available', // Added plural handling
                         icon: Icons.library_books_rounded,
                         color: AppColors.primaryBlue,
                         onTap: () => _loadChapters(
                           unit['id']?.toString() ?? '',
-                          unit['title']?.toString() ?? 'Unknown Section', // CHANGED from 'Unknown Unit'
-                        ),
+                          unit['title']?.toString() ?? 'Unknown Section',                         ),
                         showBadge: _hasUnreadUnitNotifications(unit['id']?.toString() ?? ''),
                       ))
                   .toList(),

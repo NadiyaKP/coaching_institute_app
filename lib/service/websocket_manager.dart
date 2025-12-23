@@ -41,6 +41,40 @@ class WebSocketManager {
 
   static DateTime? get lastDisconnectTime => _lastDisconnectTime;
 
+  // ============= NEW: STUDENT TYPE CHECK =============
+  
+  /// Checks if WebSocket should be enabled based on student type
+  static Future<bool> _shouldEnableWebSocket() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final studentType = prefs.getString('studentType')?.toUpperCase() ?? '';
+      
+      print("🔍 Student Type Check: '$studentType'");
+      
+      // Only enable WebSocket for ONLINE or OFFLINE students
+      final shouldEnable = studentType == 'ONLINE' || studentType == 'OFFLINE';
+      
+      if (!shouldEnable) {
+        print("⛔ WebSocket DISABLED for student type: $studentType");
+      } else {
+        print("✅ WebSocket ENABLED for student type: $studentType");
+      }
+      
+      return shouldEnable;
+    } catch (e) {
+      print("❌ Error checking student type: $e");
+      // Default to disabled if error occurs
+      return false;
+    }
+  }
+
+  /// Validates if current student should have WebSocket access
+  static Future<bool> isWebSocketEnabledForUser() async {
+    return await _shouldEnableWebSocket();
+  }
+
+  // ============= END NEW SECTION =============
+
   static void registerDisconnectionCallback(Function() callback) {
     _onDisconnectionCallback = callback;
   }
@@ -59,9 +93,14 @@ class WebSocketManager {
     _onFocusStatusRequestCallback = null;
   }
 
-  static void sendFocusStatus(bool isFocusing) {
+  static void sendFocusStatus(bool isFocusing) async {
+    // Check student type before sending
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ sendFocusStatus: WebSocket not enabled for this student type");
+      return;
+    }
+
     if (_channel == null) {
-      print("⚠️ Cannot send focus status - channel null");
       return;
     }
 
@@ -93,6 +132,14 @@ class WebSocketManager {
 
   static Future<void> connect({bool isManual = false}) async {
     print("🎯 CONNECT ENTERED - isManual: $isManual, _isManualReconnect: $_isManualReconnect, _isConnecting: $_isConnecting");
+    
+    // ============= NEW: CHECK STUDENT TYPE FIRST =============
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ WebSocket connection blocked - student type not eligible (PUBLIC)");
+      print("💡 Hint: Only ONLINE and OFFLINE students can use WebSocket");
+      return;
+    }
+    // ============= END NEW CHECK =============
     
     if (isManual) {
       print("🔵 Manual reconnect requested - setting flag");
@@ -350,7 +397,13 @@ class WebSocketManager {
     print("💓 Heartbeat timer stopped");
   }
 
-  static void send(dynamic data) {
+  static void send(dynamic data) async {
+    // Check student type before sending
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ send: WebSocket not enabled for this student type");
+      return;
+    }
+
     if (_channel == null) {
       print("⚠️ Cannot send WS message - channel null");
       return;
@@ -368,7 +421,13 @@ class WebSocketManager {
     }
   }
 
-  static void sendCombinedHeartbeat(bool isFocusing) {
+  static void sendCombinedHeartbeat(bool isFocusing) async {
+    // Check student type before sending
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ sendCombinedHeartbeat: WebSocket not enabled for this student type");
+      return;
+    }
+
     if (_channel == null) {
       print("⚠️ Cannot send combined heartbeat - channel null");
       return;
@@ -455,8 +514,15 @@ class WebSocketManager {
     _shouldReconnect = true;
   }
 
-  static void _scheduleReconnection() {
+  static void _scheduleReconnection() async {
     print("⏰ _scheduleReconnection called");
+    
+    // ============= NEW: CHECK STUDENT TYPE BEFORE RECONNECTION =============
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ Reconnection blocked - student type not eligible (PUBLIC)");
+      return;
+    }
+    // ============= END NEW CHECK =============
     
     if (!_shouldReconnect || _isForceDisconnected) {
       print("⛔ Reconnection disabled - shouldReconnect: $_shouldReconnect, isForceDisconnected: $_isForceDisconnected");
@@ -534,6 +600,14 @@ class WebSocketManager {
 
   static Future<void> cleanReconnect() async {
     print("🔄 Performing clean reconnect...");
+    
+    // ============= NEW: CHECK STUDENT TYPE =============
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ Clean reconnect blocked - student type not eligible (PUBLIC)");
+      return;
+    }
+    // ============= END NEW CHECK =============
+    
     resetForceDisconnect();
     await disconnect();
     await Future.delayed(const Duration(milliseconds: 500));
@@ -542,6 +616,13 @@ class WebSocketManager {
 
   static Future<void> forceReconnect() async {
     print('🔄 FORCE RECONNECT');
+    
+    // ============= NEW: CHECK STUDENT TYPE =============
+    if (!await _shouldEnableWebSocket()) {
+      print("⛔ Force reconnect blocked - student type not eligible (PUBLIC)");
+      return;
+    }
+    // ============= END NEW CHECK =============
     
     _reconnectTimer?.cancel();
     _reconnectTimer = null;

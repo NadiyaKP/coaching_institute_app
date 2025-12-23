@@ -18,8 +18,8 @@ class StartExamScreen extends StatefulWidget {
   final String title;
   final String subject;
   final String pdfUrl;
-  final String? endTime; // Add end time parameter
-  final String? examDate; // Add exam date parameter
+  final String? endTime; 
+  final String? examDate; 
 
   const StartExamScreen({
     super.key,
@@ -175,9 +175,7 @@ class _StartExamScreenState extends State<StartExamScreen> with WidgetsBindingOb
   }
 
   Future<Map<String, dynamic>?> _finishExamApi() async {
-    // This method is no longer needed since we don't call finish API
-    // The finish will happen when images are submitted in submit_answers.dart
-    // Keeping it here for future use if needed
+    
     return null;
   }
 
@@ -517,7 +515,7 @@ class _StartExamScreenState extends State<StartExamScreen> with WidgetsBindingOb
                                     size: 20,
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
+                                  const Text(
                                     'Exam ends within: ',
                                     style: TextStyle(
                                       fontSize: 14,

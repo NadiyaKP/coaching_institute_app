@@ -441,7 +441,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen>
           ),
         ),
 
-        // Settings button (NEW)
+        // Settings button
         Positioned(
           top: MediaQuery.of(context).padding.top + 10,
           right: 16,

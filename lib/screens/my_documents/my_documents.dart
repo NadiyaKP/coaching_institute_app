@@ -23,10 +23,10 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
   List<Document> _documents = [];
   Document? _cvDocument;
   Map<String, List<Document>> _groupedDocuments = {};
-  Map<String, bool> _expandedSections = {}; // Track expanded/collapsed state
+  Map<String, bool> _expandedSections = {}; 
   bool _isLoading = true;
   bool _isUploading = false;
-  bool _isFetchingDocuments = false; // 🆕 Prevent multiple simultaneous fetches
+  bool _isFetchingDocuments = false; 
   String _errorMessage = '';
   String? _accessToken;
   final AuthService _authService = AuthService();
@@ -152,8 +152,7 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
       debugPrint('\n=== DOCUMENTS API RESPONSE ===');
       debugPrint('Status Code: ${response.statusCode}');
       debugPrint('Response Headers: ${response.headers}');
-      
-      // Pretty print JSON response
+    
       try {
         final responseJson = jsonDecode(response.body);
         debugPrint('Response Body (Formatted):');
@@ -260,7 +259,6 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
     debugPrint('Grouped Documents: ${_groupedDocuments.keys.toList()}');
   }
 
-  // Upload document
   Future<void> _uploadDocument(String documentType, String title, XFile file) async {
     setState(() {
       _isUploading = true;
@@ -320,11 +318,8 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
               ),
             );
           }
-          
-          // 🆕 ADD DELAY to prevent rapid API calls and allow UI to update
+        
           await Future.delayed(const Duration(milliseconds: 800));
-          
-          // Refresh documents list
           await _fetchDocuments();
         } else {
           throw Exception(data['message'] ?? 'Upload failed');
@@ -395,7 +390,6 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
             );
           }
           
-          // 🆕 ADD DELAY before refresh
           await Future.delayed(const Duration(milliseconds: 500));
           
           // Refresh documents list
@@ -437,13 +431,11 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
       if (file != null) {
         String fileName = file.name;
         
-        // Validate file extension
         if (!fileName.toLowerCase().endsWith('.pdf')) {
           _showError('Only PDF files are allowed');
           return;
         }
         
-        // Validate file size (max 10MB)
         int fileSizeInBytes = await file.length();
         double fileSizeInMB = fileSizeInBytes / (1024 * 1024);
         
@@ -452,7 +444,6 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
           return;
         }
 
-        // Show title input dialog
         await _showTitleInputDialog('CV', file, isReupload: isReupload);
       }
     } catch (e) {
@@ -461,7 +452,6 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
     }
   }
 
-  // Pick and upload other document
   Future<void> _pickAndUploadOtherDocument() async {
     try {
       const XTypeGroup fileTypeGroup = XTypeGroup(
@@ -482,7 +472,6 @@ class _MyDocumentsScreenState extends State<MyDocumentsScreen> {
           return;
         }
         
-        // Validate file size (max 10MB)
         int fileSizeInBytes = await file.length();
         double fileSizeInMB = fileSizeInBytes / (1024 * 1024);
         

@@ -67,35 +67,35 @@ class _HomeScreenState extends State<HomeScreen> {
   final TimerService _timerService = TimerService(); 
   bool _isFocusModeActive = false;
   
-  // 🆕 NEW: WebSocket connection status
+  //WebSocket connection status
   bool _isWebSocketConnected = true;
   StreamSubscription<bool>? _websocketConnectionSubscription;
   StreamSubscription<dynamic>? _websocketMessageSubscription;
   
-  // 🆕 Timetable data
+  // Timetable data
   List<dynamic> _timetableDays = [];
   int _currentTimetableIndex = 0;
   bool _isLoadingTimetable = false;
   
-  // 🆕 Timetable cache keys
+  // Timetable cache keys
   static const String _keyTimetableData = 'timetable_data';
   static const String _keyTimetableLastFetchDate = 'timetable_last_fetch_date';
   static const String _keyTimetableCache = 'timetable_cache';
   
-  // 🆕 Flag to track if timetable was fetched this session
+  // Flag to track if timetable was fetched this session
   bool _isTimetableFetchedThisSession = false;
 
-  // 🆕 Timetable page controller for subject swiping
+  // Timetable page controller for subject swiping
   late PageController _timetablePageController;
 
-  // 🆕 WillPopScope handling
+  // WillPopScope handling
   DateTime? _currentBackPressTime;
 
-  // 🆕 NEW: Date tracking for timer
+  //Date tracking for timer
   String _currentDisplayDate = '';
   Timer? _dateCheckTimer;
 
-  // 🆕 NEW: Reconnection dialog state
+  // Reconnection dialog state
   bool _isReconnectingDialogOpen = false;
   bool _isWebSocketReconnecting = false;
 
@@ -118,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _keyDeviceRegistered = 'device_registered_for_session';
   static const String _keyFirstLoginSubjectsFetched = 'first_login_subjects_fetched';
 
-  // 🆕 Flag to prevent duplicate notification API calls
+  // Flag to prevent duplicate notification API calls
   bool _isFetchingNotifications = false;
 
   @override
@@ -132,10 +132,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // Initialize focus mode
     _initializeFocusMode();
     
-    // 🆕 NEW: Start WebSocket monitoring
+    // Start WebSocket monitoring
     _initializeWebSocketMonitoring();
     
-    // 🆕 NEW: Start date checking
+    // Start date checking
     _startDateChecking();
     
     WidgetsBinding.instance.addObserver(_AppLifecycleObserver(
@@ -143,13 +143,13 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('📱 App resumed - syncing focus mode state');
         await _syncFocusModeState();
         
-        // 🆕 NEW: Check for date change on app resume
+        // Check for date change on app resume
         await _checkForDateChangeOnResume();
       },
     ));
   }
   
-  // 🆕 NEW: Initialize WebSocket monitoring
+  // Initialize WebSocket monitoring
   Future<void> _initializeWebSocketMonitoring() async {
     try {
       // Listen to WebSocket connection state changes
@@ -179,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
         
-        // 🆕 NEW: Close reconnection dialog if it's open and we're connected
+        // Close reconnection dialog if it's open and we're connected
         if (isConnected && _isReconnectingDialogOpen && mounted) {
           _closeReconnectionDialog();
           _showReconnectSuccessDialog();
@@ -209,7 +209,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 🆕 NEW: Close reconnection dialog
+  // Close reconnection dialog
   void _closeReconnectionDialog() {
     if (_isReconnectingDialogOpen && mounted) {
       Navigator.of(context, rootNavigator: true).pop();
@@ -217,7 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 🆕 NEW: Clear WebSocket disconnect flag after successful reconnection
+  // Clear WebSocket disconnect flag after successful reconnection
   Future<void> _clearWebSocketDisconnectFlag() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -228,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // 🆕 NEW: Show reconnect success dialog
+  // Show reconnect success dialog
   void _showReconnectSuccessDialog() {
     // Clear the WebSocket disconnect flag
     _clearWebSocketDisconnectFlag();
@@ -331,7 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
   
-  // 🆕 NEW: Start date checking timer
+  //Start date checking timer
   void _startDateChecking() {
     _stopDateChecking();
     
@@ -346,13 +346,13 @@ class _HomeScreenState extends State<HomeScreen> {
     debugPrint('📅 Date checking timer started');
   }
   
-  // 🆕 NEW: Stop date checking timer
+  // Stop date checking timer
   void _stopDateChecking() {
     _dateCheckTimer?.cancel();
     _dateCheckTimer = null;
   }
   
-  // 🆕 NEW: Check for date change
+  // Check for date change
   Future<void> _checkForDateChange() async {
     try {
       final now = DateTime.now();
@@ -387,7 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
   
-  // 🆕 NEW: Check for date change on app resume
+  // Check for date change on app resume
   Future<void> _checkForDateChangeOnResume() async {
     try {
       final now = DateTime.now();
@@ -398,7 +398,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _currentDisplayDate = today;
         
         if (_isFocusModeActive) {
-          await _timerService.initialize(); // This will trigger date check in timer service
+          await _timerService.initialize(); 
         }
         
         // Force UI update
@@ -411,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
   
-  // 🆕 NEW: Force refresh timer display
+  // Force refresh timer display
   Future<void> _forceRefreshTimerDisplay() async {
     if (!mounted) return;
     
@@ -2853,9 +2853,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     
                     if (_currentDisplayDate != today && _isFocusModeActive) {
                       // Date changed - timer should show 00:00:00
-                      return Text(
+                      return const Text(
                         '00:00:00',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),

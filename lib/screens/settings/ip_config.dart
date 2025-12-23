@@ -154,27 +154,52 @@ class _IpConfigPageState extends State<IpConfigPage> {
   }
 
   // Validate IP address format
-  String? _validateIp(String? value) {
-    if (value == null || value.trim().isEmpty) {
-      return 'Required';
-    }
-    
-    final ipPattern = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
-    
-    if (!ipPattern.hasMatch(value.trim())) {
-      return 'Invalid format (e.g., 192.168.1.1)';
-    }
-    
-    final octets = value.trim().split('.');
-    for (var octet in octets) {
-      final num = int.tryParse(octet);
-      if (num == null || num < 0 || num > 255) {
-        return 'Octets must be 0-255';
+
+    String? _validateIp(String? value) {
+      if (value == null || value.trim().isEmpty) {
+        return 'Required';
       }
+      
+      final trimmedValue = value.trim();
+      
+      // Check if there's a port number
+      String ipPart;
+      String? portPart;
+      
+      if (trimmedValue.contains(':')) {
+        final parts = trimmedValue.split(':');
+        if (parts.length != 2) {
+          return 'Invalid format (e.g., 192.168.1.1 or 192.168.1.1:8001)';
+        }
+        ipPart = parts[0];
+        portPart = parts[1];
+        
+        // Validate port number
+        final port = int.tryParse(portPart);
+        if (port == null || port < 1 || port > 65535) {
+          return 'Port must be 1-65535';
+        }
+      } else {
+        ipPart = trimmedValue;
+      }
+      
+      // Validate IP address part
+      final ipPattern = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
+      
+      if (!ipPattern.hasMatch(ipPart)) {
+        return 'Invalid IP format (e.g., 192.168.1.1)';
+      }
+      
+      final octets = ipPart.split('.');
+      for (var octet in octets) {
+        final num = int.tryParse(octet);
+        if (num == null || num < 0 || num > 255) {
+          return 'IP octets must be 0-255';
+        }
+      }
+      
+      return null;
     }
-    
-    return null;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -306,7 +331,7 @@ class _IpConfigPageState extends State<IpConfigPage> {
                       controller: _privateIpController,
                       style: const TextStyle(fontSize: 13),
                       decoration: InputDecoration(
-                        hintText: '192.168.20.102',
+                        hintText: '192.168.20.102 or 192.168.20.102:8001',
                         hintStyle: const TextStyle(fontSize: 12),
                         prefixIcon: const Icon(Icons.computer, size: 18),
                         border: OutlineInputBorder(
