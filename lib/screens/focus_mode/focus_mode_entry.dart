@@ -29,6 +29,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   late Future<Duration> _initializationFuture;
   Duration _focusTimeToday = Duration.zero;
   bool _hasOverlayPermission = false;
+  bool _hasUsageAccessPermission = false; // NEW: Track Usage Access permission
   bool _isStartingFocusMode = false;
   bool _isRestoredFromDisconnect = false;
   bool _wasDisconnectedByWebSocket = false;
@@ -43,6 +44,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   bool _hasShownDisconnectionMessage = false;
   bool _hasShownReconnectionMessage = false;
   bool _lastKnownConnectionState = true;
+
+  // NEW: Track permission refresh state
+  bool _isRefreshingPermissions = false;
+
+  // NEW: Method channel for Android-specific permissions
+  static const MethodChannel _methodChannel = 
+      MethodChannel('focus_mode_overlay_channel');
 
   @override
   void initState() {
@@ -65,6 +73,76 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     });
     
     _startWebSocketMonitoring();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    if (state == AppLifecycleState.detached) {
+      debugPrint('📱 AppLifecycleState.detached - App being closed');
+    }
+    
+    // NEW: Handle app resume to refresh permissions
+    if (state == AppLifecycleState.resumed) {
+      debugPrint('🔄 App resumed, refreshing permissions...');
+      _refreshPermissions();
+    }
+  }
+
+  // NEW: Refresh permissions method
+  Future<void> _refreshPermissions() async {
+    if (_isRefreshingPermissions) return;
+    
+    try {
+      setState(() {
+        _isRefreshingPermissions = true;
+      });
+      
+      debugPrint('🔄 Refreshing permissions...');
+      
+      // Check overlay permission
+      final bool newOverlayPermission = await _timerService.checkOverlayPermission();
+      
+      // Check usage access permission
+      final bool newUsageAccessPermission = await _checkUsageAccessPermission();
+      
+      if (mounted) {
+        setState(() {
+          _hasOverlayPermission = newOverlayPermission;
+          _hasUsageAccessPermission = newUsageAccessPermission;
+        });
+        
+        // Show success message if permissions were just granted
+        if (newUsageAccessPermission && !_hasUsageAccessPermission) {
+          _showSmallSnackbar(
+            message: 'Usage Access permission granted!',
+            backgroundColor: Colors.green,
+            icon: Icons.check_circle,
+          );
+        }
+        
+        if (newOverlayPermission && !_hasOverlayPermission) {
+          _showSmallSnackbar(
+            message: 'Display over other apps permission granted!',
+            backgroundColor: Colors.green,
+            icon: Icons.check_circle,
+          );
+        }
+      }
+      
+      debugPrint('📋 Permissions refreshed:');
+      debugPrint('   - Overlay permission: $_hasOverlayPermission');
+      debugPrint('   - Usage Access permission: $_hasUsageAccessPermission');
+    } catch (e) {
+      debugPrint('❌ Error refreshing permissions: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshingPermissions = false;
+        });
+      }
+    }
   }
 
   void _handleReconnectionNavigation() {
@@ -183,11 +261,207 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     }
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
-      debugPrint('📱 AppLifecycleState.detached - App being closed');
+  // NEW: Check Usage Access permission
+  Future<bool> _checkUsageAccessPermission() async {
+    try {
+      if (Platform.isAndroid) {
+        // Add a small delay to ensure system has updated
+        await Future.delayed(const Duration(milliseconds: 100));
+        
+        final bool hasPermission = await _methodChannel.invokeMethod('checkUsageStatsPermission');
+        debugPrint('📊 Usage Access Permission: $hasPermission');
+        return hasPermission;
+      }
+      // For iOS, return true as this permission is Android-specific
+      return true;
+    } catch (e) {
+      debugPrint('❌ Error checking Usage Access permission: $e');
+      return false;
     }
+  }
+
+  // NEW: Open Usage Access settings
+  Future<void> _openUsageAccessSettings() async {
+    try {
+      if (Platform.isAndroid) {
+        await _methodChannel.invokeMethod('openUsageAccessSettings');
+      } else {
+        // For iOS, navigate to general settings
+        await openAppSettings();
+      }
+    } catch (e) {
+      debugPrint('❌ Error opening Usage Access settings: $e');
+      _showSmallSnackbar(
+        message: 'Unable to open settings',
+        backgroundColor: Colors.red,
+        icon: Icons.error,
+      );
+    }
+  }
+
+  // NEW: Show Usage Access permission dialog
+  Future<bool?> _showUsageAccessPermissionDialog() async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.analytics, color: Colors.blue, size: 20),
+              SizedBox(width: 6),
+              Text('Usage Access Required', style: TextStyle(fontSize: 15)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Focus Mode needs "Usage Access" permission to monitor app usage and block distractions effectively.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              _buildUsageAccessStep('1. Click "OPEN SETTINGS" below'),
+              _buildUsageAccessStep('2. Find this app in the list'),
+              _buildUsageAccessStep('3. Enable "Allow usage tracking"'),
+              _buildUsageAccessStep('4. Return to this app - permissions will update automatically'),
+              const SizedBox(height: 8),
+              const Text(
+                'Without this permission, Focus Mode cannot detect when you switch to other apps.',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('NOT NOW', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildUsageAccessStep(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.arrow_right, size: 12, color: Colors.blue),
+          const SizedBox(width: 3),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Enhanced permission popup with better instructions
+  Future<bool?> _showPermissionPopup() async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          title: const Row(
+            children: [
+              Icon(Icons.layers, color: Colors.orange, size: 20),
+              SizedBox(width: 6),
+              Text('Display Over Other Apps', style: TextStyle(fontSize: 15)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Focus Mode needs "Display over other apps" permission to block distracting apps.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              _buildPermissionStep('1. Click "OPEN SETTINGS" below'),
+              _buildPermissionStep('2. Scroll down to "Display over other apps"'),
+              _buildPermissionStep('3. Find and select this app from the list'),
+              _buildPermissionStep('4. Enable "Allow display over other apps"'),
+              _buildPermissionStep('5. Return to this app'),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Note: On some Android devices, this setting may be called "Draw over other apps" or "Appear on top"',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontStyle: FontStyle.italic,
+                    color: Colors.orange,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Without this, Focus Mode cannot block other apps.',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('NOT NOW', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildPermissionStep(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.arrow_right, size: 12, color: Colors.orange),
+          const SizedBox(width: 3),
+          Expanded(
+            child: Text(text, style: const TextStyle(fontSize: 11)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<Duration> _initializeData() async {
@@ -226,9 +500,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       
       _hasOverlayPermission = await _timerService.checkOverlayPermission();
       
+      // NEW: Check Usage Access permission
+      _hasUsageAccessPermission = await _checkUsageAccessPermission();
+      
       debugPrint('📋 Initialization Summary:');
       debugPrint('   - Focus time today: ${_formatDuration(_focusTimeToday)}');
       debugPrint('   - Overlay permission: $_hasOverlayPermission');
+      debugPrint('   - Usage Access permission: $_hasUsageAccessPermission');
       debugPrint('   - Restored from disconnect: $_isRestoredFromDisconnect');
       debugPrint('   - Stopped by WebSocket: $_wasDisconnectedByWebSocket');
       debugPrint('   - Date: $today');
@@ -389,6 +667,43 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
         return;
       }
 
+      // NEW: Check Usage Access permission before proceeding
+      if (!_hasUsageAccessPermission) {
+        final bool? shouldOpenSettings = await _showUsageAccessPermissionDialog();
+        
+        if (shouldOpenSettings == true) {
+          await _openUsageAccessSettings();
+          await Future.delayed(const Duration(milliseconds: 500));
+          
+          // Re-check permission after returning from settings
+          // Note: The permission will be updated automatically via didChangeAppLifecycleState
+          // So we just need to check the current state
+          final bool newPermissionStatus = await _checkUsageAccessPermission();
+          
+          if (newPermissionStatus) {
+            setState(() {
+              _hasUsageAccessPermission = true;
+            });
+            // Continue with focus mode start
+          } else {
+            _showSmallSnackbar(
+              message: 'Usage Access permission is still not granted',
+              backgroundColor: Colors.orange,
+              icon: Icons.warning,
+            );
+            setState(() {
+              _isStartingFocusMode = false;
+            });
+            return;
+          }
+        } else {
+          setState(() {
+            _isStartingFocusMode = false;
+          });
+          return;
+        }
+      }
+
       final SharedPreferences prefs = await SharedPreferences.getInstance();
       final String today = DateTime.now().toIso8601String().split('T')[0];
       final String? lastDate = prefs.getString(TimerService.lastDateKey);
@@ -527,63 +842,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     );
   }
 
-  Future<bool?> _showPermissionPopup() async {
-    return await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          title: const Row(
-            children: [
-              Icon(Icons.lock, color: Colors.orange, size: 20),
-              SizedBox(width: 6),
-              Text('Permission Required', style: TextStyle(fontSize: 15)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Grant "Display over other apps" permission for distraction blocking.',
-                style: TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 8),
-              _buildPermissionStep('1. Click "OK" below'),
-              _buildPermissionStep('2. Find "Display over other apps" in settings'),
-              _buildPermissionStep('3. Enable it for this app'),
-              _buildPermissionStep('4. Return to this app'),
-              const SizedBox(height: 8),
-              const Text(
-                'Without this, Focus Mode will not block apps.',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF43E97B),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 12)),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
+  // Enhanced permission required popup
   Future<void> _showPermissionRequiredPopup() async {
     await showDialog(
       context: context,
@@ -595,24 +854,32 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
             children: [
               Icon(Icons.warning, color: Colors.orange, size: 20),
               SizedBox(width: 6),
-              Text('Permission Not Granted', style: TextStyle(fontSize: 15)),
+              Text('Permission Required', style: TextStyle(fontSize: 15)),
             ],
           ),
-          content: const Column(
+          content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Focus Mode requires "Display over other apps" permission.',
+              const Text(
+                'Focus Mode requires "Display over other apps" permission to work properly.',
                 style: TextStyle(fontSize: 12),
               ),
-              SizedBox(height: 8),
-              Text(
-                'Please enable it in Settings.',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.red,
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withOpacity(0.3), width: 1),
+                ),
+                child: const Text(
+                  'Without this permission, the app cannot block other applications during focus sessions.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                  ),
                 ),
               ),
             ],
@@ -625,24 +892,16 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
                   _isStartingFocusMode = false;
                 });
               },
-              child: const Text('STAY HERE', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              child: const Text('CANCEL', style: TextStyle(color: Colors.grey, fontSize: 12)),
             ),
             ElevatedButton(
               onPressed: () async {
                 Navigator.of(context).pop();
                 await openAppSettings();
-                await Future.delayed(const Duration(milliseconds: 500));
-                final bool hasPermission = await _timerService.checkOverlayPermission();
-                if (hasPermission) {
-                  await _actuallyStartFocusMode();
-                } else {
-                  setState(() {
-                    _isStartingFocusMode = false;
-                  });
-                }
+                // Permission will be refreshed automatically via didChangeAppLifecycleState
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF43E97B),
+                backgroundColor: Colors.orange,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               child: const Text('OPEN SETTINGS', style: TextStyle(color: Colors.white, fontSize: 12)),
@@ -650,22 +909,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
           ],
         );
       },
-    );
-  }
-
-  Widget _buildPermissionStep(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.arrow_right, size: 12, color: Colors.grey),
-          const SizedBox(width: 3),
-          Expanded(
-            child: Text(text, style: const TextStyle(fontSize: 11)),
-          ),
-        ],
-      ),
     );
   }
 
@@ -766,128 +1009,198 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   }
 
   Future<void> _performLogout() async {
-    String? accessToken;
+  String? accessToken;
+  
+  try {
+    setState(() {
+      _isLoggingOut = true;
+    });
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return const AlertDialog(
+          content: Row(
+            children: [
+              SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              SizedBox(width: 12),
+              Text('Logging out...', style: TextStyle(fontSize: 12)),
+            ],
+          ),
+        );
+      },
+    );
+
+    debugPrint('🔴 STEP 1: Shutting down TimerService...');
+    try {
+      final timerService = TimerService();
+      await timerService.shutdownForLogout();
+      debugPrint('✅ TimerService shutdown complete');
+    } catch (e) {
+      debugPrint('❌ Error shutting down TimerService: $e');
+    }
+    
+    await Future.delayed(const Duration(seconds: 1));
+    
+    debugPrint('🔴 STEP 2: Cancelling background tasks...');
+    try {
+      await Workmanager().cancelAll();
+      debugPrint('✅ Background tasks cancelled');
+    } catch (e) {
+      debugPrint('❌ Error cancelling background tasks: $e');
+    }
+    
+    debugPrint('🔴 STEP 3: Hiding all overlays...');
+    await _hideAllOverlaysWithRetries();
+    
+    debugPrint('🔴 STEP 4: Disconnecting WebSocket...');
+    try {
+      _sendFocusEndEvent();
+      await Future.delayed(const Duration(milliseconds: 300));
+      
+      final disconnectFuture = WebSocketManager.forceDisconnect();
+      final timeoutFuture = Future.delayed(const Duration(seconds: 2));
+      await Future.any([disconnectFuture, timeoutFuture]);
+      
+      debugPrint('✅ WebSocket disconnected');
+      await Future.delayed(const Duration(milliseconds: 300));
+    } catch (e) {
+      debugPrint('⚠️ Error during WebSocket disconnect: $e');
+    }
+    
+    debugPrint('🔴 STEP 5: Sending attendance...');
+    accessToken = await _authService.getAccessToken();
+    String endTime = DateTime.now().toIso8601String();
+    await _sendAttendanceData(accessToken, endTime);
+    
+    debugPrint('🔴 STEP 6: Calling logout API...');
+    final client = _createHttpClientWithCustomCert();
     
     try {
-      setState(() {
-        _isLoggingOut = true;
-      });
-      
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return const AlertDialog(
-            content: Row(
-              children: [
-                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-                SizedBox(width: 12),
-                Text('Logging out...', style: TextStyle(fontSize: 12)),
-              ],
-            ),
-          );
+      final response = await client.post(
+        Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
+        headers: {
+          ...ApiConfig.commonHeaders,
+          'Authorization': 'Bearer $accessToken',
         },
-      );
+      ).timeout(const Duration(seconds: 8));
 
-      debugPrint('🔴 STEP 1: Shutting down TimerService...');
-      try {
-        final timerService = TimerService();
-        await timerService.shutdownForLogout();
-        debugPrint('✅ TimerService shutdown complete');
-      } catch (e) {
-        debugPrint('❌ Error shutting down TimerService: $e');
-      }
-      
-      await Future.delayed(const Duration(seconds: 1));
-      
-      debugPrint('🔴 STEP 2: Cancelling background tasks...');
-      try {
-        await Workmanager().cancelAll();
-        debugPrint('✅ Background tasks cancelled');
-      } catch (e) {
-        debugPrint('❌ Error cancelling background tasks: $e');
-      }
-      
-      debugPrint('🔴 STEP 3: Hiding all overlays...');
-      await _hideAllOverlaysWithRetries();
-      
-      debugPrint('🔴 STEP 4: Disconnecting WebSocket...');
-      try {
-        _sendFocusEndEvent();
-        await Future.delayed(const Duration(milliseconds: 300));
-        
-        final disconnectFuture = WebSocketManager.forceDisconnect();
-        final timeoutFuture = Future.delayed(const Duration(seconds: 2));
-        await Future.any([disconnectFuture, timeoutFuture]);
-        
-        debugPrint('✅ WebSocket disconnected');
-        await Future.delayed(const Duration(milliseconds: 300));
-      } catch (e) {
-        debugPrint('⚠️ Error during WebSocket disconnect: $e');
-      }
-      
-      debugPrint('🔴 STEP 5: Sending attendance...');
-      accessToken = await _authService.getAccessToken();
-      String endTime = DateTime.now().toIso8601String();
-      await _sendAttendanceData(accessToken, endTime);
-      
-      debugPrint('🔴 STEP 6: Calling logout API...');
-      final client = _createHttpClientWithCustomCert();
-      
-      try {
-        final response = await client.post(
-          Uri.parse('${ApiConfig.currentBaseUrl}/api/students/student_logout/'),
-          headers: {
-            ...ApiConfig.commonHeaders,
-            'Authorization': 'Bearer $accessToken',
-          },
-        ).timeout(const Duration(seconds: 8));
-
-        debugPrint('Logout response status: ${response.statusCode}');
-      } finally {
-        client.close();
-      }
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      debugPrint('🔴 STEP 7: Final cleanup...');
-      await _clearOverlayFlags();
-      await _clearLogoutData();
-      
-      await Future.delayed(const Duration(milliseconds: 300));
-      await _hideAllOverlaysWithRetries();
-      
-    } catch (e) {
-      debugPrint('❌ Logout error: $e');
-      
-      if (mounted) {
-        Navigator.of(context).pop();
-      }
-      
-      try {
-        await Workmanager().cancelAll();
-        await WebSocketManager.forceDisconnect();
-        await _hideAllOverlaysWithRetries();
-        await _clearOverlayFlags();
-      } catch (_) {}
-      
-      await _clearLogoutData();
-      
+      debugPrint('Logout response status: ${response.statusCode}');
     } finally {
-      setState(() {
-        _isLoggingOut = false;
-      });
-      
-      try {
-        await Workmanager().cancelAll();
-        await WebSocketManager.forceDisconnect();
-        await _hideAllOverlaysWithRetries();
-        await _clearOverlayFlags();
-      } catch (_) {}
+      client.close();
     }
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    debugPrint('🔴 STEP 7: CLEARING SHARED PREFERENCES...');
+    await _clearAllSharedPreferences();
+    
+    debugPrint('🔴 STEP 8: Final cleanup...');
+    await _clearOverlayFlags();
+    await _clearLogoutData();
+    
+    await Future.delayed(const Duration(milliseconds: 300));
+    await _hideAllOverlaysWithRetries();
+    
+  } catch (e) {
+    debugPrint('❌ Logout error: $e');
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+    
+    try {
+      await Workmanager().cancelAll();
+      await WebSocketManager.forceDisconnect();
+      await _hideAllOverlaysWithRetries();
+      await _clearOverlayFlags();
+      await _clearAllSharedPreferences(); // Also clear on error
+    } catch (_) {}
+    
+    await _clearLogoutData();
+    
+  } finally {
+    setState(() {
+      _isLoggingOut = false;
+    });
+    
+    try {
+      await Workmanager().cancelAll();
+      await WebSocketManager.forceDisconnect();
+      await _hideAllOverlaysWithRetries();
+      await _clearOverlayFlags();
+      await _clearAllSharedPreferences(); // Clear in finally block too
+    } catch (_) {}
   }
+}
+
+// NEW METHOD: Clear all SharedPreferences data including allowed apps
+Future<void> _clearAllSharedPreferences() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Clear allowed apps data (from AllowAppsScreen)
+    await prefs.remove('allowed_apps_list');
+    await prefs.remove('allowed_apps_details');
+    
+    // Clear authentication tokens
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+    await prefs.remove('accessToken'); // If stored with different key
+    await prefs.remove('auth_token');
+    
+    // Clear user data
+    await prefs.remove('user_id');
+    await prefs.remove('student_id');
+    await prefs.remove('user_data');
+    await prefs.remove('student_data');
+    await prefs.remove('user_email');
+    await prefs.remove('user_name');
+    
+    // Clear session data
+    await prefs.remove('last_login');
+    await prefs.remove('session_expiry');
+    await prefs.remove('login_time');
+    
+    // Clear focus mode/study session data
+    await prefs.remove('focus_mode_active');
+    await prefs.remove('study_session_start');
+    await prefs.remove('study_session_data');
+    await prefs.remove('current_subject');
+    await prefs.remove('current_topic');
+    
+    // Clear timetable cache if exists
+    await prefs.remove('timetable_cache');
+    await prefs.remove('last_timetable_fetch');
+    
+    // Clear any overlay/focus related data
+    await prefs.remove('overlay_active');
+    await prefs.remove('allowed_apps_last_updated');
+    await prefs.remove('last_allowed_apps_sync');
+    
+    // Clear app-specific settings that should reset on logout
+    await prefs.remove('notifications_enabled');
+    await prefs.remove('study_reminders');
+    await prefs.remove('auto_attendance');
+    
+    debugPrint('✅ All SharedPreferences cleared (including allowed apps)');
+  } catch (e) {
+    debugPrint('❌ Error clearing SharedPreferences: $e');
+  }
+}
+
+Future<void> _clearAllPreferencesCompletely() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear(); // This will remove EVERYTHING
+    debugPrint('✅ All SharedPreferences cleared completely');
+  } catch (e) {
+    debugPrint('❌ Error clearing all preferences: $e');
+  }
+}
 
   Future<void> _hideAllOverlaysWithRetries() async {
     debugPrint('🎯 Hiding all overlays with retries...');
@@ -1113,7 +1426,15 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     return IOClient(client);
   }
 
- @override
+  // NEW: Helper method to determine button text
+  String _getStartButtonText() {
+    if (!WebSocketManager.isConnected) return 'Connection Required';
+    if (!_hasOverlayPermission) return 'Display Permission Required';
+    if (!_hasUsageAccessPermission) return 'Usage Access Required';
+    return 'Start Focus Session';
+  }
+
+  @override
 Widget build(BuildContext context) {
   final screenHeight = MediaQuery.of(context).size.height;
   final screenWidth = MediaQuery.of(context).size.width;
@@ -1301,7 +1622,9 @@ Widget build(BuildContext context) {
                         const SizedBox(height: 4),
                         
                         Text(
-                          _hasOverlayPermission ? 'Ready to boost productivity' : 'Grant permission to start',
+                          _hasOverlayPermission && _hasUsageAccessPermission 
+                              ? 'Ready to boost productivity' 
+                              : 'Grant permissions to start',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w500),
                         ),
@@ -1397,46 +1720,166 @@ Widget build(BuildContext context) {
                               
                               const SizedBox(height: 12),
                               
-                              // Permission Status
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
-                                      color: _hasOverlayPermission ? Colors.green : Colors.orange,
-                                      size: 18,
+                              // Overlay Permission Status - MODIFIED: Clickable
+                              GestureDetector(
+                                onTap: () async {
+                                  if (!_hasOverlayPermission && !_isRefreshingPermissions) {
+                                    final bool? shouldOpenSettings = await _showPermissionPopup();
+                                    if (shouldOpenSettings == true) {
+                                      await openAppSettings();
+                                    }
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: _hasOverlayPermission ? Colors.green.withOpacity(0.08) : Colors.orange.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: _hasOverlayPermission ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                                      width: 1,
                                     ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _hasOverlayPermission ? 'Full Protection Enabled' : 'Permission Required',
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      _isRefreshingPermissions
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.5,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.orange),
+                                              ),
+                                            )
+                                          : Icon(
+                                              _hasOverlayPermission ? Icons.check_circle_rounded : Icons.info_rounded,
+                                              color: _hasOverlayPermission ? Colors.green : Colors.orange,
+                                              size: 18,
+                                            ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _hasOverlayPermission ? 'Display Over Apps Enabled' : 'Display Permission Required',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
+                                              ),
+                                            ),
+                                            const SizedBox(height: 1),
+                                            Text(
+                                              _hasOverlayPermission ? 'Can show overlay on other apps' : 'Tap to enable overlay permission',
+                                              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (!_hasOverlayPermission && !_isRefreshingPermissions) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.orange,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'Enable',
                                             style: TextStyle(
-                                              fontSize: 11,
+                                              fontSize: 9,
                                               fontWeight: FontWeight.bold,
-                                              color: _hasOverlayPermission ? Colors.green[700] : Colors.orange[700],
+                                              color: Colors.white,
                                             ),
                                           ),
-                                          const SizedBox(height: 1),
-                                          Text(
-                                            _hasOverlayPermission ? 'Distraction blocking is active' : 'Enable overlay for best results',
-                                            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              
+                              // Usage Access Permission Status - MODIFIED: Clickable
+                              const SizedBox(height: 8),
+                              GestureDetector(
+                                onTap: () async {
+                                  if (!_hasUsageAccessPermission && !_isRefreshingPermissions) {
+                                    final bool? shouldOpenSettings = await _showUsageAccessPermissionDialog();
+                                    if (shouldOpenSettings == true) {
+                                      await _openUsageAccessSettings();
+                                    }
+                                  }
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: _hasUsageAccessPermission ? Colors.green.withOpacity(0.08) : Colors.blue.withOpacity(0.08),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: _hasUsageAccessPermission ? Colors.green.withOpacity(0.2) : Colors.blue.withOpacity(0.2),
+                                      width: 1,
                                     ),
-                                  ],
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      _isRefreshingPermissions
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.5,
+                                                valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                                              ),
+                                            )
+                                          : Icon(
+                                              _hasUsageAccessPermission ? Icons.check_circle_rounded : Icons.analytics,
+                                              color: _hasUsageAccessPermission ? Colors.green : Colors.blue,
+                                              size: 18,
+                                            ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _hasUsageAccessPermission ? 'Usage Access Enabled' : 'Usage Access Required',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: _hasUsageAccessPermission ? Colors.green[700] : Colors.blue[700],
+                                              ),
+                                            ),
+                                            const SizedBox(height: 1),
+                                            Text(
+                                              _hasUsageAccessPermission 
+                                                  ? 'Can monitor app usage for blocking' 
+                                                  : 'Tap to enable usage access permission',
+                                              style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (!_hasUsageAccessPermission && !_isRefreshingPermissions) ...[
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.blue,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'Enable',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ),
                               ),
                               
@@ -1577,20 +2020,30 @@ Widget build(BuildContext context) {
                         
                         const SizedBox(height: 20), 
                         
-                        // Start Button 
+                        // Start Button - Modified to check all permissions
                         SizedBox(
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton(
-                            onPressed: (!_isStartingFocusMode && !_isReconnecting && WebSocketManager.isConnected) ? _startFocusMode : null,
+                            onPressed: (!_isStartingFocusMode && 
+                                       !_isReconnecting && 
+                                       WebSocketManager.isConnected &&
+                                       _hasOverlayPermission &&
+                                       _hasUsageAccessPermission) 
+                                ? _startFocusMode 
+                                : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: WebSocketManager.isConnected 
+                              backgroundColor: (WebSocketManager.isConnected && 
+                                              _hasOverlayPermission && 
+                                              _hasUsageAccessPermission)
                                   ? const Color(0xFF43E97B) 
                                   : Colors.grey[400],
                               disabledBackgroundColor: Colors.grey[300],
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               elevation: (_isStartingFocusMode || _isReconnecting) ? 0 : 4,
-                              shadowColor: WebSocketManager.isConnected 
+                              shadowColor: (WebSocketManager.isConnected && 
+                                          _hasOverlayPermission && 
+                                          _hasUsageAccessPermission)
                                   ? const Color(0xFF43E97B).withOpacity(0.3) 
                                   : Colors.grey,
                             ),
@@ -1609,20 +2062,26 @@ Widget build(BuildContext context) {
                                       Container(
                                         padding: const EdgeInsets.all(5),
                                         decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(WebSocketManager.isConnected ? 0.2 : 0.1),
+                                          color: Colors.white.withOpacity(
+                                            (WebSocketManager.isConnected && 
+                                             _hasOverlayPermission && 
+                                             _hasUsageAccessPermission) ? 0.2 : 0.1
+                                          ),
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Icon(
-                                          WebSocketManager.isConnected ? Icons.play_arrow_rounded : Icons.wifi_off,
+                                          (WebSocketManager.isConnected && 
+                                           _hasOverlayPermission && 
+                                           _hasUsageAccessPermission) 
+                                              ? Icons.play_arrow_rounded 
+                                              : Icons.warning,
                                           color: Colors.white,
                                           size: 18,
                                         ),
                                       ),
                                       const SizedBox(width: 8),
                                       Text(
-                                        WebSocketManager.isConnected 
-                                            ? 'Start Focus Session' 
-                                            : 'Connection Required',
+                                        _getStartButtonText(),
                                         style: const TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.bold,

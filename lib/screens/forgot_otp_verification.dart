@@ -226,7 +226,7 @@ class ForgotOtpProvider extends ChangeNotifier {
     }
   }
 
-  // Verify OTP
+ // Verify OTP
   Future<Map<String, dynamic>> verifyOtp() async {
     String otp = getOtp();
     debugPrint('\n🔍 FORGOT PASSWORD OTP VERIFICATION INITIATED');
@@ -337,7 +337,9 @@ class ForgotOtpProvider extends ChangeNotifier {
           };
         }
       } else if (response.statusCode == 400) {
-        final errorMessage = responseData['message'] ?? 'Invalid OTP. Please try again.';
+        final errorMessage = responseData is Map && responseData.containsKey('message')
+            ? responseData['message']
+            : 'Invalid OTP. Please try again.';
         debugPrint('❌ Bad Request (400): $errorMessage');
         clearOtpFields();
         
@@ -346,7 +348,9 @@ class ForgotOtpProvider extends ChangeNotifier {
           'message': errorMessage,
         };
       } else if (response.statusCode == 404) {
-        final errorMessage = responseData['message'] ?? 'Email not found.';
+        final errorMessage = responseData is Map && responseData.containsKey('message')
+            ? responseData['message']
+            : 'Email not found.';
         debugPrint('❌ Not Found (404): $errorMessage');
         
         return {
@@ -355,11 +359,21 @@ class ForgotOtpProvider extends ChangeNotifier {
           'navigate_back': true,
         };
       } else {
-        debugPrint('❌ HTTP Error ${response.statusCode}: ${response.reasonPhrase}');
+        // Handle all other error status codes (including 403, 429, 500, etc.)
+        final errorMessage = responseData is Map && responseData.containsKey('message')
+            ? responseData['message']
+            : 'Network error. Please try again.';
+        
+        debugPrint('❌ HTTP Error ${response.statusCode}: $errorMessage');
+        
+        // Clear OTP fields for client errors (4xx status codes)
+        if (response.statusCode >= 400 && response.statusCode < 500) {
+          clearOtpFields();
+        }
         
         return {
           'success': false,
-          'message': 'Network error. Please try again.',
+          'message': errorMessage,
         };
       }
     } on TimeoutException catch (e) {

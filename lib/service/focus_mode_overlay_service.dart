@@ -19,10 +19,14 @@ class FocusModeOverlayService {
   final StreamController<bool> _overlayVisibilityController = StreamController<bool>.broadcast();
   final StreamController<void> _returnToStudyController = StreamController<void>.broadcast();
   final StreamController<Map<String, dynamic>> _appLaunchController = StreamController<Map<String, dynamic>>.broadcast();
+  final StreamController<void> _usageStatsPermissionController = StreamController<void>.broadcast();
+  final StreamController<Map<String, dynamic>> _appSwitchController = StreamController<Map<String, dynamic>>.broadcast();
   
   Stream<bool> get overlayVisibilityStream => _overlayVisibilityController.stream;
   Stream<void> get returnToStudyStream => _returnToStudyController.stream;
   Stream<Map<String, dynamic>> get appLaunchStream => _appLaunchController.stream;
+  Stream<void> get usageStatsPermissionStream => _usageStatsPermissionController.stream;
+  Stream<Map<String, dynamic>> get appSwitchStream => _appSwitchController.stream;
   
   bool _isOverlayVisible = false;
   bool get isOverlayVisible => _isOverlayVisible;
@@ -35,7 +39,74 @@ class FocusModeOverlayService {
   
   // SharedPreferences keys
   static const String _allowedAppsOverlayKey = 'overlay_allowed_apps';
-  static const String _mainAllowedAppsKey = 'allowed_apps_list'; // 🆕 Main allowed apps key
+  static const String _mainAllowedAppsKey = 'allowed_apps_list';
+  static const String _lastAllowedAppKey = 'last_opened_allowed_app';
+  
+  // Track app state
+  String? _lastOpenedAllowedApp;
+  bool _isInAllowedApp = false;
+  Timer? _appCheckTimer;
+  String? _lastCheckedApp;
+  String? _previousApp;
+  
+  // 🔥 NEW: Track when an app is opened
+  Future<void> trackAppOpened(String packageName) async {
+    try {
+      debugPrint('📱 Tracking app opened: $packageName');
+      
+      // Save to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_lastAllowedAppKey, packageName);
+      
+      // Update local state
+      _lastOpenedAllowedApp = packageName;
+      _isInAllowedApp = true;
+      _lastCheckedApp = packageName;
+      _previousApp = packageName;
+      
+      // Start monitoring for when user leaves the app
+      await startForegroundMonitoring();
+      
+      debugPrint('✅ Tracked app opening: $packageName');
+    } catch (e) {
+      debugPrint('❌ Error tracking app opened: $e');
+    }
+  }
+  
+  // 🔥 NEW: Clear opened app tracking
+  Future<void> clearOpenedApp() async {
+    try {
+      debugPrint('📱 Clearing opened app tracking');
+      
+      // Clear from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_lastAllowedAppKey);
+      
+      // Update local state
+      _lastOpenedAllowedApp = null;
+      _isInAllowedApp = false;
+      _lastCheckedApp = null;
+      _previousApp = null;
+      
+      debugPrint('✅ Cleared opened app tracking');
+    } catch (e) {
+      debugPrint('❌ Error clearing opened app: $e');
+    }
+  }
+  
+  // 🔥 NEW: Get current foreground app (for monitoring)
+  Future<String?> getCurrentForegroundApp() async {
+    try {
+      final result = await platform.invokeMethod('getCurrentForegroundApp');
+      if (result is String && result.isNotEmpty) {
+        return result;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('❌ Error getting foreground app: $e');
+      return null;
+    }
+  }
   
   // Check if overlay permission is granted
   Future<bool> checkOverlayPermission() async {
@@ -70,6 +141,191 @@ class FocusModeOverlayService {
     }
   }
   
+  // Check usage stats permission
+  Future<bool> checkUsageStatsPermission() async {
+    try {
+      debugPrint('🔍 Checking usage stats permission');
+      final result = await platform.invokeMethod('checkUsageStatsPermission');
+      debugPrint('📱 Usage stats permission result: $result');
+      return result == true;
+    } on PlatformException catch (e) {
+      debugPrint('❌ Error checking usage stats permission: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error in checkUsageStatsPermission: $e');
+      return false;
+    }
+  }
+  
+  // Open usage access settings
+  Future<bool> openUsageAccessSettings() async {
+    try {
+      debugPrint('⚙️ Opening usage access settings');
+      final result = await platform.invokeMethod('openUsageAccessSettings');
+      return result == true;
+    } on PlatformException catch (e) {
+      debugPrint('❌ Error opening usage access settings: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error in openUsageAccessSettings: $e');
+      return false;
+    }
+  }
+  
+  // Start foreground app monitoring
+  Future<bool> startForegroundMonitoring() async {
+    try {
+      debugPrint('🔄 Starting foreground app monitoring');
+      final result = await platform.invokeMethod('startForegroundMonitoring');
+      
+      if (result == true) {
+        // Start periodic app check
+        _startAppMonitoringTimer();
+      }
+      
+      return result == true;
+    } on PlatformException catch (e) {
+      debugPrint('❌ Error starting foreground monitoring: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error in startForegroundMonitoring: $e');
+      return false;
+    }
+  }
+  
+  // Start periodic app monitoring timer
+  void _startAppMonitoringTimer() {
+    _appCheckTimer?.cancel();
+    _appCheckTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      await _checkAppState();
+    });
+  }
+  
+  Future<void> _checkAppState() async {
+    try {
+      final currentApp = await getCurrentForegroundApp();
+      if (currentApp != null && currentApp.isNotEmpty) {
+        final isAllowed = _allowedApps.any((app) => app['packageName'] == currentApp);
+        
+        // Store previous app before updating
+        final previousApp = _lastCheckedApp;
+        _lastCheckedApp = currentApp;
+        
+        debugPrint('🔍 App state check - Previous: $previousApp, Current: $currentApp, Allowed: $isAllowed, InAllowedApp: $_isInAllowedApp');
+        
+        // Track app switch
+        if (previousApp != null && previousApp != currentApp) {
+          debugPrint('🔄 App switch detected: $previousApp → $currentApp');
+          
+          // Notify about app switch
+          _appSwitchController.add({
+            'fromApp': previousApp,
+            'toApp': currentApp,
+            'timestamp': DateTime.now().millisecondsSinceEpoch,
+          });
+          
+          // Handle app switch logic
+          await _handleAppSwitch(previousApp, currentApp, isAllowed);
+        }
+        
+        // Update state based on current app
+        if (isAllowed) {
+          _isInAllowedApp = true;
+          _lastOpenedAllowedApp = currentApp;
+          
+          // Save to SharedPreferences
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString(_lastAllowedAppKey, currentApp);
+          
+        } else if (currentApp == 'com.example.coaching_institute_app') {
+          // Returned to main app
+          _isInAllowedApp = false;
+          
+        } else if (!isAllowed) {
+          // In non-allowed app - check if we should show overlay
+          await _showOverlayIfNeeded();
+        }
+        
+        _previousApp = previousApp;
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error in app monitoring: $e');
+    }
+  }
+  
+  // Handle app switch logic
+  Future<void> _handleAppSwitch(String fromApp, String toApp, bool isToAppAllowed) async {
+    try {
+      final isFromAppAllowed = _allowedApps.any((app) => app['packageName'] == fromApp);
+      final isFromOurApp = fromApp == 'com.example.coaching_institute_app';
+      
+      debugPrint('🔀 Handle app switch - From: $fromApp (allowed: $isFromAppAllowed, ourApp: $isFromOurApp), To: $toApp (allowed: $isToAppAllowed)');
+      
+      // 🔥 CRITICAL: Show overlay when switching from allowed app to non-allowed app
+      if ((isFromAppAllowed || isFromOurApp) && !isToAppAllowed && toApp != 'com.example.coaching_institute_app') {
+        debugPrint('🚫 Blocking switch: Allowed/Our App → Non-allowed App');
+        await _showOverlayIfNeeded();
+      }
+      
+      // If switching from non-allowed app to allowed app
+      if (!isFromAppAllowed && !isFromOurApp && isToAppAllowed) {
+        debugPrint('✅ Allowed switch: Non-allowed App → Allowed App');
+        _isInAllowedApp = true;
+      }
+      
+      // If switching from our app to allowed app
+      if (isFromOurApp && isToAppAllowed) {
+        debugPrint('✅ Opening allowed app from our app');
+        _isInAllowedApp = true;
+      }
+      
+    } catch (e) {
+      debugPrint('❌ Error handling app switch: $e');
+    }
+  }
+  
+  // Show overlay if needed - FIXED: Changed isOverlayShowing to isOverlayShowing()
+  Future<void> _showOverlayIfNeeded() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final isFocusModeActive = prefs.getBool('flutter.is_focus_mode') ?? false;
+      
+      // FIXED: Changed isOverlayShowing to isOverlayShowing()
+      final isOverlayCurrentlyShowing = await isOverlayShowing();
+      
+      debugPrint('🎯 Should show overlay? Focus: $isFocusModeActive, Currently Showing: $isOverlayCurrentlyShowing');
+      
+      if (isFocusModeActive && !isOverlayCurrentlyShowing) {
+        debugPrint('🎯 Showing overlay - blocking non-allowed app');
+        await showOverlay(message: 'This app is not allowed during focus mode');
+      }
+    } catch (e) {
+      debugPrint('❌ Error in _showOverlayIfNeeded: $e');
+    }
+  }
+  
+  // Stop foreground app monitoring
+  Future<bool> stopForegroundMonitoring() async {
+    try {
+      debugPrint('🛑 Stopping foreground app monitoring');
+      _appCheckTimer?.cancel();
+      _appCheckTimer = null;
+      _isInAllowedApp = false;
+      _lastOpenedAllowedApp = null;
+      _lastCheckedApp = null;
+      _previousApp = null;
+      
+      final result = await platform.invokeMethod('stopForegroundMonitoring');
+      return result == true;
+    } on PlatformException catch (e) {
+      debugPrint('❌ Error stopping foreground monitoring: ${e.message}');
+      return false;
+    } catch (e) {
+      debugPrint('❌ Error in stopForegroundMonitoring: $e');
+      return false;
+    }
+  }
+  
   // Update allowed apps list
   Future<bool> updateAllowedApps(List<Map<String, dynamic>> apps) async {
     try {
@@ -100,7 +356,7 @@ class FocusModeOverlayService {
     }
   }
   
-  // 🆕 NEW: Refresh allowed apps in overlay
+  // Refresh allowed apps in overlay
   Future<bool> refreshAllowedAppsInOverlay() async {
     try {
       debugPrint('🔄 Refreshing allowed apps in overlay');
@@ -118,12 +374,11 @@ class FocusModeOverlayService {
     }
   }
   
-  // 🆕 NEW: Get allowed apps from platform
+  // Get allowed apps from platform
   Future<List<Map<String, dynamic>>> getAllowedApps() async {
     try {
       debugPrint('📱 Getting allowed apps from platform...');
       
-      // First, try to get from platform
       final result = await platform.invokeMethod('getAllowedApps');
       
       if (result != null) {
@@ -139,7 +394,6 @@ class FocusModeOverlayService {
         }
       }
       
-      // If platform fails, return from local cache
       debugPrint('📱 Returning ${_allowedApps.length} apps from local cache');
       return _allowedApps;
     } on PlatformException catch (e) {
@@ -151,7 +405,7 @@ class FocusModeOverlayService {
     }
   }
 
-  // 🆕 UPDATED: Handle app permission updates from WebSocket
+  // Handle app permission updates from WebSocket
   Future<void> handleAppPermissionUpdate(String packageName, bool isAllowed) async {
     try {
       debugPrint('🔥 [GLOBAL] Handling app permission update for overlay: $packageName -> allowed: $isAllowed');
@@ -208,7 +462,7 @@ class FocusModeOverlayService {
           debugPrint('⚠️ [GLOBAL] App $packageName already in allowed apps');
         }
       } else {
-        // 🆕 CRITICAL: Remove app from allowed list when allowed: false
+        // Remove app from allowed list when allowed: false
         final initialCount = _allowedApps.length;
         _allowedApps.removeWhere((app) => app['packageName'] == packageName);
         
@@ -241,7 +495,7 @@ class FocusModeOverlayService {
     }
   }
 
-  // 🆕 NEW: Update main allowed apps list in SharedPreferences
+  // Update main allowed apps list in SharedPreferences
   Future<void> _updateMainAllowedAppsList(String packageName, bool isAllowed) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -267,7 +521,7 @@ class FocusModeOverlayService {
     }
   }
 
-  // 🆕 NEW: Immediate platform update with better error handling
+  // Immediate platform update with better error handling
   Future<void> _updatePlatformImmediately() async {
     try {
       debugPrint('🔥 [GLOBAL] Updating platform immediately with ${_allowedApps.length} apps');
@@ -312,7 +566,7 @@ class FocusModeOverlayService {
     }
   }
 
-  // 🆕 NEW: Force immediate overlay refresh with current data
+  // Force immediate overlay refresh with current data
   Future<void> forceRefreshOverlay() async {
     try {
       debugPrint('🔥 [GLOBAL] Force refreshing overlay');
@@ -392,7 +646,7 @@ class FocusModeOverlayService {
     return packageName;
   }
   
-  // 🆕 NEW: Clear allowed apps
+  // Clear allowed apps
   Future<bool> clearAllowedApps() async {
     try {
       debugPrint('🗑️ Clearing allowed apps in overlay service');
@@ -428,6 +682,9 @@ class FocusModeOverlayService {
       _allowedApps = appsList.map((app) => app as Map<String, dynamic>).toList();
       debugPrint('✅ Loaded ${_allowedApps.length} allowed apps for overlay from SharedPreferences');
       
+      // Load last opened allowed app
+      _lastOpenedAllowedApp = prefs.getString(_lastAllowedAppKey);
+      
       // Also send to platform after loading
       if (_allowedApps.isNotEmpty) {
         try {
@@ -460,6 +717,9 @@ class FocusModeOverlayService {
         _isOverlayVisible = true;
         _overlayVisibilityController.add(true);
         debugPrint('✅ Focus mode overlay shown');
+        
+        // Start app monitoring when overlay is shown
+        await startForegroundMonitoring();
       }
     } on PlatformException catch (e) {
       debugPrint('Failed to show overlay: ${e.message}');
@@ -470,6 +730,9 @@ class FocusModeOverlayService {
   Future<void> hideOverlay() async {
     try {
       if (_isOverlayVisible) {
+        // Stop app monitoring when hiding overlay
+        await stopForegroundMonitoring();
+        
         final result = await platform.invokeMethod('hideOverlay');
         
         if (result == true) {
@@ -488,6 +751,9 @@ class FocusModeOverlayService {
     try {
       debugPrint('🔴 Force hiding overlay');
       
+      // Stop app monitoring
+      await stopForegroundMonitoring();
+      
       final result = await platform.invokeMethod('forceHideOverlay');
       
       if (result == true) {
@@ -503,7 +769,7 @@ class FocusModeOverlayService {
     }
   }
   
-  // Check if overlay is currently showing
+  // Check if overlay is currently showing - THIS IS THE FIXED METHOD
   Future<bool> isOverlayShowing() async {
     try {
       final result = await platform.invokeMethod('isOverlayShowing');
@@ -512,6 +778,125 @@ class FocusModeOverlayService {
       debugPrint('Error checking overlay status: ${e.message}');
       return _isOverlayVisible;
     }
+  }
+  
+  // Show usage stats permission dialog
+  Future<bool> showUsageStatsPermissionDialog(BuildContext context) async {
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.analytics, color: Colors.blue, size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'App Usage Permission Required',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'To properly track when you leave allowed apps during focus mode, '
+                'we need permission to view app usage statistics.\n\n'
+                'This will allow the app to:',
+                style: TextStyle(fontSize: 14),
+              ),
+              const SizedBox(height: 12),
+              _buildPermissionItem('• Detect when you switch from allowed apps to other apps'),
+              _buildPermissionItem('• Show overlay when you leave allowed apps'),
+              _buildPermissionItem('• Maintain focus mode effectiveness'),
+              const SizedBox(height: 12),
+              const Text(
+                'This permission is essential for the focus mode to work properly with allowed apps.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'How to enable:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue,
+                      ),
+                    ),
+                    SizedBox(height: 8),
+                    Text('1. Tap "Open Settings" below'),
+                    Text('2. Find "Signature Institute" in the list'),
+                    Text('3. Toggle "Permit usage access"'),
+                    Text('4. Return to this app'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: const Text(
+                'SKIP',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.of(context).pop(true);
+                await openUsageAccessSettings();
+              },
+              child: const Text(
+                'OPEN SETTINGS',
+                style: TextStyle(color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+              ),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+  
+  Widget _buildPermissionItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
   }
   
   // Show permission dialog with explanation
@@ -589,24 +974,6 @@ class FocusModeOverlayService {
     ) ?? false;
   }
   
-  Widget _buildPermissionItem(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(width: 4),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
   // Initialize the overlay service
   Future<void> initialize() async {
     try {
@@ -615,6 +982,12 @@ class FocusModeOverlayService {
       
       // Load allowed apps
       await loadAllowedApps();
+      
+      // Check usage stats permission
+      final hasUsageStatsPermission = await checkUsageStatsPermission();
+      if (!hasUsageStatsPermission) {
+        debugPrint('⚠️ Usage stats permission not granted');
+      }
       
       // Set up method call handlers
       platform.setMethodCallHandler((call) async {
@@ -651,13 +1024,34 @@ class FocusModeOverlayService {
           case 'onOverlayError':
             debugPrint('❌ Overlay error: ${call.arguments}');
             return true;
+          case 'onUsageStatsPermissionRequired':
+            debugPrint('📊 Usage stats permission required');
+            _usageStatsPermissionController.add(null);
+            return true;
+          case 'onAppSwitchDetected':
+            // Handle app switch events from platform
+            final data = call.arguments as Map<dynamic, dynamic>;
+            final fromApp = data['fromApp'] as String?;
+            final toApp = data['toApp'] as String?;
+            
+            debugPrint('🔄 App switch detected from platform: $fromApp → $toApp');
+            
+            if (fromApp != null && _allowedApps.any((app) => app['packageName'] == fromApp)) {
+              // User left an allowed app
+              if (toApp != null && !_allowedApps.any((app) => app['packageName'] == toApp)) {
+                // User switched to a non-allowed app
+                await _showOverlayIfNeeded();
+              }
+            }
+            return true;
         }
         return null;
       });
       
       debugPrint('✅ FocusModeOverlayService initialized');
-      debugPrint('   - Permission granted: $_hasPermission');
+      debugPrint('   - Overlay permission granted: $_hasPermission');
       debugPrint('   - Allowed apps loaded: ${_allowedApps.length}');
+      
     } catch (e) {
       debugPrint('❌ Error initializing FocusModeOverlayService: $e');
     }
@@ -665,8 +1059,11 @@ class FocusModeOverlayService {
   
   // Dispose resources
   void dispose() {
+    _appCheckTimer?.cancel();
     _overlayVisibilityController.close();
     _returnToStudyController.close();
     _appLaunchController.close();
+    _usageStatsPermissionController.close();
+    _appSwitchController.close();
   }
 }

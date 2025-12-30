@@ -1293,16 +1293,20 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       Navigator.of(context).pop(); // Close loading dialog
     }
     
-    // 🔴 STEP 7: Final cleanup and clear data
-    debugPrint('🔴 STEP 7: Final cleanup...');
+    // 🔴 STEP 7: Clear SharedPreferences (including allowed apps)
+    debugPrint('🔴 STEP 7: Clearing SharedPreferences...');
+    await _clearSharedPreferences();
+    
+    // 🔴 STEP 8: Final cleanup and clear other data
+    debugPrint('🔴 STEP 8: Final cleanup...');
     await _clearOverlayFlags();
     
-    // 🆕 NEW: Clear timetable cache explicitly
+    // Clear timetable cache explicitly
     await _clearTimetableCache();
     
     await _clearLogoutData();
     
-    // 🔴 STEP 8: One more overlay hide after everything
+    // 🔴 STEP 9: One more overlay hide after everything
     await Future.delayed(const Duration(milliseconds: 500));
     await _hideAllOverlaysWithRetries();
     
@@ -1319,7 +1323,8 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       await WebSocketManager.forceDisconnect();
       await _hideAllOverlaysWithRetries();
       await _clearOverlayFlags();
-      await _clearTimetableCache(); // 🆕 NEW
+      await _clearTimetableCache();
+      await _clearSharedPreferences(); // Also clear on error
     } catch (_) {}
     
     await _clearLogoutData();
@@ -1333,8 +1338,54 @@ Future<void> _performLogout(SettingsProvider settingsProvider) async {
       await WebSocketManager.forceDisconnect();
       await _hideAllOverlaysWithRetries();
       await _clearOverlayFlags();
-      await _clearTimetableCache(); // 🆕 NEW
+      await _clearTimetableCache();
+      await _clearSharedPreferences(); // Also clear in finally block
     } catch (_) {}
+  }
+}
+
+// NEW: Method to clear SharedPreferences data
+Future<void> _clearSharedPreferences() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Keys from AllowAppsScreen
+    await prefs.remove('allowed_apps_list');
+    await prefs.remove('allowed_apps_details');
+    
+    // Other session-related keys that should be cleared
+    final sessionKeys = [
+      'accessToken', // or 'access_token' based on your storage key
+      'refresh_token',
+      'user_id',
+      'user_data',
+      'student_id',
+      'last_login',
+      'session_expiry',
+      'auth_token',
+      'user_email',
+      'user_name',
+      // Add any other user-specific keys
+    ];
+    
+    for (final key in sessionKeys) {
+      await prefs.remove(key);
+    }
+    
+    debugPrint('✅ SharedPreferences cleared (including allowed apps)');
+  } catch (e) {
+    debugPrint('❌ Error clearing SharedPreferences: $e');
+  }
+}
+
+// Optional: If you want to clear ALL SharedPreferences (including settings)
+Future<void> _clearAllSharedPreferences() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+    debugPrint('✅ All SharedPreferences cleared completely');
+  } catch (e) {
+    debugPrint('❌ Error clearing all SharedPreferences: $e');
   }
 }
 

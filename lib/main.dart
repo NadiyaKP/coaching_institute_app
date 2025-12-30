@@ -38,7 +38,8 @@ import 'hive_model.dart';
 import './screens/video_stream/videos.dart';
 import './screens/focus_mode/focus_mode_entry.dart';
 import './screens/focus_mode/focus_overlay_manager.dart';
-import 'service/focus_mode_overlay_service.dart'; // 🆕 Import overlay service
+import 'service/focus_mode_overlay_service.dart'; 
+import './screens/allow_apps/usage_access_screen.dart';
 
 // 🔹 Global Navigator Key
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -462,6 +463,32 @@ void _handleAttendanceUpdate(Map<String, dynamic> payload) {
   );
 }
 
+
+
+Future<void> checkAndRequestPermissions(BuildContext context) async {
+  final overlayService = FocusModeOverlayService();
+  
+  // Check overlay permission
+  final hasOverlayPermission = await overlayService.checkOverlayPermission();
+  if (!hasOverlayPermission) {
+    final granted = await overlayService.showPermissionDialog(context);
+    if (granted) {
+      await overlayService.requestOverlayPermission();
+    }
+  }
+  
+  // Check usage stats permission
+  final hasUsageStatsPermission = await overlayService.checkUsageStatsPermission();
+  if (!hasUsageStatsPermission) {
+    // Show usage stats permission screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => UsageAccessScreen(),
+      ),
+    );
+  }
+}
+
 // 🆕 Handle exam updates from WebSocket
 void _handleExamUpdate(Map<String, dynamic> payload) {
   final examId = payload['exam_id'];
@@ -750,6 +777,8 @@ class _CoachingInstituteAppState extends State<CoachingInstituteApp>
     
     // Initialize WebSocket handler
     _initWebSocketHandler();
+
+    _setupOverlayAppLaunchHandler();
     
     // 🆕 Setup global reconnection handler
     _setupGlobalReconnectionHandler();
@@ -1434,104 +1463,159 @@ void dispose() {
 }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) async {
-    debugPrint('📱 App lifecycle changed: $state');
-    _appInForeground = state == AppLifecycleState.resumed;
+void didChangeAppLifecycleState(AppLifecycleState state) async {
+  debugPrint('📱 App lifecycle changed: $state');
+  _appInForeground = state == AppLifecycleState.resumed;
+  
+  // 🆕 FIRST: Check focus mode state
+  await _checkFocusModeState();
+  
+  // 🆕 Handle app state changes with TimerService
+  if (state == AppLifecycleState.resumed) {
+    // App is coming back to foreground
+    debugPrint('📱 App RESUMED - handling TimerService');
     
-    // 🆕 FIRST: Check focus mode state
-    await _checkFocusModeState();
+    // Save app state as resumed
+    await _timerService.handleAppResumed();
     
-    // 🆕 Handle app state changes with TimerService
-    if (state == AppLifecycleState.resumed) {
-      // App is coming back to foreground
-      debugPrint('📱 App RESUMED - handling TimerService');
-      
-      // Save app state as resumed
-      await _timerService.handleAppResumed();
-      
-      // Always reinitialize API and check badge state on resume
-      await ApiConfig.initializeBaseUrl(printLogs: true);
-      await NotificationService.checkBadgeStateOnResume();
-      
-      // Reconnect WebSocket if disconnected when app comes to foreground
-      if (WebSocketManager.connectionStatus == 'disconnected') {
-        await _connectWebSocketIfLoggedIn();
-      }
-      
-      // Check if user should see focus mode
-      _checkAndRedirectToFocusMode();
-      
-      // Check overlay permission status on resume
-      await _timerService.checkOverlayPermission();
-      
-    } else if (state == AppLifecycleState.paused) {
-      // App is going to background
-      debugPrint('📱 App PAUSED - handling TimerService');
-      
-      // Save app state as paused
-      await _timerService.handleAppPaused();
-      
-    } else if (state == AppLifecycleState.detached) {
-      // App is being completely closed/removed from recents
-      debugPrint('📱 App DETACHED - stopping all timers and hiding overlay');
-      
-      // 🆕 CRITICAL: Hide overlay when app is completely closed
-      await _ensureOverlayHidden();
-      
-      // 🆕 CRITICAL: Handle app detachment - stop timer and save state
-      await _timerService.handleAppDetached();
+    // Always reinitialize API and check badge state on resume
+    await ApiConfig.initializeBaseUrl(printLogs: true);
+    await NotificationService.checkBadgeStateOnResume();
+    
+    // Reconnect WebSocket if disconnected when app comes to foreground
+    if (WebSocketManager.connectionStatus == 'disconnected') {
+      await _connectWebSocketIfLoggedIn();
     }
+    
+    // 🆕 CRITICAL: Check if we just returned from an allowed app
+    final prefs = await SharedPreferences.getInstance();
+    final lastOpenedApp = prefs.getString('last_opened_allowed_app');
+    final isFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+    
+    if (lastOpenedApp != null && isFocusActive) {
+      debugPrint('🎯 Just returned from allowed app: $lastOpenedApp');
+      
+      // Clear the tracking
+      await prefs.remove('last_opened_allowed_app');
+      
+      // Check if overlay should be shown
+      if (!overlayService.isOverlayVisible) {
+        // Small delay to ensure app is fully resumed
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Show overlay
+        await overlayService.showOverlay(message: 'Welcome back to study mode');
+      }
+    }
+    
+    // Check if user should see focus mode
+    _checkAndRedirectToFocusMode();
+    
+    // Check overlay permission status on resume
+    await _timerService.checkOverlayPermission();
+    
+  } else if (state == AppLifecycleState.paused) {
+    // App is going to background
+    debugPrint('📱 App PAUSED - handling TimerService');
+    
+    // Save app state as paused
+    await _timerService.handleAppPaused();
+    
+    // 🆕 Start overlay monitoring when app goes to background
+    final prefs = await SharedPreferences.getInstance();
+    final isFocusActive = prefs.getBool(TimerService.isFocusModeKey) ?? false;
+    
+    if (isFocusActive) {
+      debugPrint('🎯 App going to background - ensuring overlay monitoring is active');
+      // Overlay service will handle monitoring
+    }
+    
+  } else if (state == AppLifecycleState.detached) {
+    // App is being completely closed/removed from recents
+    debugPrint('📱 App DETACHED - stopping all timers and hiding overlay');
+    
+    // 🆕 CRITICAL: Hide overlay when app is completely closed
+    await _ensureOverlayHidden();
+    
+    // 🆕 CRITICAL: Handle app detachment - stop timer and save state
+    await _timerService.handleAppDetached();
   }
+}
 
-  Future<void> _ensureOverlayHidden() async {
+// Update the ensureOverlayHidden method
+Future<void> _ensureOverlayHidden() async {
+  try {
+    debugPrint('🎯 Ensuring overlay is hidden...');
+    
+    // Clear overlay-related SharedPreferences first
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_focus_mode', false);
+    await prefs.remove('last_opened_allowed_app'); // Clear tracking
+    
+    // Stop overlay monitoring
+    await overlayService.stopForegroundMonitoring();
+    
+    // Try using FocusOverlayManager if available
     try {
-      debugPrint('🎯 Ensuring overlay is hidden...');
-      
-      // Clear overlay-related SharedPreferences first
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('is_focus_mode', false);
-      
-      // Try using FocusOverlayManager if available
-      try {
-        final overlayManager = FocusOverlayManager();
-        await overlayManager.initialize();
-        if (overlayManager.isOverlayVisible) {
-          await overlayManager.hideOverlay();
-          debugPrint('✅ FocusOverlayManager: Overlay hidden');
-        }
-      } catch (e) {
-        debugPrint('⚠️ Error with FocusOverlayManager: $e');
+      final overlayManager = FocusOverlayManager();
+      await overlayManager.initialize();
+      if (overlayManager.isOverlayVisible) {
+        await overlayManager.hideOverlay();
+        debugPrint('✅ FocusOverlayManager: Overlay hidden');
       }
-      
-      // Also try overlay service
-      try {
-        if (overlayService.isOverlayVisible) {
-          await overlayService.hideOverlay();
-          debugPrint('✅ OverlayService: Overlay hidden');
-        }
-      } catch (e) {
-        debugPrint('⚠️ Error with OverlayService: $e');
-      }
-      
-      // Also try direct method channel call as fallback
-      try {
-        const platform = MethodChannel('focus_mode_overlay_channel');
-        await platform.invokeMethod('hideOverlay');
-        debugPrint('✅ Direct method channel: hideOverlay called');
-      } on PlatformException catch (e) {
-        debugPrint('⚠️ Direct method channel failed: ${e.message}');
-      } catch (e) {
-        debugPrint('⚠️ Direct method channel error: $e');
-      }
-      
-      // Additional delay to ensure overlay is hidden
-      await Future.delayed(const Duration(milliseconds: 300));
-      
-      debugPrint('✅ Overlay cleanup completed for app detachment');
     } catch (e) {
-      debugPrint('❌ Error ensuring overlay hidden: $e');
+      debugPrint('⚠️ Error with FocusOverlayManager: $e');
     }
+    
+    // Also try overlay service
+    try {
+      if (overlayService.isOverlayVisible) {
+        await overlayService.hideOverlay();
+        debugPrint('✅ OverlayService: Overlay hidden');
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error with OverlayService: $e');
+    }
+    
+    // Also try direct method channel call as fallback
+    try {
+      const platform = MethodChannel('focus_mode_overlay_channel');
+      await platform.invokeMethod('hideOverlay');
+      debugPrint('✅ Direct method channel: hideOverlay called');
+    } on PlatformException catch (e) {
+      debugPrint('⚠️ Direct method channel failed: ${e.message}');
+    } catch (e) {
+      debugPrint('⚠️ Direct method channel error: $e');
+    }
+    
+    // Additional delay to ensure overlay is hidden
+    await Future.delayed(const Duration(milliseconds: 300));
+    
+    debugPrint('✅ Overlay cleanup completed for app detachment');
+  } catch (e) {
+    debugPrint('❌ Error ensuring overlay hidden: $e');
   }
+}
+
+// Add a method to handle app launches from overlay
+void _setupOverlayAppLaunchHandler() {
+  overlayService.appLaunchStream.listen((appData) async {
+    try {
+      debugPrint('🎯 App launch requested from overlay: ${appData['appName']}');
+      
+      // Save that we're opening an allowed app
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('last_opened_allowed_app', appData['packageName']);
+      
+      // Start monitoring for when user returns
+      await overlayService.startForegroundMonitoring();
+      
+    } catch (e) {
+      debugPrint('❌ Error handling overlay app launch: $e');
+    }
+  });
+}
+
 
   Future<void> _initNotificationService() async {
     await NotificationService.init(navigatorKey);

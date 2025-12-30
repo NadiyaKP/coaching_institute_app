@@ -119,8 +119,18 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
   }
   
   void _setupAppLaunchListener() {
+  _focusOverlayService.appLaunchStream.listen((appData) {
+    if (_debugMode) {
+      debugPrint('🎯 App launch requested from overlay: ${appData['appName']}');
+    }
     
-  }
+    if (appData.containsKey('packageName')) {
+      // Track the app opening
+      _focusOverlayService.trackAppOpened(appData['packageName']);
+      _openApp(appData['packageName']);
+    }
+  });
+}
 
   Future<void> _initNotifications() async {
     try {
@@ -241,6 +251,14 @@ class _AllowAppsScreenState extends State<AllowAppsScreen> with SingleTickerProv
       },
     );
   }
+
+  @override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  if (state == AppLifecycleState.resumed) {
+    // Clear opened app tracking when app resumes
+    _focusOverlayService.clearOpenedApp();
+  }
+}
 
   @override
   void dispose() {
@@ -1031,9 +1049,11 @@ void _updateAllowedAppDetails() async {
     }
   }
 
-  void _handleAllowedAppTap(_AppData app) {
-    _openApp(app.packageName);
-  }
+void _handleAllowedAppTap(_AppData app) async {
+  // 🔥 Track that we're opening an allowed app
+  await _focusOverlayService.trackAppOpened(app.packageName);
+  _openApp(app.packageName);
+}
 
   List<dynamic> _getCurrentTabApps() {
     if (_currentTabIndex == 0) {

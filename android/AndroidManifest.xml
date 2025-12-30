@@ -16,6 +16,18 @@
     <!-- Focus Mode Overlay -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!-- 🔥 CRITICAL: Permission for foreground app detection -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" 
+        tools:ignore="ProtectedPermissions" />
+    
+    <!-- 🔥 ADDED: Required for getRunningTasks on older Android versions -->
+    <uses-permission android:name="android.permission.GET_TASKS" 
+        android:maxSdkVersion="22" />
+    
+    <!-- 🔥 ADDED: For better app detection on Android 10+ -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" 
+        tools:ignore="QueryAllPackagesPermission" />
+
     <!-- Optional: Alarm + Battery Optimization -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -39,15 +51,19 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
-    <!-- Add query for package usage stats (for better app detection) -->
+    <!-- 🔥 ENHANCED: Add query for package usage stats and app detection -->
     <queries>
-        <!-- Allows app to detect launchable applications -->
+        <!-- Allows app to detect all launchable applications -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER"/>
         </intent>
         
-        <!-- Query for specific system apps -->
+        <!-- Query for specific popular apps that users might allow -->
+        <package android:name="com.whatsapp" />
+        <package android:name="com.instagram.android" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.facebook.orca" />
         <package android:name="com.google.android.youtube" />
         <package android:name="com.android.chrome" />
         <package android:name="com.google.android.apps.photos" />
@@ -56,8 +72,40 @@
         <package android:name="com.android.settings" />
         <package android:name="com.google.android.calendar" />
         <package android:name="com.google.android.contacts" />
+        <package android:name="com.android.vending" />
+        <package android:name="com.google.android.apps.docs" />
+        <package android:name="com.google.android.apps.messaging" />
+        <package android:name="com.android.email" />
+        <package android:name="com.android.calculator2" />
+        <package android:name="com.android.dialer" />
+        <package android:name="com.android.mms" />
+        <package android:name="com.android.camera2" />
+        <package android:name="com.android.gallery3d" />
+        <package android:name="com.spotify.music" />
+        <package android:name="com.netflix.mediaclient" />
+        <package android:name="com.amazon.mShop.android.shopping" />
+        <package android:name="com.microsoft.office.word" />
+        <package android:name="com.microsoft.office.excel" />
+        <package android:name="com.microsoft.office.powerpoint" />
+        <package android:name="com.google.android.apps.meetings" />
+        <package android:name="us.zoom.videomeetings" />
+        <package android:name="com.skype.raider" />
+        <package android:name="com.telegram.messenger" />
+        <package android:name="com.snapchat.android" />
+        <package android:name="com.twitter.android" />
+        <package android:name="com.linkedin.android" />
+        <package android:name="com.reddit.frontpage" />
         
-        <!-- Add more system apps as needed -->
+        <!-- 🔥 ADDED: For UsageStatsManager access -->
+        <intent>
+            <action android:name="android.settings.USAGE_ACCESS_SETTINGS" />
+        </intent>
+        
+        <!-- 🔥 ADDED: For overlay permission -->
+        <intent>
+            <action android:name="android.settings.action.MANAGE_OVERLAY_PERMISSION" />
+            <data android:scheme="package" />
+        </intent>
     </queries>
 
     <application
@@ -70,7 +118,28 @@
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"
         android:allowBackup="true"
-        tools:targetApi="31">
+        android:persistent="true"
+        android:largeHeap="true"
+        tools:targetApi="31"
+        tools:ignore="UnusedAttribute">
+
+        <!-- 🔥 ADDED: Overlay Service for better app monitoring -->
+        <service
+            android:name=".FocusModeOverlayService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+        
+        <!-- 🔥 ADDED: Foreground Service for overlay -->
+        <service
+            android:name=".FocusModeForegroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <intent-filter>
+                <action android:name="com.example.coaching_institute_app.FocusModeForegroundService" />
+            </intent-filter>
+        </service>
 
         <!-- Main Activity -->
         <activity
@@ -82,7 +151,11 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize"
             android:showWhenLocked="true"
-            android:turnScreenOn="true">
+            android:turnScreenOn="true"
+            android:screenOrientation="portrait"
+            android:resizeableActivity="false"
+            android:supportsPictureInPicture="false"
+            android:excludeFromRecents="false">
 
             <!-- Normal Theme -->
             <meta-data
@@ -93,6 +166,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            
+            <!-- 🔥 ADDED: Handle deep links for returning to app -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="focusmode" 
+                      android:host="return" />
             </intent-filter>
         </activity>
 
@@ -129,6 +211,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+            
+        <!-- 🔥 ADDED: For overlay compatibility -->
+        <meta-data
+            android:name="android.max_aspect"
+            android:value="2.1" />
+            
+        <!-- 🔥 ADDED: For preventing app from being killed -->
+        <meta-data
+            android:name="android.app.foreground_service_type"
+            android:value="specialUse" />
 
     </application>
 
