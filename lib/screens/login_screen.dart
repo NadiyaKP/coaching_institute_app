@@ -311,7 +311,7 @@ class LoginProvider extends ChangeNotifier {
 } else {
   debugPrint('Server error: ${response.statusCode}');
   
-  String errorMessage = 'Unable to connect to server. Please try again.';
+  String errorMessage = 'Unable to connect to server, make sure your location is on and try again.';
   try {
     final errorData = jsonDecode(response.body);
     errorMessage = errorData['message'] ?? errorMessage;

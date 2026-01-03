@@ -268,15 +268,6 @@ Future<void> _updateAppPermissionGlobally(String packageName, bool isAllowed) as
       }
     }
     
-    // You can use this to update UI state if needed
-    // Example with Provider:
-    // if (navigatorKey.currentContext != null) {
-    //   final provider = navigatorKey.currentContext!.read<AppPermissionsProvider>();
-    //   if (provider != null) {
-    //     provider.updateAppPermission(packageName, isAllowed);
-    //   }
-    // }
-    
   } catch (e) {
     debugPrint('❌ Error updating app permission globally: $e');
   }
@@ -1504,7 +1495,7 @@ void didChangeAppLifecycleState(AppLifecycleState state) async {
         await Future.delayed(const Duration(milliseconds: 500));
         
         // Show overlay
-        await overlayService.showOverlay(message: 'Welcome back to study mode');
+        //await overlayService.showOverlay(message: 'Welcome back to study mode');
       }
     }
     

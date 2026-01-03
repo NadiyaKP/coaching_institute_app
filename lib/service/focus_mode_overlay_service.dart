@@ -237,7 +237,7 @@ class FocusModeOverlayService {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString(_lastAllowedAppKey, currentApp);
           
-        } else if (currentApp == 'com.example.coaching_institute_app') {
+        } else if (currentApp == 'com.signature.coachinginstitute') {
           // Returned to main app
           _isInAllowedApp = false;
           
@@ -257,12 +257,12 @@ class FocusModeOverlayService {
   Future<void> _handleAppSwitch(String fromApp, String toApp, bool isToAppAllowed) async {
     try {
       final isFromAppAllowed = _allowedApps.any((app) => app['packageName'] == fromApp);
-      final isFromOurApp = fromApp == 'com.example.coaching_institute_app';
+      final isFromOurApp = fromApp == 'com.signature.coachinginstitute';
       
       debugPrint('🔀 Handle app switch - From: $fromApp (allowed: $isFromAppAllowed, ourApp: $isFromOurApp), To: $toApp (allowed: $isToAppAllowed)');
       
       // 🔥 CRITICAL: Show overlay when switching from allowed app to non-allowed app
-      if ((isFromAppAllowed || isFromOurApp) && !isToAppAllowed && toApp != 'com.example.coaching_institute_app') {
+      if ((isFromAppAllowed || isFromOurApp) && !isToAppAllowed && toApp != 'com.signature.coachinginstitute') {
         debugPrint('🚫 Blocking switch: Allowed/Our App → Non-allowed App');
         await _showOverlayIfNeeded();
       }

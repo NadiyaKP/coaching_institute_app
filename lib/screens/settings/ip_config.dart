@@ -16,11 +16,13 @@ class _IpConfigPageState extends State<IpConfigPage> {
   // Controllers for text fields
   final TextEditingController _publicIpController = TextEditingController();
   final TextEditingController _privateIpController = TextEditingController();
+  final TextEditingController _wifiNameController = TextEditingController();
   
   // Current WiFi SSID
   String _currentWifiSsid = 'Not connected';
   bool _isLoading = true;
   bool _isSaving = false;
+  bool _isConnectedToInstituteWifi = false; // Track if connected to configured Institute WiFi
 
   @override
   void initState() {
@@ -33,6 +35,7 @@ class _IpConfigPageState extends State<IpConfigPage> {
   void dispose() {
     _publicIpController.dispose();
     _privateIpController.dispose();
+    _wifiNameController.dispose();
     super.dispose();
   }
 
@@ -45,9 +48,11 @@ class _IpConfigPageState extends State<IpConfigPage> {
       
       final publicIp = prefs.getString('public_ip') ?? '117.241.73.134';
       final privateIp = prefs.getString('private_ip') ?? '192.168.20.102';
+      final wifiName = prefs.getString('institute_wifi_name') ?? 'Coremicron llp';
       
       _publicIpController.text = publicIp;
       _privateIpController.text = privateIp;
+      _wifiNameController.text = wifiName;
     } catch (e) {
       _showSnackBar('Error loading settings: $e', isError: true);
     } finally {
@@ -55,7 +60,7 @@ class _IpConfigPageState extends State<IpConfigPage> {
     }
   }
 
-  // Get current WiFi SSID
+  // Get current WiFi SSID and check if it matches institute WiFi
   Future<void> _getCurrentWifiSsid() async {
     try {
       final results = await Connectivity().checkConnectivity();
@@ -68,17 +73,37 @@ class _IpConfigPageState extends State<IpConfigPage> {
           if (wifiName.startsWith('"') && wifiName.endsWith('"')) {
             wifiName = wifiName.substring(1, wifiName.length - 1);
           }
-          setState(() => _currentWifiSsid = wifiName!);
+          
+          // Check if current WiFi matches configured institute WiFi
+          final configuredWifiName = _wifiNameController.text.trim().toLowerCase();
+          final isInstituteWifi = wifiName.toLowerCase().contains(configuredWifiName);
+          
+          setState(() {
+            _currentWifiSsid = wifiName!;
+            _isConnectedToInstituteWifi = isInstituteWifi;
+          });
         } else {
-          setState(() => _currentWifiSsid = 'WiFi (name unavailable)');
+          setState(() {
+            _currentWifiSsid = 'WiFi (name unavailable)';
+            _isConnectedToInstituteWifi = false;
+          });
         }
       } else if (results.isNotEmpty && results.first == ConnectivityResult.mobile) {
-        setState(() => _currentWifiSsid = 'Mobile Data');
+        setState(() {
+          _currentWifiSsid = 'Mobile Data';
+          _isConnectedToInstituteWifi = false;
+        });
       } else {
-        setState(() => _currentWifiSsid = 'No connection');
+        setState(() {
+          _currentWifiSsid = 'No connection';
+          _isConnectedToInstituteWifi = false;
+        });
       }
     } catch (e) {
-      setState(() => _currentWifiSsid = 'Unable to detect');
+      setState(() {
+        _currentWifiSsid = 'Unable to detect';
+        _isConnectedToInstituteWifi = false;
+      });
     }
   }
 
@@ -93,8 +118,12 @@ class _IpConfigPageState extends State<IpConfigPage> {
       
       await prefs.setString('public_ip', _publicIpController.text.trim());
       await prefs.setString('private_ip', _privateIpController.text.trim());
+      await prefs.setString('institute_wifi_name', _wifiNameController.text.trim());
       
       _showSnackBar('Configuration saved successfully!', isError: false);
+      
+      // Re-check WiFi connection after saving to update active indicator
+      await _getCurrentWifiSsid();
       
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) {
@@ -117,7 +146,7 @@ class _IpConfigPageState extends State<IpConfigPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Text('Reset to Defaults', style: TextStyle(fontSize: 16)),
         content: const Text(
-          'Reset to default IP addresses?',
+          'Reset to default IP addresses and WiFi name?',
           style: TextStyle(fontSize: 13),
         ),
         actions: [
@@ -137,7 +166,9 @@ class _IpConfigPageState extends State<IpConfigPage> {
       setState(() {
         _publicIpController.text = '117.241.73.134';
         _privateIpController.text = '192.168.20.102';
+        _wifiNameController.text = 'Coremicron llp';
       });
+      await _getCurrentWifiSsid(); // Update active indicator
       _showSnackBar('Reset to defaults', isError: false);
     }
   }
@@ -154,52 +185,59 @@ class _IpConfigPageState extends State<IpConfigPage> {
   }
 
   // Validate IP address format
-
-    String? _validateIp(String? value) {
-      if (value == null || value.trim().isEmpty) {
-        return 'Required';
-      }
-      
-      final trimmedValue = value.trim();
-      
-      // Check if there's a port number
-      String ipPart;
-      String? portPart;
-      
-      if (trimmedValue.contains(':')) {
-        final parts = trimmedValue.split(':');
-        if (parts.length != 2) {
-          return 'Invalid format (e.g., 192.168.1.1 or 192.168.1.1:8001)';
-        }
-        ipPart = parts[0];
-        portPart = parts[1];
-        
-        // Validate port number
-        final port = int.tryParse(portPart);
-        if (port == null || port < 1 || port > 65535) {
-          return 'Port must be 1-65535';
-        }
-      } else {
-        ipPart = trimmedValue;
-      }
-      
-      // Validate IP address part
-      final ipPattern = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
-      
-      if (!ipPattern.hasMatch(ipPart)) {
-        return 'Invalid IP format (e.g., 192.168.1.1)';
-      }
-      
-      final octets = ipPart.split('.');
-      for (var octet in octets) {
-        final num = int.tryParse(octet);
-        if (num == null || num < 0 || num > 255) {
-          return 'IP octets must be 0-255';
-        }
-      }
-      
-      return null;
+  String? _validateIp(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Required';
     }
+    
+    final trimmedValue = value.trim();
+    
+    // Check if there's a port number
+    String ipPart;
+    String? portPart;
+    
+    if (trimmedValue.contains(':')) {
+      final parts = trimmedValue.split(':');
+      if (parts.length != 2) {
+        return 'Invalid format (e.g., 192.168.1.1 or 192.168.1.1:8001)';
+      }
+      ipPart = parts[0];
+      portPart = parts[1];
+      
+      // Validate port number
+      final port = int.tryParse(portPart);
+      if (port == null || port < 1 || port > 65535) {
+        return 'Port must be 1-65535';
+      }
+    } else {
+      ipPart = trimmedValue;
+    }
+    
+    // Validate IP address part
+    final ipPattern = RegExp(r'^(\d{1,3}\.){3}\d{1,3}$');
+    
+    if (!ipPattern.hasMatch(ipPart)) {
+      return 'Invalid IP format (e.g., 192.168.1.1)';
+    }
+    
+    final octets = ipPart.split('.');
+    for (var octet in octets) {
+      final num = int.tryParse(octet);
+      if (num == null || num < 0 || num > 255) {
+        return 'IP octets must be 0-255';
+      }
+    }
+    
+    return null;
+  }
+
+  // Validate WiFi name
+  String? _validateWifiName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'WiFi name is required';
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -280,13 +318,86 @@ class _IpConfigPageState extends State<IpConfigPage> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Public IP
+                    // Institute WiFi Name
                     const Text(
-                      'Public IP (External)',
+                      'Institute WiFi Name',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    TextFormField(
+                      controller: _wifiNameController,
+                      style: const TextStyle(fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Coremicron llp',
+                        hintStyle: const TextStyle(fontSize: 12),
+                        prefixIcon: const Icon(Icons.wifi, size: 18),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        filled: true,
+                      ),
+                      validator: _validateWifiName,
+                      onChanged: (value) {
+                        // Re-check connection when WiFi name changes
+                        _getCurrentWifiSsid();
+                      },
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Enter the WiFi name that should use Private IP',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+
+                    // Public IP
+                    Row(
+                      children: [
+                        const Text(
+                          'Public IP (External)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        if (!_isConnectedToInstituteWifi && 
+                            _currentWifiSsid != 'No connection' && 
+                            _currentWifiSsid != 'Not connected' &&
+                            _currentWifiSsid != 'Unable to detect')
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green[50],
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.green, width: 0.5),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.check_circle, color: Colors.green, size: 12),
+                                SizedBox(width: 3),
+                                Text(
+                                  'Active',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     TextFormField(
@@ -319,12 +430,41 @@ class _IpConfigPageState extends State<IpConfigPage> {
                     const SizedBox(height: 18),
 
                     // Private IP
-                    const Text(
-                      'Private IP (Coremicron WiFi)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      children: [
+                        const Text(
+                          'Private IP (Institute WiFi)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        if (_isConnectedToInstituteWifi)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green[50],
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.green, width: 0.5),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(Icons.check_circle, color: Colors.green, size: 12),
+                                SizedBox(width: 3),
+                                Text(
+                                  'Active',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     TextFormField(
@@ -348,7 +488,7 @@ class _IpConfigPageState extends State<IpConfigPage> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'When connected to Coremicron WiFi',
+                      'When connected to Institute WiFi',
                       style: TextStyle(
                         fontSize: 10,
                         color: Colors.grey[600],
@@ -435,8 +575,9 @@ class _IpConfigPageState extends State<IpConfigPage> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
+                                  '• Configure your Institute WiFi name\n'
                                   '• Public IP for mobile/external networks\n'
-                                  '• Private IP for Coremicron WiFi\n'
+                                  '• Private IP for configured Institute WiFi\n'
                                   '• Auto-switches based on connection\n'
                                   '• Changes take effect after saving',
                                   style: TextStyle(

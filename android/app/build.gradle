@@ -6,19 +6,30 @@ plugins {
 }
 
 import java.util.Properties
+import java.io.FileInputStream
 
+// ---------- LOAD LOCAL PROPERTIES ----------
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
-    localPropertiesFile.withReader('UTF-8') { reader -> localProperties.load(reader) }
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
 }
 
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '1'
 def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0'
 
+// ---------- LOAD KEYSTORE PROPERTIES ----------
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
-    namespace "com.example.coaching_institute_app" // mandatory in AGP 8+
-    compileSdk = 35   // required by modern plugins
+    namespace "com.signature.coachinginstitute"
+    compileSdk = 35
 
     packagingOptions {
         pickFirst 'lib/arm64-v8a/libc++_shared.so'
@@ -26,20 +37,32 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.example.coaching_institute_app"
+        applicationId "com.signature.coachinginstitute"
         minSdk = 23
         targetSdk = 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
     }
 
+    // ---------- SIGNING CONFIGS ----------
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled false
             shrinkResources false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
         }
+
         debug {
             signingConfig signingConfigs.debug
             minifyEnabled false
@@ -75,5 +98,6 @@ dependencies {
     implementation platform('com.google.firebase:firebase-bom:34.4.0')
     implementation 'com.google.firebase:firebase-analytics'
     implementation 'com.google.firebase:firebase-messaging'
+
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
 }

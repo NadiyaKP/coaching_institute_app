@@ -1,4 +1,4 @@
-﻿package com.example.coaching_institute_app
+﻿package com.signature.coachinginstitute
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager
@@ -201,7 +201,7 @@ class MainActivity: FlutterActivity() {
                 }
                 // 🔥 NEW: Force show overlay
                 "forceShowOverlay" -> {
-                    val message = call.argument<String>("message") ?: "Focus mode is active"
+                    val message = call.argument<String>("message") ?: "You are in focus mode, focus on studies"
                     val success = showOverlay(message)
                     result.success(success)
                 }
@@ -1674,7 +1674,7 @@ class MainActivity: FlutterActivity() {
                     } else {
                         // User went to non-allowed app
                         Log.d(TAG, "🎯 Showing overlay for non-allowed destination: $destinationApp")
-                        showOverlay("Focus mode is active")
+                        showOverlay("You are in focus mode, focus on studies")
                     }
                 }
             }, 400)

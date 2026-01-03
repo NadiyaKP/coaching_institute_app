@@ -29,7 +29,7 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   late Future<Duration> _initializationFuture;
   Duration _focusTimeToday = Duration.zero;
   bool _hasOverlayPermission = false;
-  bool _hasUsageAccessPermission = false; // NEW: Track Usage Access permission
+  bool _hasUsageAccessPermission = false; 
   bool _isStartingFocusMode = false;
   bool _isRestoredFromDisconnect = false;
   bool _wasDisconnectedByWebSocket = false;
@@ -52,6 +52,13 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
   static const MethodChannel _methodChannel = 
       MethodChannel('focus_mode_overlay_channel');
 
+  // NEW: Variables for allowed apps functionality
+  static const String _allowedAppsKey = 'allowed_apps_list';
+  static const String _allowedAppsDetailsKey = 'allowed_apps_details';
+  List<String> _allowedAppsPackageNames = [];
+  final FocusModeOverlayService _focusOverlayService = FocusModeOverlayService();
+  bool _debugMode = true;
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +80,22 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     });
     
     _startWebSocketMonitoring();
+    
+    // NEW: Initialize focus overlay service
+    _initFocusOverlayService();
+  }
+
+  // NEW: Initialize focus overlay service
+  Future<void> _initFocusOverlayService() async {
+    try {
+      await _focusOverlayService.initialize();
+      
+      if (_debugMode) {
+        debugPrint('✅ Focus overlay service initialized in entry screen');
+      }
+    } catch (e) {
+      debugPrint('❌ Error initializing focus overlay service: $e');
+    }
   }
 
   @override
@@ -651,6 +674,138 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
     }
   }
 
+  // NEW: Fetch allowed apps from API
+  Future<void> _fetchAllowedAppsFromAPI() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final accessToken = prefs.getString('accessToken');
+      
+      if (accessToken == null || accessToken.isEmpty) {
+        debugPrint('⚠️ No access token found');
+        return;
+      }
+
+      final url = Uri.parse('${ApiConfig.currentBaseUrl}/api/batch/allowed-apps/');
+      
+      if (_debugMode) {
+        debugPrint('🌐 Fetching allowed apps from API: $url');
+      }
+      
+      final response = await http.get(
+        url,
+        headers: {
+          ...ApiConfig.commonHeaders,
+          'Authorization': 'Bearer $accessToken',
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        if (responseData['allowed_apps'] != null) {
+          final List<dynamic> allowedAppsList = responseData['allowed_apps'];
+          
+          final List<String> newAllowedApps = allowedAppsList.map((app) => app.toString()).toList();
+          
+          if (_debugMode) {
+            debugPrint('📱 Received ${newAllowedApps.length} allowed apps from API');
+          }
+          
+          // Since we don't have installed apps here, create basic app data entries
+          List<Map<String, dynamic>> appsDetails = [];
+          for (var packageName in newAllowedApps) {
+            appsDetails.add({
+              'appName': packageName,
+              'packageName': packageName,
+              'versionName': null,
+              'systemApp': false,
+              'enabled': true,
+              'iconBytes': null,
+            });
+            
+            if (_debugMode) {
+              debugPrint('📱 App added: $packageName');
+            }
+          }
+          
+          await prefs.setStringList(_allowedAppsKey, newAllowedApps);
+          await prefs.setString(_allowedAppsDetailsKey, json.encode(appsDetails));
+          
+          setState(() {
+            _allowedAppsPackageNames = newAllowedApps;
+          });
+          
+          if (_debugMode) {
+            debugPrint('✅ Allowed apps fetched from API: ${_allowedAppsPackageNames.length} apps');
+          }
+          
+          // Save to overlay
+          await _saveAllowedAppsForOverlay(appsDetails);
+          
+          return;
+        } else {
+          if (_debugMode) {
+            debugPrint('⚠️ No allowed_apps field in API response');
+          }
+        }
+      } else if (response.statusCode == 401) {
+        debugPrint('⚠️ Unauthorized - token might be expired');
+      } else {
+        debugPrint('❌ Failed to fetch allowed apps: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error fetching allowed apps from API: $e');
+    }
+  }
+
+  // NEW: Save allowed apps to overlay
+  Future<void> _saveAllowedAppsForOverlay(List<Map<String, dynamic>> apps) async {
+    try {
+      final List<Map<String, dynamic>> appsData = [];
+      
+      if (_debugMode) {
+        debugPrint('📱 Preparing ${apps.length} apps for overlay at ${DateTime.now()}');
+      }
+      
+      for (var app in apps) {
+        String? iconBase64;
+        if (app['iconBytes'] != null) {
+          try {
+            iconBase64 = base64.encode(app['iconBytes']!);
+            if (_debugMode && iconBase64.isNotEmpty) {
+              debugPrint('📱 App: ${app['appName']}, Icon size: ${iconBase64.length} bytes');
+            }
+          } catch (e) {
+            debugPrint('⚠️ Error encoding icon for ${app['appName']}: $e');
+            iconBase64 = null;
+          }
+        }
+        
+        appsData.add({
+          'appName': app['appName'],
+          'packageName': app['packageName'],
+          'iconBytes': iconBase64,
+          'addedAt': DateTime.now().toIso8601String(),
+        });
+      }
+      
+      // Save to overlay service
+      final success = await _focusOverlayService.updateAllowedApps(appsData);
+      
+      if (success) {
+        if (_debugMode) {
+          debugPrint('✅ Saved ${appsData.length} allowed apps for overlay at ${DateTime.now()}');
+        }
+      } else {
+        debugPrint('❌ Failed to save allowed apps for overlay');
+      }
+    } catch (e) {
+      debugPrint('❌ Error saving allowed apps for overlay: $e');
+      if (_debugMode) {
+        debugPrint('❌ Stack trace: ${e.toString()}');
+      }
+    }
+  }
+
   void _startFocusMode() async {
     if (_isStartingFocusMode) return;
     
@@ -676,8 +831,6 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
           await Future.delayed(const Duration(milliseconds: 500));
           
           // Re-check permission after returning from settings
-          // Note: The permission will be updated automatically via didChangeAppLifecycleState
-          // So we just need to check the current state
           final bool newPermissionStatus = await _checkUsageAccessPermission();
           
           if (newPermissionStatus) {
@@ -732,6 +885,8 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
           final bool newPermissionStatus = await _timerService.checkOverlayPermission();
           
           if (newPermissionStatus) {
+            // NEW: Fetch allowed apps before starting focus mode
+            await _fetchAllowedAppsFromAPI();
             await _actuallyStartFocusMode();
           } else {
             await _showPermissionRequiredPopup();
@@ -747,6 +902,8 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
           return;
         }
       } else {
+        // NEW: Fetch allowed apps before starting focus mode
+        await _fetchAllowedAppsFromAPI();
         await _actuallyStartFocusMode();
       }
     } catch (e) {
@@ -761,6 +918,8 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
           final bool newPermissionStatus = await _timerService.checkOverlayPermission();
           
           if (newPermissionStatus) {
+            // NEW: Fetch allowed apps before starting focus mode
+            await _fetchAllowedAppsFromAPI();
             await _actuallyStartFocusMode();
           } else {
             await _showPermissionRequiredPopup();
@@ -923,11 +1082,14 @@ class _FocusModeEntryScreenState extends State<FocusModeEntryScreen>
       
       _sendFocusStartEvent();
       
-      await Navigator.of(context).pushNamedAndRemoveUntil(
-        '/home',
-        (Route<dynamic> route) => false,
-        arguments: {'isFocusMode': true}
-      );
+      // Navigate immediately without waiting for API calls to complete
+      if (mounted) {
+        await Navigator.of(context).pushNamedAndRemoveUntil(
+          '/home',
+          (Route<dynamic> route) => false,
+          arguments: {'isFocusMode': true}
+        );
+      }
       
     } catch (e) {
       debugPrint('❌ Error in actuallyStartFocusMode: $e');
@@ -1873,7 +2035,6 @@ Widget build(BuildContext context) {
                                             style: TextStyle(
                                               fontSize: 9,
                                               fontWeight: FontWeight.bold,
-                                              color: Colors.white,
                                             ),
                                           ),
                                         ),
